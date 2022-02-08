@@ -17,66 +17,123 @@
  */
 
 #pragma once
-#include <map>
 #include <array>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
-#include "colorfunc.hpp"
+#include <SDL2/SDL2_gfxPrimitives.h>
+#include "totype.hpp"
+#include "fflerror.hpp"
+#include "fpsmonitor.hpp"
+
+class SDLDevice;
+namespace SDLDeviceHelper
+{
+    class EnableRenderColor final
+    {
+        private:
+            SDLDevice *m_device;
+
+        private:
+            Uint8 m_r;
+            Uint8 m_g;
+            Uint8 m_b;
+            Uint8 m_a;
+
+        public:
+            EnableRenderColor(uint32_t, SDLDevice * = nullptr);
+           ~EnableRenderColor();
+    };
+
+    struct EnableRenderBlendMode
+    {
+        private:
+            SDLDevice *m_device;
+
+        private:
+            SDL_BlendMode m_blendMode;
+
+        public:
+            EnableRenderBlendMode(SDL_BlendMode, SDLDevice * = nullptr);
+           ~EnableRenderBlendMode();
+    };
+
+    class RenderNewFrame final
+    {
+        private:
+            SDLDevice *m_device;
+
+        public:
+            RenderNewFrame(SDLDevice * = nullptr);
+           ~RenderNewFrame();
+    };
+
+    class EnableTextureBlendMode final
+    {
+        private:
+            SDL_BlendMode m_blendMode;
+
+        private:
+            SDL_Texture *m_texPtr;
+
+        public:
+            EnableTextureBlendMode(SDL_Texture *, SDL_BlendMode);
+           ~EnableTextureBlendMode();
+    };
+
+    class EnableTextureModColor final
+    {
+        private:
+            Uint8 m_r;
+            Uint8 m_g;
+            Uint8 m_b;
+            Uint8 m_a;
+
+        private:
+            SDL_Texture *m_texPtr;
+
+        public:
+            EnableTextureModColor(SDL_Texture *, uint32_t);
+           ~EnableTextureModColor();
+    };
+
+    struct SDLEventPLoc final
+    {
+        const int x = -1;
+        const int y = -1;
+
+        operator bool () const
+        {
+            return x >= 0 && y >= 0;
+        }
+    };
+
+    char getKeyChar(const SDL_Event &, bool);
+
+    SDLEventPLoc getMousePLoc();
+    SDLEventPLoc getEventPLoc(const SDL_Event &);
+
+    std::tuple<int, int> getTextureSize(SDL_Texture *);
+    int getTextureWidth (SDL_Texture *);
+    int getTextureHeight(SDL_Texture *);
+}
 
 class SDLDevice final
 {
-    public:
-        struct EnableDrawColor
-        {
-            EnableDrawColor(uint32_t);
-           ~EnableDrawColor();
-        };
-
-        struct EnableDrawBlendMode
-        {
-            EnableDrawBlendMode(SDL_BlendMode);
-           ~EnableDrawBlendMode();
-        };
+    private:
+        SDL_Window   *m_window   = nullptr;
+        SDL_Renderer *m_renderer = nullptr;
 
     private:
-        struct ColorStackNode
-        {
-            uint32_t Color;
-            size_t   Repeat;
-
-            ColorStackNode(uint32_t nColor, size_t nRepeat)
-                : Color(nColor)
-                , Repeat(nRepeat)
-            {}
-        };
-
-        struct BlendModeStackNode
-        {
-            SDL_BlendMode BlendMode;
-            size_t        Repeat;
-
-            BlendModeStackNode(SDL_BlendMode stBlendMode, size_t nRepeat)
-                : BlendMode(stBlendMode)
-                , Repeat(nRepeat)
-            {}
-        };
+       FPSMonitor m_fpsMonitor;
 
     private:
-       SDL_Window   *m_Window;
-       SDL_Renderer *m_Renderer;
+       std::unordered_map<int, SDL_Texture *> m_cover;
 
     private:
-       std::vector<ColorStackNode>     m_ColorStack;
-       std::vector<BlendModeStackNode> m_BlendModeStack;
-
-    private:
-       int m_WindowW;
-       int m_WindowH;
-
-    private:
-       std::map<uint8_t, TTF_Font *> m_InnFontMap;
+       std::unordered_map<uint8_t, TTF_Font *> m_fontList;
 
     private:
        // for sound
@@ -86,16 +143,19 @@ class SDLDevice final
        ~SDLDevice();
 
     public:
-       SDL_Texture *CreateTexture(const uint8_t *, size_t);
+       SDL_Texture *loadPNGTexture(const void *, size_t);
 
     public:
-       void SetWindowIcon();
-       void DrawTexture(SDL_Texture *, int, int);
-       void DrawTexture(SDL_Texture *, int, int, int, int, int, int);
-       void DrawTexture(SDL_Texture *, int, int, int, int, int, int, int, int);
+       void setWindowIcon();
+       void toggleWindowFullscreen();
 
     public:
-       void DrawTextureEx(SDL_Texture *,  
+       void drawTexture(SDL_Texture *, int, int);
+       void drawTexture(SDL_Texture *, int, int, int, int, int, int);
+       void drawTexture(SDL_Texture *, int, int, int, int, int, int, int, int);
+
+    public:
+       void drawTextureExt(SDL_Texture *,
                int,     // x on src
                int,     // y on src
                int,     // w on src
@@ -106,152 +166,158 @@ class SDLDevice final
                int,     // h on dst
                int,     // center x on dst
                int,     // center y on dst
-               int);    // rotate in degree on dst
+               int,     // rotate in 360-degree on dst
+               SDL_RendererFlip = SDL_FLIP_NONE);
 
     public:
-       void Present()
+       void present()
        {
-           SDL_RenderPresent(m_Renderer);
+           SDL_RenderPresent(m_renderer);
        }
 
-       void SetWindowTitle(const char *szUTF8Title)
+       void setWindowTitle(const char *szUTF8Title)
        {
-           SDL_SetWindowTitle(m_Window, (szUTF8Title) ? szUTF8Title : "");
+           SDL_SetWindowTitle(m_window, (szUTF8Title) ? szUTF8Title : "");
        }
 
-       void SetGamma(double fGamma)
+       void setGamma(double fGamma)
        {
            Uint16 pRawRamp[256];
            SDL_CalculateGammaRamp((float)((std::min<double>)((std::max<double>)(fGamma, 0.0), 1.0)), pRawRamp);
-           SDL_SetWindowGammaRamp(m_Window, pRawRamp, pRawRamp, pRawRamp);
+           SDL_SetWindowGammaRamp(m_window, pRawRamp, pRawRamp, pRawRamp);
        }
 
-       void ClearScreen()
+       void clearScreen()
        {
-           SetColor(0, 0, 0, 0);
-           SDL_RenderClear(m_Renderer);
+           setColor(0, 0, 0, 0);
+           SDL_RenderClear(m_renderer);
        }
 
-       void DrawLine(int nX0, int nY0, int nX1, int nY1)
+       void drawLine(int nX0, int nY0, int nX1, int nY1)
        {
-           SDL_RenderDrawLine(m_Renderer, nX0, nY0, nX1, nY1);
+           SDL_RenderDrawLine(m_renderer, nX0, nY0, nX1, nY1);
        }
 
-       void SetColor(uint8_t nR, uint8_t nG, uint8_t nB, uint8_t nA)
+       void drawLine(uint32_t color, int nX0, int nY0, int nX1, int nY1)
        {
-           SDL_SetRenderDrawColor(m_Renderer, nR, nG, nB, nA);
+           SDLDeviceHelper::EnableRenderColor enableColor(color, this);
+           SDL_RenderDrawLine(m_renderer, nX0, nY0, nX1, nY1);
        }
 
-       void FillRectangle(int nX, int nY, int nW, int nH)
+       void drawCross(uint32_t color, int x, int y, size_t r)
        {
-           SDL_Rect stRect;
-           stRect.x = nX;
-           stRect.y = nY;
-           stRect.w = nW;
-           stRect.h = nH;
-
-           SDL_RenderFillRect(m_Renderer, &stRect);
+           SDLDeviceHelper::EnableRenderColor enableColor(color, this);
+           SDL_RenderDrawLine(m_renderer, x - to_d(r), y, x + to_d(r), y);
+           SDL_RenderDrawLine(m_renderer, x, y - to_d(r), x, y + to_d(r));
        }
 
-       void FillRectangle(uint32_t nRGBA, int nX, int nY, int nW, int nH)
+       void setColor(uint8_t nR, uint8_t nG, uint8_t nB, uint8_t nA)
        {
-           EnableDrawColor stEnableColor(nRGBA);
-
-           SDL_Rect stRect;
-           stRect.x = nX;
-           stRect.y = nY;
-           stRect.w = nW;
-           stRect.h = nH;
-
-           SDL_RenderFillRect(m_Renderer, &stRect);
+           SDL_SetRenderDrawColor(m_renderer, nR, nG, nB, nA);
        }
 
-       void DrawPixel(int nX, int nY)
+       void drawPixel(int nX, int nY)
        {
-           SDL_RenderDrawPoint(m_Renderer, nX, nY);
+           SDL_RenderDrawPoint(m_renderer, nX, nY);
        }
 
-       void DrawRectangle(int nX, int nY, int nW, int nH)
-       {
-           SDL_Rect stRect;
-           stRect.x = nX;
-           stRect.y = nY;
-           stRect.w = nW;
-           stRect.h = nH;
+    public:
+       void fillRectangle(          int, int, int, int, int = 0);
+       void fillRectangle(uint32_t, int, int, int, int, int = 0);
 
-           SDL_RenderDrawRect(m_Renderer, &stRect);
+    public:
+       void drawRectangle(          int, int, int, int, int = 0);
+       void drawRectangle(uint32_t, int, int, int, int, int = 0);
+
+    public:
+       void drawWidthRectangle(          size_t, int, int, int, int);
+       void drawWidthRectangle(uint32_t, size_t, int, int, int, int);
+
+    public:
+       SDL_Renderer *getRenderer()
+       {
+           return m_renderer;
        }
 
-       void DrawRectangle(int nFrameLineWidth, int nX, int nY, int nW, int nH)
+    public:
+       SDL_Texture *createTextureFromSurface(SDL_Surface * surfPtr)
        {
-           if(nFrameLineWidth > 0){
-               if(nFrameLineWidth == 1){
-                   DrawRectangle(nX, nY, nW, nH);
-               }else{
-                   FillRectangle(nX, nY,                            nW, nFrameLineWidth);
-                   FillRectangle(nX, nY + nW - 2 * nFrameLineWidth, nW, nFrameLineWidth);
+           return surfPtr ? SDL_CreateTextureFromSurface(m_renderer, surfPtr) : nullptr;
+       }
 
-                   FillRectangle(nX,                            nY + nFrameLineWidth, nFrameLineWidth, nH - 2 * nFrameLineWidth);
-                   FillRectangle(nX + nW - 2 * nFrameLineWidth, nY + nFrameLineWidth, nFrameLineWidth, nH - 2 * nFrameLineWidth);
-               }
+       std::tuple<int, int> getWindowSize()
+       {
+           int w = -1;
+           int h = -1;
+
+           SDL_GetWindowSize(m_window, &w, &h);
+           return {w, h};
+       }
+
+       int getWindowWidth()
+       {
+           return std::get<0>(getWindowSize());
+       }
+
+       int getWindowHeight()
+       {
+           return std::get<1>(getWindowSize());
+       }
+
+       std::tuple<int, int> getRendererSize()
+       {
+           int w = -1;
+           int h = -1;
+
+           if(SDL_GetRendererOutputSize(m_renderer, &w, &h)){
+               throw fflerror("SDL_GetRendererOutputSize(%p) failed: %s", to_cvptr(m_renderer), SDL_GetError());
            }
+           return {w, h};
        }
 
-       SDL_Texture *CreateTextureFromSurface(SDL_Surface * pSurface)
+       int getRendererWidth()
        {
-           return pSurface ? SDL_CreateTextureFromSurface(m_Renderer, pSurface) : nullptr;
+           return std::get<0>(getRendererSize());
        }
 
-       int WindowW(bool bRealWindowSizeInPixel)
+       int getRendererHeight()
        {
-           int nW, nH;
-           if(bRealWindowSizeInPixel){
-               SDL_GetWindowSize(m_Window, &nW, &nH);
-               return nW;
-           }else{
-               return m_WindowW;
-           }
+           return std::get<1>(getRendererSize());
        }
 
-       int WindowH(bool bRealWindowSizeInPixel)
+    public:
+       TTF_Font *createTTF(const void *, size_t, uint8_t);
+
+    public:
+       void createMainWindow();
+       void createInitViewWindow();
+
+    public:
+       SDL_Texture *createRGBATexture(const uint32_t *, size_t, size_t);
+
+    public:
+       TTF_Font *defaultTTF(uint8_t);
+
+    public:
+       void updateFPS()
        {
-           int nW, nH;
-           if(bRealWindowSizeInPixel){
-               SDL_GetWindowSize(m_Window, &nW, &nH);
-               return nH;
-           }else{
-               return m_WindowH;
-           }
+           m_fpsMonitor.update();
        }
 
-    public:
-       void PushColor(uint8_t, uint8_t, uint8_t, uint8_t);
-
-    public:
-       void PushColor(uint32_t nRGBA)
+       size_t getFPS() const
        {
-           PushColor(ColorFunc::R(nRGBA), ColorFunc::G(nRGBA), ColorFunc::B(nRGBA), ColorFunc::A(nRGBA));
+           return m_fpsMonitor.fps();
        }
 
-       void PushColor(const SDL_Color &rstColor)
+    public:
+       void setWindowResizable(bool resizable)
        {
-           PushColor(rstColor.r, rstColor.g, rstColor.b, rstColor.a);
+           SDL_SetWindowResizable(m_window, resizable ? SDL_TRUE : SDL_FALSE);
        }
 
     public:
-       void PopColor();
+       SDL_Texture *getCover(int, int);
 
     public:
-       void PushBlendMode(SDL_BlendMode);
-       void PopBlendMode();
-
-    public:
-       TTF_Font *CreateTTF(const uint8_t *, size_t, uint8_t);
-
-    public:
-       void CreateMainWindow();
-       void CreateInitViewWindow();
-
-    public:
-       TTF_Font *DefaultTTF(uint8_t);
+       void drawString(uint32_t, int, int, const char *);
 };

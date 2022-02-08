@@ -2,8 +2,8 @@
  * =====================================================================================
  *
  *       Filename: notifyboard.hpp
- *        Created: 02/13/2018 19:07:00
- *    Description: 
+ *        Created: 03/22/2020 16:43:00
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -17,71 +17,110 @@
  */
 
 #pragma once
-#include <queue>
-#include <array>
-#include "tokenboard.hpp"
+#include <deque>
+#include <memory>
+#include "widget.hpp"
+#include "lalign.hpp"
+#include "raiitimer.hpp"
+#include "xmltypeset.hpp"
 
 class NotifyBoard: public Widget
 {
-    protected:
-        struct LogLine
-        {
-            uint32_t LineCount;
-            uint32_t ExpireTime;
-        };
+    struct NotifyBoardTypeset
+    {
+        hres_timer timer;
+        std::unique_ptr<XMLTypeset> typeset;
+    };
 
-    protected:
-        std::queue<LogLine> m_LogQueue;
+    private:
+        int m_lineW;
 
-    protected:
-        TokenBoard m_LogBoard;
+    private:
+        uint8_t m_font;
+        uint8_t m_fontSize;
+        uint8_t m_fontStyle;
+
+    private:
+        uint32_t m_fontColor;
+
+    private:
+        uint64_t m_showTime;
+        size_t m_maxEntryCount;
+
+    private:
+        std::deque<NotifyBoardTypeset> m_boardList;
 
     public:
-        NotifyBoard()
-            : Widget(0, 0, 0, 0, nullptr, false)
-            , m_LogBoard
-              {
-                  0,
-                  0,
-                  false,
-                  false,
-                  false,
-                  false,
-                 -1,
-                  0,
-                  0,
-                  0,
-                  16,
-                  0,
-                  {0XFF, 0X00, 0X00, 0X00},
-                  0,
-                  0,
-                  0,
-                  0,
-                  nullptr,
-                  false
-              }
+        NotifyBoard(
+                dir8_t           nDir,
+                int              nX,
+                int              nY,
+                int              nW,
+                uint8_t          defaultFont      = 0,
+                uint8_t          defaultFontSize  = 10,
+                uint8_t          defaultFontStyle = 0,
+                uint32_t         defaultFontColor = colorf::WHITE + colorf::A_SHF(255),
+                uint64_t         showTime         = 0,
+                size_t           maxEntryCount    = 0,
+                Widget          *widgetPtr        = nullptr,
+                bool             autoDelete       = false)
+            : Widget(nDir, nX, nY, 0, 0, widgetPtr, autoDelete)
+            , m_lineW(nW)
+            , m_font(defaultFont)
+            , m_fontSize(defaultFontSize)
+            , m_fontStyle(defaultFontStyle)
+            , m_fontColor(defaultFontColor)
+            , m_showTime(showTime)
+            , m_maxEntryCount(maxEntryCount)
         {}
 
     public:
-        virtual ~NotifyBoard() = default;
-
-    protected:
-        void Pop();
+        void addLog(const char8_t *, ...);
 
     public:
-        void Update(double);
-
-    public:
-        bool ProcessEvent(const SDL_Event &rstEvent, bool *bValid)
+        void SetFont(uint8_t nFont)
         {
-            return m_LogBoard.ProcessEvent(rstEvent, bValid);
+            m_font = nFont;
+        }
+
+        void SetFontSize(uint8_t nFontSize)
+        {
+            m_fontSize = nFontSize;
+        }
+
+        void SetFontStyle(uint8_t nFontStyle)
+        {
+            m_fontStyle = nFontStyle;
+        }
+
+        void SetFontColor(uint32_t nFontColor)
+        {
+            m_fontColor = nFontColor;
         }
 
     public:
-        void AddLog(std::array<std::string, 4>, const char *, ...);
-        void AddXML(const char *szXML, const std::map<std::string, std::function<void()>> &rstMap = {});
+        void clear()
+        {
+            m_boardList.clear();
+            m_w = 0;
+            m_h = 0;
+        }
 
     public:
-        void DrawEx(int, int, int, int, int, int);
+        int pw() const;
+
+    public:
+        bool empty() const
+        {
+            return m_boardList.empty();
+        }
+
+    public:
+        void update(double) override;
+
+    public:
+        void drawEx(int, int, int, int, int, int) const override;
+
+    private:
+        void updateSize();
 };

@@ -3,7 +3,7 @@
  *
  *       Filename: initview.cpp
  *        Created: 07/18/2017 16:04:25
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -22,190 +22,143 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 
-#include "strfunc.hpp"
-#include "mathfunc.hpp"
+#include "log.hpp"
+#include "strf.hpp"
+#include "mathf.hpp"
+#include "rawbuf.hpp"
+#include "bevent.hpp"
 #include "initview.hpp"
-#include "fontexdbn.hpp"
-#include "pngtexdbn.hpp"
-#include "mapbindbn.hpp"
-#include "pngtexoffdbn.hpp"
+#include "fontexdb.hpp"
+#include "pngtexdb.hpp"
+#include "mapbindb.hpp"
+#include "threadpool.hpp"
+#include "emojidb.hpp"
+#include "pngtexoffdb.hpp"
 
-extern Log *g_Log;
+extern Log *g_log;
+extern XMLConf *g_xmlConf;
+extern SDLDevice *g_sdlDevice;
+extern EmojiDB *g_emojiDB;
 
-InitView::InitView(uint8_t nFontSize)
-    : m_ProcState(IVPROC_LOOP)
-    , m_ButtonState(0)
-    , m_FontSize(nFontSize)
-    , m_LoadProcV()
-    , m_Lock()
-    , m_MessageList()
-    , m_TextureV {nullptr, nullptr}
+extern PNGTexDB *g_mapDB;
+extern MapBinDB *g_mapBinDB;
+extern FontexDB *g_fontexDB;
+extern PNGTexDB *g_progUseDB;
+extern PNGTexDB *g_itemDB;
+
+extern PNGTexOffDB *g_heroDB;
+extern PNGTexOffDB *g_hairDB;
+extern PNGTexOffDB *g_magicDB;
+extern PNGTexOffDB *g_equipDB;
+extern PNGTexOffDB *g_weaponDB;
+extern PNGTexOffDB *g_helmetDB;
+extern PNGTexOffDB *g_monsterDB;
+extern PNGTexOffDB *g_standNPCDB;
+extern PNGTexOffDB *g_selectCharDB;
+
+InitView::InitView(uint8_t fontSize)
+    : m_fontSize(fontSize)
+    , m_taskList
+      {
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_progUseDB,    "root/texture/progUseDB"   ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_itemDB,       "root/texture/itemDB"      ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_mapDB,        "root/texture/mapDB"       ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_fontexDB,     "root/font/fontexDB"       ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_heroDB,       "root/texture/heroDB"      ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_hairDB,       "root/texture/hairDB"      ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_monsterDB,    "root/texture/monsterDB"   ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_weaponDB,     "root/texture/weaponDB"    ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_helmetDB,     "root/texture/helmetDB"    ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_magicDB,      "root/texture/magicDB"     ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_equipDB,      "root/texture/equipDB"     ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_standNPCDB,   "root/texture/standNPCDB"  ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_selectCharDB, "root/texture/selectCharDB"); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_mapBinDB,     "root/map/mapBinDB"        ); }},
+          {1, [this](size_t weight){ loadDB(weight, g_xmlConf, g_emojiDB,      "root/emoji/emojiDB"       ); }},
+      }
 {
-    // 1. emplace all loading procedures
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
+    const Rawbuf boardData
     {
-        extern XMLConf   *g_XMLConf;
-        extern PNGTexDBN *g_ProgUseDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_ProgUseDBN, "Root/Texture/ProgUseDBN");
-    });
+        #include "ivboard.inc"
+    };
 
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
+    const Rawbuf buttonData
     {
-        extern XMLConf   *g_XMLConf;
-        extern PNGTexDBN *g_GroundItemDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_GroundItemDBN, "Root/Texture/GroundItemDBN");
-    });
+        #include "ivbutton.inc"
+    };
 
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf   *g_XMLConf;
-        extern PNGTexDBN *g_CommonItemDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_CommonItemDBN, "Root/Texture/CommonItemDBN");
-    });
+    g_sdlDevice->createInitViewWindow();
 
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf   *g_XMLConf;
-        extern PNGTexDBN *g_MapDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_MapDBN, "Root/Texture/MapDBN");
-    });
+    m_boardTexture  = g_sdlDevice->loadPNGTexture( boardData.data(),  boardData.size());
+    m_buttonTexture = g_sdlDevice->loadPNGTexture(buttonData.data(), buttonData.size());
 
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf   *g_XMLConf;
-        extern FontexDBN *g_FontexDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_FontexDBN, "Root/Font/FontexDBN");
-    });
+    fflassert(m_boardTexture);
+    fflassert(m_buttonTexture);
 
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf      *g_XMLConf;
-        extern PNGTexOffDBN *g_HeroDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_HeroDBN, "Root/Texture/HeroDBN");
-    });
+    threadPool::abortedTag hasError;
+    threadPool taskPool(threadPool::limitedThreadCount(m_taskList.size()));
 
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf      *g_XMLConf;
-        extern PNGTexOffDBN *g_MonsterDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_MonsterDBN, "Root/Texture/MonsterDBN");
-    });
-
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf      *g_XMLConf;
-        extern PNGTexOffDBN *g_WeaponDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_WeaponDBN, "Root/Texture/WeaponDBN");
-    });
-
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf      *g_XMLConf;
-        extern PNGTexOffDBN *g_MagicDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_MagicDBN, "Root/Texture/MagicDBN");
-    });
-
-    m_LoadProcV.emplace_back(1, [this](size_t nIndex) -> bool
-    {
-        extern XMLConf      *g_XMLConf;
-        extern MapBinDBN    *g_MapBinDBN;
-        return LoadDBN(nIndex, g_XMLConf, g_MapBinDBN, "Root/Map/MapBinDBN");
-    });
-
-    // 2. loading font and textures
-    static auto stBufU32V = []() -> std::array<std::vector<uint32_t>, 3>
-    {
-        // [0] : monaco ttf
-        // [1] : error board texture top
-        // [2] : error board texture middle
-        std::array<std::vector<uint32_t>, 3> stBufU32V
-        {{
-            // binary format for .inc file
-            // there could be serveral zeros at end
-            // [0] : dataLen + N in bytes
-            // [x] : data
-            // [N] : zeros
-            #include "initview.inc"
-        }};
-
-        for(auto &stBufU32: stBufU32V){
-            if(stBufU32.empty() || ((size_t)((stBufU32[0] + 3) / 4) + 1) > stBufU32.size()){
-                extern Log *g_Log;
-                g_Log->AddLog(LOGTYPE_FATAL, "Invalid data in initview.inc");
-            }
-        }
-        return stBufU32V;
-    }();
-
-    extern SDLDevice *g_SDLDevice;
-    g_SDLDevice->CreateInitViewWindow();
-
-    // create window before loading textures
-    // in SDL2 textures binds to SDL_Renderer
-
-    m_TextureV[0] = g_SDLDevice->CreateTexture((uint8_t *)(&(stBufU32V[1][1])), (size_t)(stBufU32V[1][0]));
-    m_TextureV[1] = g_SDLDevice->CreateTexture((uint8_t *)(&(stBufU32V[2][1])), (size_t)(stBufU32V[2][0]));
-
-    if(false
-            || !m_TextureV[0]
-            || !m_TextureV[1]){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_FATAL, "Build graphics resources failed for InitView");
+    for(size_t i = 0; i < m_taskList.size(); ++i){
+        taskPool.addTask(hasError, [i, this](int)
+        {
+            const auto &[weight, taskFunc] = m_taskList.at(i);
+            taskFunc(weight);
+        });
     }
 
-    static std::once_flag stOnceFlag;
-    std::call_once(stOnceFlag, [this](){ Proc(); });
+    while(donePercent() < 100){
+        processEvent(); // can abort internally
+        draw();
+    }
+
+    taskPool.finish();
+    hasError.checkError();
 }
 
 InitView::~InitView()
 {
-    for(auto &rstMessage: m_MessageList){
-        if(rstMessage.Texture){
-            SDL_DestroyTexture(rstMessage.Texture);
+    for(auto &entry: m_logSink){
+        if(entry.texture){
+            SDL_DestroyTexture(entry.texture);
         }
     }
 
-    if(m_TextureV[0]){
-        SDL_DestroyTexture(m_TextureV[0]);
-        m_TextureV[0] = nullptr;
+    if(m_boardTexture){
+        SDL_DestroyTexture(m_boardTexture);
     }
 
-    if(m_TextureV[1]){
-        SDL_DestroyTexture(m_TextureV[1]);
-        m_TextureV[1] = nullptr;
+    if(m_buttonTexture){
+        SDL_DestroyTexture(m_buttonTexture);
     }
 }
 
-void InitView::ProcessEvent()
+void InitView::processEvent()
 {
-    int nX = m_ButtonX;
-    int nY = m_ButtonY;
-    int nW = m_ButtonW;
-    int nH = m_ButtonH;
-
-    SDL_Event stEvent;
-    while(SDL_PollEvent(&stEvent)){
-        switch(stEvent.type){
+    SDL_Event event;
+    while(SDL_PollEvent(&event)){
+        switch(event.type){
             case SDL_MOUSEBUTTONUP:
                 {
-                    if(MathFunc::PointInRectangle(stEvent.button.x, stEvent.button.y, nX, nY, nW, nH)){
-                        if(m_ButtonState == 2){
+                    if(mathf::pointInRectangle(event.button.x, event.button.y, m_buttonX, m_buttonY, m_buttonW, m_buttonH)){
+                        if(m_buttonState == BEVENT_DOWN){
                             std::exit(0);
-                        }else{
-                            m_ButtonState = 1;
                         }
-                    }else{
-                        m_ButtonState = 0;
+                        else{
+                            m_buttonState = BEVENT_ON;
+                        }
+                    }
+                    else{
+                        m_buttonState = BEVENT_OFF;
                     }
                     break;
                 }
             case SDL_MOUSEBUTTONDOWN:
                 {
-                    switch(stEvent.button.button){
+                    switch(event.button.button){
                         case SDL_BUTTON_LEFT:
                             {
-                                if(MathFunc::PointInRectangle(stEvent.button.x, stEvent.button.y, nX, nY, nW, nH)){
-                                    m_ButtonState = 2;
+                                if(mathf::pointInRectangle(event.button.x, event.button.y, m_buttonX, m_buttonY, m_buttonW, m_buttonH)){
+                                    m_buttonState = BEVENT_DOWN;
                                 }
                                 break;
                             }
@@ -218,10 +171,11 @@ void InitView::ProcessEvent()
                 }
             case SDL_MOUSEMOTION:
                 {
-                    if(MathFunc::PointInRectangle(stEvent.button.x, stEvent.button.y, nX, nY, nW, nH)){
-                        m_ButtonState = 1;
-                    }else{
-                        m_ButtonState = 0;
+                    if(mathf::pointInRectangle(event.button.x, event.button.y, m_buttonX, m_buttonY, m_buttonW, m_buttonH)){
+                        m_buttonState = BEVENT_ON;
+                    }
+                    else{
+                        m_buttonState = BEVENT_OFF;
                     }
                     break;
                 }
@@ -233,117 +187,42 @@ void InitView::ProcessEvent()
     }
 }
 
-void InitView::Proc()
+void InitView::addIVLog(int logType, const char *format, ...)
 {
-    m_ProcState.store(IVPROC_LOOP);
-    std::thread stThread([this](){ Load(); });
+    std::string logStr;
+    str_format(format, logStr);
 
-    while(true){
-        if([this]() -> bool
+    switch(logType){
+        case LOGIV_INFO   : g_log->addLog(LOGTYPE_INFO,    "%s", logStr.c_str()); break;
+        case LOGIV_WARNING: g_log->addLog(LOGTYPE_WARNING, "%s", logStr.c_str()); break;
+        case LOGIV_FATAL  : g_log->addLog(LOGTYPE_FATAL,   "%s", logStr.c_str()); break;
+        default: throw fflreach();
+    }
+
+    {
+        std::lock_guard<std::mutex> lockGuard(m_lock);
+        m_logSink.push_back(LogEntry
         {
-            switch(m_ProcState.load()){
-                case IVPROC_DONE:
-                    {
-                        return true;
-                    }
-                default:
-                    {
-                        return false;
-                    }
-            }
-        }()){ break; }
-
-        ProcessEvent();
-        Draw();
-    }
-    stThread.join();
-}
-
-void InitView::AddIVLog(int nLogType, const char *szLogFormat, ...)
-{
-    std::string szLog;
-    bool bError = false;
-    {
-        va_list ap;
-        va_start(ap, szLogFormat);
-
-        try{
-            szLog = str_vprintf(szLogFormat, ap);
-        }catch(const std::exception &e){
-            bError = true;
-            szLog = str_printf("Exception caught in InitView::AddIVLog(\"%s\", ...): %s", szLogFormat, e.what());
-        }
-
-        va_end(ap);
-    }
-
-    if(bError){
-        nLogType = LOGIV_WARNING;
-    }
-
-    switch(nLogType){
-        case LOGIV_INFO:
-            {
-                g_Log->AddLog(LOGTYPE_INFO, "%s", szLog.c_str());
-                break;
-            }
-        case LOGIV_WARNING:
-            {
-                g_Log->AddLog(LOGTYPE_WARNING, "%s", szLog.c_str());
-                break;
-            }
-        case LOGIV_FATAL:
-            {
-                g_Log->AddLog(LOGTYPE_FATAL, "%s", szLog.c_str());
-                break;
-            }
-        default:
-            {
-                g_Log->AddLog(LOGTYPE_WARNING, "Unknow LogType %d for message: %s", nLogType, szLog.c_str());
-                return;
-            }
-    }
-
-    {
-        std::lock_guard<std::mutex> stLockGuard(m_Lock);
-        m_MessageList.emplace_back(nLogType, szLog.c_str(), nullptr);
+            .type = logType,
+            .log  = std::move(logStr),
+        });
     }
 }
 
-void InitView::Load()
+void InitView::draw()
 {
-    for(size_t nIndex = 0; nIndex < m_LoadProcV.size(); ++nIndex){
-        if(m_LoadProcV[nIndex].Event){
-            if(!((m_LoadProcV[nIndex].Event)(nIndex))){
-                m_ProcState.store(IVPROC_ERROR);
-                return;
-            }
-        }
-    }
+    SDLDeviceHelper::RenderNewFrame newFrame;
+    g_sdlDevice->drawTexture(m_boardTexture, 0, 0);
 
-    // let user see initialization done status
-    AddIVLog(LOGIV_INFO, "[100%%]Loading done for InitView");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    m_ProcState.store(IVPROC_DONE);
-}
-
-void InitView::Draw()
-{
-    extern SDLDevice *g_SDLDevice;
-    g_SDLDevice->ClearScreen();
-    g_SDLDevice->DrawTexture(m_TextureV[0], 0, 0);
-
-    int nX = m_ButtonX;
-    int nY = m_ButtonY;
-    switch(m_ButtonState){
-        case 1:
+    switch(m_buttonState){
+        case BEVENT_ON:
             {
-                g_SDLDevice->DrawTexture(m_TextureV[1], nX, nY,  0, 0, 32, 30);
+                g_sdlDevice->drawTexture(m_buttonTexture, m_buttonX, m_buttonY,  0, 0, 32, 30);
                 break;
             }
-        case 2:
+        case BEVENT_DOWN:
             {
-                g_SDLDevice->DrawTexture(m_TextureV[1], nX, nY, 32, 0, 32, 30);
+                g_sdlDevice->drawTexture(m_buttonTexture, m_buttonX, m_buttonY, 32, 0, 32, 30);
                 break;
             }
         default:
@@ -352,59 +231,53 @@ void InitView::Draw()
             }
     }
 
-    auto fnCreateTexture = [this](int nLogType, const std::string &szMessage) -> SDL_Texture *
+    const auto fnBuildLogTexture = [this](int logType, const std::string &log) -> SDL_Texture *
     {
-        SDL_Texture *pTexture = nullptr;
-        auto stColor = [nLogType]() -> SDL_Color
+        const auto color = [logType]() -> SDL_Color
         {
-            switch(nLogType){
-                case 0  : return {0XFF, 0XFF, 0XFF, 0XFF};
-                case 1  : return {0XFF, 0XFF, 0X00, 0XFF};
-                default : return {0XFF, 0X00, 0X00, 0XFF};
+            switch(logType){
+                case LOGIV_INFO   : return {0XFF, 0XFF, 0XFF, 0XFF};
+                case LOGIV_WARNING: return {0XFF, 0XFF, 0X00, 0XFF};
+                default           : return {0XFF, 0X00, 0X00, 0XFF};
             }
         }();
 
-        if(auto pSurface = TTF_RenderUTF8_Blended(g_SDLDevice->DefaultTTF(m_FontSize), szMessage.c_str(), stColor)){
-            extern SDLDevice *g_SDLDevice;
-            pTexture = g_SDLDevice->CreateTextureFromSurface(pSurface);
-            SDL_FreeSurface(pSurface);
+        SDL_Texture *texPtr = nullptr;
+        if(auto surfPtr = TTF_RenderUTF8_Blended(g_sdlDevice->defaultTTF(m_fontSize), log.c_str(), color)){
+            texPtr = g_sdlDevice->createTextureFromSurface(surfPtr);
+            SDL_FreeSurface(surfPtr);
         }
-        return pTexture;
+        return texPtr;
     };
 
-    std::array<SDL_Texture *, 6> stTextureV;
-    stTextureV.fill(nullptr);
+    std::array<SDL_Texture *, 6> texList;
+    texList.fill(nullptr);
     {
-        std::lock_guard<std::mutex> stLockGuard(m_Lock);
+        std::lock_guard<std::mutex> lockGuard(m_lock);
         {
-            size_t nStartIndex = 0;
-            if(m_MessageList.size() > stTextureV.size()){
-                nStartIndex = m_MessageList.size() - stTextureV.size();
+            size_t startIndex = 0;
+            if(m_logSink.size() > texList.size()){
+                startIndex = m_logSink.size() - texList.size();
             }
 
-            for(size_t nIndex = nStartIndex, nTextureIndex = 0; nIndex < m_MessageList.size(); ++nIndex, ++nTextureIndex){
-                if(nIndex < m_MessageList.size()){
-                    if(!m_MessageList[nIndex].Texture){
-                        m_MessageList[nIndex].Texture = fnCreateTexture(m_MessageList[nIndex].Type, m_MessageList[nIndex].Message.c_str());
-                    }
-                    stTextureV[nTextureIndex] = m_MessageList[nIndex].Texture;
+            for(size_t i = startIndex, texIndex = 0; i < m_logSink.size(); ++i, ++texIndex){
+                if(!m_logSink[i].texture){
+                    m_logSink[i].texture = fnBuildLogTexture(m_logSink[i].type, m_logSink[i].log);
                 }
+
+                fflassert(m_logSink[i].texture);
+                texList[texIndex] = m_logSink[i].texture;
             }
         }
     }
 
-    int nStartX = 25;
-    int nStartY = 25;
+    int startX = 25;
+    int startY = 25;
 
-    for(size_t nTextureIndex = 0; nTextureIndex < stTextureV.size(); ++nTextureIndex){
-        if(stTextureV[nTextureIndex]){
-            int nW = -1;
-            int nH = -1;
-            if(!SDL_QueryTexture(stTextureV[nTextureIndex], nullptr, nullptr, &nW, &nH)){
-                g_SDLDevice->DrawTexture(stTextureV[nTextureIndex], nStartX, nStartY);
-                nStartY += (nH + (nH / 3) + 2);
-            }
+    for(auto texPtr: texList){
+        if(texPtr){
+            g_sdlDevice->drawTexture(texPtr, startX, startY);
+            startY += (SDLDeviceHelper::getTextureHeight(texPtr) + 5);
         }
     }
-    g_SDLDevice->Present();
 }

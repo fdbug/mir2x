@@ -1,29 +1,15 @@
-/*
- * =====================================================================================
- *
- *       Filename: processrun.cpp
- *        Created: 08/31/2015 03:43:46
- *    Description: 
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <memory>
+#include <numeric>
 #include <cstring>
+#include "actionnode.hpp"
 #include "dbcomid.hpp"
-#include "monster.hpp"
-#include "mathfunc.hpp"
+#include "clientmonster.hpp"
+#include "mathf.hpp"
+#include "pathf.hpp"
+#include "raiitimer.hpp"
 #include "sysconst.hpp"
-#include "mapbindbn.hpp"
-#include "pngtexdbn.hpp"
+#include "mapbindb.hpp"
+#include "pngtexdb.hpp"
 #include "sdldevice.hpp"
 #include "clientargparser.hpp"
 #include "pathfinder.hpp"
@@ -31,509 +17,533 @@
 #include "dbcomrecord.hpp"
 #include "clientluamodule.hpp"
 #include "clientpathfinder.hpp"
+#include "notifyboard.hpp"
+#include "npcchatboard.hpp"
+#include "modalstringboard.hpp"
+#include "fflerror.hpp"
+#include "totype.hpp"
+#include "skillboard.hpp"
+#include "lochashtable.hpp"
+#include "clienttaodog.hpp"
+#include "clienttaoskeleton.hpp"
+#include "clienttaoskeletonext.hpp"
 
-extern Log *g_Log;
-extern Client *g_Client;
-extern PNGTexDBN *g_MapDBN;
-extern SDLDevice *g_SDLDevice;
-extern MapBinDBN *g_MapBinDBN;
-extern PNGTexDBN *g_GroundItemDBN;
-extern ClientArgParser *g_ClientArgParser;
+extern Log *g_log;
+extern Client *g_client;
+extern PNGTexDB *g_mapDB;
+extern MapBinDB *g_mapBinDB;
+extern SDLDevice *g_sdlDevice;
+extern PNGTexDB *g_progUseDB;
+extern PNGTexDB *g_itemDB;
+extern NotifyBoard *g_notifyBoard;
+extern ClientArgParser *g_clientArgParser;
 
 ProcessRun::ProcessRun()
     : Process()
-    , m_MapID(0)
-    , m_Mir2xMapData()
-    , m_GroundItemList()
-    , m_MyHeroUID(0)
-    , m_FocusUIDTable()
-    , m_ViewX(0)
-    , m_ViewY(0)
-    , m_RollMap(false)
-    , m_LuaModule(this, OUTPORT_CONTROLBOARD)
-    , m_ControbBoard(
-            0,                  // x
-            []() -> int         // y
-            {
-                return g_SDLDevice->WindowH(false) - 134;
-            }(),
-            []() -> int         // w
-            {
-                return g_SDLDevice->WindowW(false);
-            }(),
-            this,               // self-bind
-            nullptr,            // independent widget
-            false)              // 
-    , m_InventoryBoard(0, 0, this)
-    , m_CreatureList()
-    , m_UIDPending()
-    , m_MousePixlLoc(0, 0, "", 0, 15, 0, ColorFunc::RGBA(0XFF, 0X00, 0X00, 0X00))
-    , m_MouseGridLoc(0, 0, "", 0, 15, 0, ColorFunc::RGBA(0XFF, 0X00, 0X00, 0X00))
-    , m_AscendStrList()
+    , m_mapID(0)
+    , m_myHeroUID(0)
+    , m_viewX(0)
+    , m_viewY(0)
+    , m_mapScrolling(false)
+    , m_luaModule(this)
+    , m_GUIManager(this)
+    , m_mousePixlLoc(DIR_UPLEFT, 0, 0, u8"", 0, 15, 0, colorf::RGBA(0XFF, 0X00, 0X00, 0X00))
+    , m_mouseGridLoc(DIR_UPLEFT, 0, 0, u8"", 0, 15, 0, colorf::RGBA(0XFF, 0X00, 0X00, 0X00))
 {
-    m_FocusUIDTable.fill(0);
+    m_focusUIDTable.fill(0);
     RegisterUserCommand();
 }
 
-void ProcessRun::ScrollMap()
+void ProcessRun::scrollMap()
 {
-    auto nShowWindowW = g_SDLDevice->WindowW(false);
-    auto nShowWindowH = g_SDLDevice->WindowH(false) - 134;
+    const auto [rendererW, rendererH] = g_sdlDevice->getRendererSize();
+    const auto showWindowW = rendererW;
+    const auto showWindowH = rendererH - getWidget("ControlBoard")->h();
 
-    int nViewX = GetMyHero()->X() * SYS_MAPGRIDXP - nShowWindowW / 2;
-    int nViewY = GetMyHero()->Y() * SYS_MAPGRIDYP - nShowWindowH / 2;
+    const int nViewX = getMyHero()->x() * SYS_MAPGRIDXP - showWindowW / 2;
+    const int nViewY = getMyHero()->y() * SYS_MAPGRIDYP - showWindowH / 2;
 
-    int nDViewX = nViewX - m_ViewX;
-    int nDViewY = nViewY - m_ViewY;
+    const int nDViewX = nViewX - m_viewX;
+    const int nDViewY = nViewY - m_viewY;
 
-    if(m_RollMap
-            ||  (std::abs(nDViewX) > nShowWindowW / 6)
-            ||  (std::abs(nDViewY) > nShowWindowH / 6)){
+    if(m_mapScrolling
+            ||  (std::abs(nDViewX) > showWindowW / 6)
+            ||  (std::abs(nDViewY) > showWindowH / 6)){
 
-        m_RollMap = true;
+        m_mapScrolling = true;
 
-        m_ViewX += (int)(std::lround(std::copysign((std::min<int>)(3, std::abs(nDViewX)), nDViewX)));
-        m_ViewY += (int)(std::lround(std::copysign((std::min<int>)(2, std::abs(nDViewY)), nDViewY)));
+        m_viewX += to_d(std::lround(std::copysign((std::min<int>)(3, std::abs(nDViewX)), nDViewX)));
+        m_viewY += to_d(std::lround(std::copysign((std::min<int>)(2, std::abs(nDViewY)), nDViewY)));
 
-        m_ViewX = (std::max<int>)(0, m_ViewX);
-        m_ViewY = (std::max<int>)(0, m_ViewY);
+        m_viewX = (std::max<int>)(0, m_viewX);
+        m_viewY = (std::max<int>)(0, m_viewY);
     }
 
     // stop rolling the map when
     //   1. the hero is at the required position
     //   2. the hero is not moving
-    if((nDViewX == 0) && (nDViewY == 0) && !GetMyHero()->Moving()){
-        m_RollMap = false;
+    if((nDViewX == 0) && (nDViewY == 0) && !getMyHero()->moving()){
+        m_mapScrolling = false;
     }
 }
 
-void ProcessRun::Update(double fUpdateTime)
+void ProcessRun::update(double fUpdateTime)
 {
-    ScrollMap();
-    m_ControbBoard.Update(fUpdateTime);
+    updateMouseFocus();
+    m_aniTimer.update(std::lround(fUpdateTime));
 
-    for(auto p = m_CreatureList.begin(); p != m_CreatureList.end();){
-        if(p->second->Visible()){
-            if(p->second->LastActive() + 5000 < SDL_GetTicks() && p->second->LastQuerySelf() + 5000 < SDL_GetTicks()){
-                p->second->QuerySelf();
+    scrollMap();
+    m_GUIManager.update(fUpdateTime);
+    m_delayCmdQ.exec();
+
+    for(auto p = m_strikeGridList.begin(); p != m_strikeGridList.end();){
+        if(hres_tstamp().to_msec() > p->second + 1000){
+            p = m_strikeGridList.erase(p);
+        }
+        else{
+            p++;
+        }
+    }
+
+    getMyHero()->update(fUpdateTime);
+    const int myHeroX = getMyHero()->x();
+    const int myHeroY = getMyHero()->y();
+
+    for(auto p = m_coList.begin(); p != m_coList.end();){
+        if(p->second.get() == getMyHero()){
+            ++p;
+            continue;
+        }
+
+        const auto [locX, locY] = p->second->location();
+        const auto locDistance2 = mathf::LDistance2(myHeroX, myHeroY, locX, locY);
+        if(p->second->visible() && (locDistance2 < 1000)){
+            if(p->second->lastActive() + 5000 < SDL_GetTicks() && p->second->lastQuerySelf() + 5000 < SDL_GetTicks()){
+                p->second->querySelf();
             }
-            p->second->Update(fUpdateTime);
+            p->second->update(fUpdateTime);
             ++p;
-        }else{
-            p = m_CreatureList.erase(p);
+        }
+        else{
+            p = m_coList.erase(p);
         }
     }
 
-    for(auto p = m_IndepMagicList.begin(); p != m_IndepMagicList.end();){
-        if((*p)->Done()){
-            p = m_IndepMagicList.erase(p);
-        }else{
-            (*p)->Update(fUpdateTime);
+    for(auto p = m_fixedLocMagicList.begin(); p != m_fixedLocMagicList.end();){
+        if((*p)->update(fUpdateTime)){
+            p = m_fixedLocMagicList.erase(p);
+        }
+        else{
             ++p;
         }
     }
 
-    for(auto p = m_AscendStrList.begin(); p != m_AscendStrList.end();){
-        if((*p)->Ratio() < 1.00){
-            (*p)->Update(fUpdateTime);
+    for(auto p = m_followUIDMagicList.begin(); p != m_followUIDMagicList.end();){
+        if((*p)->update(fUpdateTime)){
+            p = m_followUIDMagicList.erase(p);
+        }
+        else{
             ++p;
-        }else{
-            p = m_AscendStrList.erase(p);
         }
     }
 
-    if(auto p = RetrieveUID(m_FocusUIDTable[FOCUS_ATTACK])){
-        if(p->StayDead()){
-            m_FocusUIDTable[FOCUS_ATTACK] = 0;
-        }else{
-            TrackAttack(false, m_FocusUIDTable[FOCUS_ATTACK]);
+    for(auto p = m_ascendStrList.begin(); p != m_ascendStrList.end();){
+        if((*p)->ratio() < 1.00){
+            (*p)->update(fUpdateTime);
+            ++p;
+        }
+        else{
+            p = m_ascendStrList.erase(p);
+        }
+    }
+
+    if(auto p = findUID(getFocusUID(FOCUS_ATTACK))){
+        if(p->alive()){
+            trackAttack(false, getFocusUID(FOCUS_ATTACK));
+        }
+        else{
+            setFocusUID(FOCUS_ATTACK, 0);
         }
     }else{
-        m_FocusUIDTable[FOCUS_ATTACK] = 0;
+        setFocusUID(FOCUS_ATTACK, 0);
+    }
+
+    if(true){
+        centerMyHero();
+    }
+
+    m_starRatio += 0.05;
+    if(m_starRatio >= 2.50){
+        m_starRatio = 0.00;
+    }
+
+    if(const auto currTick = SDL_GetTicks(); m_lastPingDone && (m_lastPingTick + 10ULL * 1000 < currTick)){
+        m_lastPingDone = false;
+        m_lastPingTick = currTick;
+        g_client->send(CM_PING, CMPing{currTick});
     }
 }
 
-uint64_t ProcessRun::FocusUID(int nFocusType)
+uint64_t ProcessRun::getFocusUID(int focusType) const
 {
-    if(nFocusType < (int)(m_FocusUIDTable.size())){
-        switch(nFocusType){
-            case FOCUS_NONE:
-                {
-                    return 0;
+    switch(focusType){
+        case FOCUS_MOUSE:
+            {
+                const auto [mouseWinPX, mouseWinPY] = SDLDeviceHelper::getMousePLoc();
+                const auto mousePX = mouseWinPX + m_viewX;
+                const auto mousePY = mouseWinPY + m_viewY;
+
+                if(auto coPtr = findUID(m_focusUIDTable[FOCUS_MOUSE]); coPtr && coPtr->canFocus(mousePX, mousePY)){
+                    return m_focusUIDTable[FOCUS_MOUSE];
                 }
-            case FOCUS_MOUSE:
-                {
-                    // use the cached mouse focus first
-                    // if can't get it then scan the whole creature list
 
-                    auto fnCheckFocus = [this](uint64_t nUID, int nX, int nY) -> bool
-                    {
-                        if(auto pCreature = RetrieveUID(nUID)){
-                            if(nUID != m_MyHeroUID){
-                                if(pCreature->CanFocus(nX, nY)){
-                                    return true;
-                                }
-                            }
-                        }
-                        return false;
-                    };
-                    
-
-                    int nPointX = -1;
-                    int nPointY = -1;
-                    SDL_GetMouseState(&nPointX, &nPointY);
-
-                    int nCheckPointX = nPointX + m_ViewX;
-                    int nCheckPointY = nPointY + m_ViewY;
-
-                    if(fnCheckFocus(m_FocusUIDTable[FOCUS_MOUSE], nCheckPointX, nCheckPointY)){
-                        return m_FocusUIDTable[FOCUS_MOUSE];
+                ClientCreature *focusCOPtr = nullptr;
+                for(const auto &[uid, coPtr]: m_coList){
+                    if(uid == getMyHeroUID()){
+                        continue;
                     }
 
-                    Creature *pFocus = nullptr;
-                    for(auto pRecord: m_CreatureList){
-                        if(fnCheckFocus(pRecord.second->UID(), nCheckPointX, nCheckPointY)){
-                            if(false
-                                    || !pFocus
-                                    ||  pFocus->Y() < pRecord.second->Y()){
-                                // 1. currently we have no candidate yet
-                                // 2. we have candidate but it's not at more front location
-                                pFocus = pRecord.second.get();
-                            }
-                        }
+                    if(!coPtr->canFocus(mousePX, mousePY)){
+                        continue;
                     }
 
-                    m_FocusUIDTable[FOCUS_MOUSE] = pFocus ? pFocus->UID() : 0;
-                    return m_FocusUIDTable[FOCUS_MOUSE];
+                    if(!focusCOPtr || focusCOPtr->y() < coPtr->y()){
+                        focusCOPtr = coPtr.get();
+                    }
                 }
-            default:
-                {
-                    return m_FocusUIDTable[nFocusType];
-                }
+                return focusCOPtr ? focusCOPtr->UID() : 0;
+            }
+        case FOCUS_MAGIC:
+        case FOCUS_FOLLOW:
+        case FOCUS_ATTACK:
+            {
+                return m_focusUIDTable[focusType];
+            }
+        default:
+            {
+                throw fflreach();
+            }
+    }
+}
+
+void ProcessRun::setFocusUID(int focusType, uint64_t uid)
+{
+    switch(focusType){
+        case FOCUS_MAGIC:
+        case FOCUS_FOLLOW:
+        case FOCUS_ATTACK:
+            {
+                m_focusUIDTable[focusType] = uid;
+                return;
+            }
+        default:
+            {
+                throw fflerror("invalid focus type: %d", focusType);
+            }
+    }
+}
+
+void ProcessRun::draw() const
+{
+    SDLDeviceHelper::RenderNewFrame newFrame;
+    const int x0 = mathf::bound<int>(-SYS_OBJMAXW + (m_viewX - 2 * SYS_MAPGRIDXP) / SYS_MAPGRIDXP,                                    0, m_mir2xMapData.w());
+    const int y0 = mathf::bound<int>(-SYS_OBJMAXH + (m_viewY - 2 * SYS_MAPGRIDYP) / SYS_MAPGRIDYP,                                    0, m_mir2xMapData.h());
+    const int x1 = mathf::bound<int>(+SYS_OBJMAXW + (m_viewX + 2 * SYS_MAPGRIDXP + g_sdlDevice->getRendererWidth() ) / SYS_MAPGRIDXP, 0, m_mir2xMapData.w());
+    const int y1 = mathf::bound<int>(+SYS_OBJMAXH + (m_viewY + 2 * SYS_MAPGRIDYP + g_sdlDevice->getRendererHeight()) / SYS_MAPGRIDYP, 0, m_mir2xMapData.h());
+
+    drawTile(x0, y0, x1, y1);
+
+    // ground objects
+    for(int y = y0; y <= y1; ++y){
+        for(int x = x0; x <= x1; ++x){
+            drawObject(x, y, OBJD_GROUND, false);
         }
     }
-    
-    return 0;
-}
 
-void ProcessRun::Draw()
-{
-    g_SDLDevice->ClearScreen();
+    if(g_clientArgParser->drawTranspGrid){
+        for(const auto &entry: DBCOM_MAPRECORD(mapID()).mapSwitchList){
+            for(int tpy = entry.y; tpy < entry.y + entry.h; ++tpy){
+                for(int tpx = entry.x; tpx < entry.x + entry.w; ++tpx){
+                    if(true
+                            && m_mir2xMapData.validC(tpx, tpy)
+                            && mathf::pointInRectangle(tpx, tpy, x0, y0, x1 - x0 + 1, y1 - y0 + 1)){
+                        g_sdlDevice->fillRectangle(colorf::RGBA(0XFF, 0, 0, 100), tpx * SYS_MAPGRIDXP - m_viewX, tpy * SYS_MAPGRIDYP - m_viewY, SYS_MAPGRIDXP, SYS_MAPGRIDYP);
+                    }
+                }
+            }
+        }
+    }
 
-    // 1. draw map + object
+    // over ground object
+    for(int y = y0; y <= y1; ++y){
+        for(int x = x0; x <= x1; ++x){
+            drawObject(x, y, OBJD_OVERGROUND0, false);
+            drawObject(x, y, OBJD_OVERGROUND1, false);
+        }
+    }
+
+    if(g_clientArgParser->drawMapGrid){
+        const int gridX0 = m_viewX / SYS_MAPGRIDXP;
+        const int gridY0 = m_viewY / SYS_MAPGRIDYP;
+
+        const int gridX1 = (m_viewX + g_sdlDevice->getRendererWidth()) / SYS_MAPGRIDXP;
+        const int gridY1 = (m_viewY + g_sdlDevice->getRendererHeight()) / SYS_MAPGRIDYP;
+
+        SDLDeviceHelper::EnableRenderColor drawColor(colorf::RGBA(0, 255, 0, 128));
+        for(int x = gridX0; x <= gridX1; ++x){
+            g_sdlDevice->drawLine(x * SYS_MAPGRIDXP - m_viewX, 0, x * SYS_MAPGRIDXP - m_viewX, g_sdlDevice->getRendererHeight());
+        }
+
+        for(int y = gridY0; y <= gridY1; ++y){
+            g_sdlDevice->drawLine(0, y * SYS_MAPGRIDYP - m_viewY, g_sdlDevice->getRendererWidth(), y * SYS_MAPGRIDYP - m_viewY);
+        }
+    }
+
+    // draw ground ash, ice mark etc.
+    // should be draw immediately before dead actors, like over-ground objects
+    for(const auto &p: m_fixedLocMagicList){
+        if(p->checkMagic(u8"魔法特效_火焰灰烬", u8"运行")){
+            dynamic_cast<FireAshEffect_RUN *>(p.get())->drawGroundAsh(m_viewX, m_viewY, colorf::WHITE + colorf::A_SHF(150));
+        }
+
+        if(p->checkMagic(u8"冰沙掌", u8"运行")){
+            dynamic_cast<IceThrust_RUN *>(p.get())->drawGroundIce(m_viewX, m_viewY, colorf::WHITE + colorf::A_SHF(150));
+        }
+    }
+
+    // draw dead actors
+    // dead actors are shown before all active actors
+    for(auto &p: m_coList){
+        p.second->draw(m_viewX, m_viewY, 0);
+    }
+
+    drawGroundItem(x0, y0, x1, y1);
+
+    const auto coLocList = [this]()
     {
-        int nX0 = -SYS_OBJMAXW + (m_ViewX - 2 * SYS_MAPGRIDXP) / SYS_MAPGRIDXP;
-        int nY0 = -SYS_OBJMAXH + (m_ViewY - 2 * SYS_MAPGRIDYP) / SYS_MAPGRIDYP;
-        int nX1 = +SYS_OBJMAXW + (m_ViewX + 2 * SYS_MAPGRIDXP + g_SDLDevice->WindowW(false)) / SYS_MAPGRIDXP;
-        int nY1 = +SYS_OBJMAXH + (m_ViewY + 2 * SYS_MAPGRIDYP + g_SDLDevice->WindowH(false)) / SYS_MAPGRIDYP;
+        LocHashTable<std::vector<ClientCreature *>> table;
+        for(auto &p: m_coList){
+            table[p.second->location()].push_back(p.second.get());
+        }
+        return table;
+    }();
 
-        // tiles
-        for(int nY = nY0; nY <= nY1; ++nY){
-            for(int nX = nX0; nX <= nX1; ++nX){
-                if(m_Mir2xMapData.ValidC(nX, nY) && !(nX % 2) && !(nY % 2)){
-                    auto &rstTile = m_Mir2xMapData.Tile(nX, nY);
-                    if(rstTile.Valid()){
-                        if(auto pTexture = g_MapDBN->Retrieve(rstTile.Image())){
-                            g_SDLDevice->DrawTexture(pTexture, nX * SYS_MAPGRIDXP - m_ViewX, nY * SYS_MAPGRIDYP - m_ViewY);
+    const auto fireWallList = [this]()
+    {
+        LocHashTable<std::vector<FixedLocMagic *>> table;
+        for(auto &p: m_fixedLocMagicList){
+            if(p->getGfxEntry().onGround){
+                table[{p->x(), p->y()}].push_back(p.get());
+            }
+        }
+        return table;
+    }();
+
+    // over ground objects
+    for(int y = y0; y <= y1; ++y){
+        for(int x = x0; x <= x1; ++x){
+            drawObject(x, y, OBJD_OVERGROUND0, false);
+        }
+
+        for(int x = x0; x <= x1; ++x){
+            if(auto p = fireWallList.find({x, y}); p != fireWallList.end()){
+                for(auto magicPtr: p->second){
+                    magicPtr->drawViewOff(m_viewX, m_viewY, colorf::WHITE + colorf::A_SHF(255));
+                }
+            }
+
+            if(auto p = m_strikeGridList.find({x, y}); p != m_strikeGridList.end()){
+                if(hres_tstamp().to_msec() <= p->second + 1000){
+                    g_sdlDevice->fillRectangle(colorf::RED + colorf::A_SHF(96), x * SYS_MAPGRIDXP - m_viewX, y * SYS_MAPGRIDYP - m_viewY, SYS_MAPGRIDXP, SYS_MAPGRIDYP);
+                }
+            }
+
+            if(auto p = coLocList.find({x, y}); p != coLocList.end()){
+                for(auto creaturePtr: p->second){
+                    if(!(creaturePtr && creaturePtr->location() == std::make_tuple(x, y))){
+                        throw fflerror("invalid creature location table");
+                    }
+
+                    if(!creaturePtr->alive()){
+                        continue;
+                    }
+
+                    int focusMask = 0;
+                    for(int f = FOCUS_BEGIN; f < FOCUS_END; ++f){
+                        if(getFocusUID(f) == creaturePtr->UID()){
+                            focusMask |= (1 << f);
                         }
                     }
+                    creaturePtr->draw(m_viewX, m_viewY, focusMask);
+                }
+
+                if(g_clientArgParser->drawCreatureCover){
+                    SDLDeviceHelper::EnableRenderColor enableColor(colorf::RGBA(0, 0, 255, 128));
+                    SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND);
+                    g_sdlDevice->fillRectangle(x * SYS_MAPGRIDXP - m_viewX, y * SYS_MAPGRIDYP - m_viewY, SYS_MAPGRIDXP, SYS_MAPGRIDYP);
                 }
             }
         }
 
-        // ground objects
-        for(int nY = nY0; nY <= nY1; ++nY){
-            for(int nX = nX0; nX <= nX1; ++nX){
-                if(m_Mir2xMapData.ValidC(nX, nY)){
-                    for(int nIndex = 0; nIndex < 2; ++nIndex){
-                        auto stArray = m_Mir2xMapData.Cell(nX, nY).ObjectArray(nIndex);
-                        if(true
-                                && (stArray[4] & 0X80)
-                                && (stArray[4] & 0X01)){
-                            uint32_t nImage = 0
-                                | (((uint32_t)(stArray[2])) << 16)
-                                | (((uint32_t)(stArray[1])) <<  8)
-                                | (((uint32_t)(stArray[0])) <<  0);
-                            if(auto pTexture = g_MapDBN->Retrieve(nImage)){
-                                int nH = 0;
-                                if(!SDL_QueryTexture(pTexture, nullptr, nullptr, nullptr, &nH)){
-                                    g_SDLDevice->DrawTexture(pTexture, nX * SYS_MAPGRIDXP - m_ViewX, (nY + 1) * SYS_MAPGRIDYP - m_ViewY - nH);
-                                }
-                            }
-                        }
-                    }
+        for(int x = x0; x <= x1; ++x){
+            drawObject(x, y, OBJD_OVERGROUND1, false);
+        }
+    }
+
+    // draw all rotating stars
+    // notify players that there is somethig to check
+    drawRotateStar(x0, y0, x1, y1);
+
+    // draw magics
+    for(auto &p: m_fixedLocMagicList){
+        if(!p->getGfxEntry().onGround){
+            p->drawViewOff(m_viewX, m_viewY, colorf::WHITE + colorf::A_SHF(255));
+        }
+    }
+
+    for(auto &p: m_followUIDMagicList){
+        if(!p->done()){
+            p->drawViewOff(m_viewX, m_viewY, colorf::WHITE + colorf::A_SHF(255));
+        }
+    }
+
+    if(m_drawMagicKey){
+        int magicKeyOffX = 0;
+        for(const auto &[magicID, magicKey]: dynamic_cast<const SkillBoard *>(m_GUIManager.getWidget("SkillBoard"))->getConfig().getMagicKeyList()){
+            if(const auto &iconGfx = SkillBoard::getMagicIconGfx(magicID); iconGfx && iconGfx.magicIcon != SYS_TEXNIL){
+                if(auto texPtr = g_progUseDB->retrieve(iconGfx.magicIcon + to_u32(0X00001000))){
+                    g_sdlDevice->drawTexture(texPtr, magicKeyOffX, 0);
+                    const auto coolDownAngle = getMyHero()->getMagicCoolDownAngle(magicID);
+                    const auto colorRatio = [coolDownAngle]() -> float
+                    {
+                        const float r = to_f(coolDownAngle) / 360.0;
+                        return r * r * r * r;
+                    }();
+
+                    const auto texW = SDLDeviceHelper::getTextureWidth(texPtr);
+                    const auto coverTexW = std::lround(1.41421356237309504880 * texW);
+                    auto coverTexPtr = g_sdlDevice->getCover(coverTexW / 2, coolDownAngle);
+                    SDLDeviceHelper::EnableTextureModColor enableModColor(coverTexPtr, colorf::fadeRGBA(colorf::RGBA(255, 51, 51, 255), colorf::GREEN + colorf::A_SHF(80), colorRatio));
+
+                    const auto offCoverX = (coverTexW - texW) / 2;
+                    g_sdlDevice->drawTexture(coverTexPtr, magicKeyOffX, 0, offCoverX, offCoverX, texW, texW);
+                    magicKeyOffX += texW;
                 }
             }
         }
+    }
 
-        if(g_ClientArgParser->EnableDrawMapGrid){
-            int nGridX0 = m_ViewX / SYS_MAPGRIDXP;
-            int nGridY0 = m_ViewY / SYS_MAPGRIDYP;
+    if(getMyHero()->getSDBuffIDList().has_value()){
+        constexpr int buffIconDrawW = 30;
+        constexpr int buffIconDrawH = 30;
+        int buffIconOffX = g_sdlDevice->getRendererWidth() - buffIconDrawW;
 
-            int nGridX1 = (m_ViewX + g_SDLDevice->WindowW(false)) / SYS_MAPGRIDXP;
-            int nGridY1 = (m_ViewY + g_SDLDevice->WindowH(false)) / SYS_MAPGRIDYP;
-
-            g_SDLDevice->PushColor(0, 255, 0, 128);
-            for(int nX = nGridX0; nX <= nGridX1; ++nX){
-                g_SDLDevice->DrawLine(nX * SYS_MAPGRIDXP - m_ViewX, 0, nX * SYS_MAPGRIDXP - m_ViewX, g_SDLDevice->WindowH(false));
-            }
-            for(int nY = nGridY0; nY <= nGridY1; ++nY){
-                g_SDLDevice->DrawLine(0, nY * SYS_MAPGRIDYP - m_ViewY, g_SDLDevice->WindowW(false), nY * SYS_MAPGRIDYP - m_ViewY);
-            }
-            g_SDLDevice->PopColor();
+        if(auto boardPtr = getWidget("MiniMapBoard"); boardPtr->show()){
+            buffIconOffX -= boardPtr->w();
         }
 
-        // draw dead actors
-        // dead actors are shown before all active actors
-        for(int nY = nY0; nY <= nY1; ++nY){
-            for(int nX = nX0; nX <= nX1; ++nX){
-                for(auto pCreature: m_CreatureList){
-                    if(true
-                            && (pCreature.second)
-                            && (pCreature.second->X() == nX)
-                            && (pCreature.second->Y() == nY)
-                            && (pCreature.second->StayDead())){
-                        pCreature.second->Draw(m_ViewX, m_ViewY, 0);
-                    }
+        for(const auto id: getMyHero()->getSDBuffIDList().value().idList){
+            const auto &br = DBCOM_BUFFRECORD(id);
+            fflassert(br);
+
+            if(br.icon.gfxID != SYS_TEXNIL){
+                if(auto iconTexPtr = g_progUseDB->retrieve(br.icon.gfxID)){
+                    const auto [texW, texH] = SDLDeviceHelper::getTextureSize(iconTexPtr);
+                    g_sdlDevice->drawTexture(iconTexPtr, buffIconOffX, 0, buffIconDrawW, buffIconDrawH, 0, 0, texW, texH);
+                    buffIconOffX -= buffIconDrawW;
                 }
             }
         }
-
-        // draw ground item
-        // should be over dead actors
-        for(int nY = nY0; nY <= nY1; ++nY){
-            for(int nX = nX0; nX <= nX1; ++nX){
-                auto &rstGroundItemList = GetGroundItemListRef(nX, nY);
-                for(auto rstGroundItem: rstGroundItemList){
-                    if(auto &rstIR = DBCOM_ITEMRECORD(rstGroundItem.ID())){
-                        if(rstIR.PkgGfxID >= 0){
-                            if(auto pTexture = g_GroundItemDBN->Retrieve(rstIR.PkgGfxID)){
-                                int nW = -1;
-                                int nH = -1;
-                                if(!SDL_QueryTexture(pTexture, nullptr, nullptr, &nW, &nH)){
-                                    int nXt = nX * SYS_MAPGRIDXP - m_ViewX + SYS_MAPGRIDXP / 2 - nW / 2;
-                                    int nYt = nY * SYS_MAPGRIDYP - m_ViewY + SYS_MAPGRIDYP / 2 - nH / 2;
-
-                                    int nPointX = -1;
-                                    int nPointY = -1;
-                                    SDL_GetMouseState(&nPointX, &nPointY);
-
-                                    int nCurrX = (nPointX + m_ViewX) / SYS_MAPGRIDXP;
-                                    int nCurrY = (nPointY + m_ViewY) / SYS_MAPGRIDYP;
-
-                                    bool bChoose = false;
-                                    if(true
-                                            && nCurrX == nX
-                                            && nCurrY == nY){
-                                        bChoose = true;
-                                        SDL_SetTextureBlendMode(pTexture, SDL_BLENDMODE_ADD);
-                                    }else{
-                                        SDL_SetTextureBlendMode(pTexture, SDL_BLENDMODE_BLEND);
-                                    }
-
-                                    // 1. draw item shadow
-                                    SDL_SetTextureColorMod(pTexture, 0, 0, 0);
-                                    SDL_SetTextureAlphaMod(pTexture, 128);
-                                    g_SDLDevice->DrawTexture(pTexture, nXt + 1, nYt - 1);
-
-                                    // 2. draw item body
-                                    SDL_SetTextureColorMod(pTexture, 255, 255, 255);
-                                    SDL_SetTextureAlphaMod(pTexture, 255);
-                                    g_SDLDevice->DrawTexture(pTexture, nXt, nYt);
-
-                                    if(bChoose){
-                                        LabelBoard stItemName(0, 0, rstIR.Name, 1, 12, 0, ColorFunc::RGBA(0XFF, 0XFF, 0X00, 0X00));
-                                        int nLW = stItemName.W();
-                                        int nLH = stItemName.H();
-
-                                        int nLXt = nX * SYS_MAPGRIDXP - m_ViewX + SYS_MAPGRIDXP / 2 - nLW / 2;
-                                        int nLYt = nY * SYS_MAPGRIDYP - m_ViewY + SYS_MAPGRIDYP / 2 - nLH / 2 - 20;
-
-                                        stItemName.DrawEx(nLXt, nLYt, 0, 0, nLW, nLH);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // over ground objects
-        for(int nY = nY0; nY <= nY1; ++nY){
-            for(int nX = nX0; nX <= nX1; ++nX){
-                if(m_Mir2xMapData.ValidC(nX, nY)){
-                    for(int nIndex = 0; nIndex < 2; ++nIndex){
-                        auto stArray = m_Mir2xMapData.Cell(nX, nY).ObjectArray(nIndex);
-                        if(true
-                                &&  (stArray[4] & 0X80)
-                                && !(stArray[4] & 0X01)){
-                            uint32_t nImage = 0
-                                | (((uint32_t)(stArray[2])) << 16)
-                                | (((uint32_t)(stArray[1])) <<  8)
-                                | (((uint32_t)(stArray[0])) <<  0);
-                            if(auto pTexture = g_MapDBN->Retrieve(nImage)){
-                                int nH = 0;
-                                if(!SDL_QueryTexture(pTexture, nullptr, nullptr, nullptr, &nH)){
-                                    g_SDLDevice->DrawTexture(pTexture, nX * SYS_MAPGRIDXP - m_ViewX, (nY + 1) * SYS_MAPGRIDYP - m_ViewY - nH);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // draw alive actors
-            for(int nX = nX0; nX <= nX1; ++nX){
-                for(auto pCreature: m_CreatureList){
-                    if(true
-                            &&  (pCreature.second)
-                            &&  (pCreature.second->X() == nX)
-                            &&  (pCreature.second->Y() == nY)
-                            && !(pCreature.second->StayDead())){
-
-                        if(g_ClientArgParser->EnableDrawCreatureCover){
-                            g_SDLDevice->PushColor(0, 0, 255, 128);
-                            g_SDLDevice->PushBlendMode(SDL_BLENDMODE_BLEND);
-                            g_SDLDevice->FillRectangle(nX * SYS_MAPGRIDXP - m_ViewX, nY * SYS_MAPGRIDYP - m_ViewY, SYS_MAPGRIDXP, SYS_MAPGRIDYP);
-                            g_SDLDevice->PopBlendMode();
-                            g_SDLDevice->PopColor();
-                        }
-
-                        int nFocusMask = 0;
-                        for(auto nFocus = 0; nFocus < FOCUS_MAX; ++nFocus){
-                            if(FocusUID(nFocus) == pCreature.second->UID()){
-                                nFocusMask |= (1 << nFocus);
-                            }
-                        }
-                        pCreature.second->Draw(m_ViewX, m_ViewY, nFocusMask);
-                    }
-                }
-            }
-        }
-
-        // draw all rotating stars
-        // to aware players there is somethig to check
-        static double fRatio = 0.00;
-
-        fRatio += 0.05;
-        if(fRatio >= 2.50){
-            fRatio = 0.00;
-        }else if(fRatio >= 1.00){
-            // do nothing
-            // hide the star to avoid blinking too much
-        }else{
-            for(int nY = nY0; nY <= nY1; ++nY){
-                for(int nX = nX0; nX <= nX1; ++nX){
-
-                    if(!GetGroundItemListRef(nX, nY).empty()){
-                        if(auto pTexture = g_GroundItemDBN->Retrieve(0X01000000)){
-                            int nW = -1;
-                            int nH = -1;
-                            if(!SDL_QueryTexture(pTexture, nullptr, nullptr, &nW, &nH)){
-                                if(auto nLt = (int)(std::lround(fRatio * nW / 2.50))){
-                                    auto nXt = nX * SYS_MAPGRIDXP - m_ViewX + SYS_MAPGRIDXP / 2 - nLt / 2;
-                                    auto nYt = nY * SYS_MAPGRIDYP - m_ViewY + SYS_MAPGRIDYP / 2 - nLt / 2;
-
-                                    // to make this to be more informative
-                                    // use different color of rotating star for different type
-
-                                    SDL_SetTextureAlphaMod(pTexture, 128);
-                                    g_SDLDevice->DrawTextureEx(pTexture,
-                                            0,
-                                            0,
-                                            nW,
-                                            nH,
-                                            nXt,
-                                            nYt,
-                                            nLt,
-                                            nLt,
-                                            nLt / 2,
-                                            nLt / 2,
-                                            std::lround(fRatio * 360.0));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // draw magics
-        for(auto p: m_IndepMagicList){
-            if(!p->Done()){
-                p->Draw(m_ViewX, m_ViewY);
-            }
-        }
-
-        // put it here
-        // any other should draw before GUI
     }
 
     // draw underlay at the bottom
     // there is one pixel transparent rectangle
-    {
-        auto nWindowW = g_SDLDevice->WindowW(false);
-        auto nWindowH = g_SDLDevice->WindowH(false);
+    const auto [winW, winH] = g_sdlDevice->getRendererSize();
+    g_sdlDevice->fillRectangle(colorf::RGBA(0, 0, 0, 0), 0, winH - 4, winW, 4);
 
-        g_SDLDevice->PushColor(0, 0, 0, 0);
-        g_SDLDevice->FillRectangle(0, nWindowH - 4, nWindowW, 4);
-        g_SDLDevice->PopColor();
+    for(auto p: m_ascendStrList){
+        p->draw(m_viewX, m_viewY);
     }
 
-    for(auto p: m_AscendStrList){
-        p->Draw(m_ViewX, m_ViewY);
+    m_GUIManager.draw();
+    if(const auto selectedItemID = getMyHero()->getInvPack().getGrabbedItem().itemID){
+        if(const auto &ir = DBCOM_ITEMRECORD(selectedItemID)){
+            if(auto texPtr = g_itemDB->retrieve(ir.pkgGfxID | 0X01000000)){
+                const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
+                const auto [ptrX, ptrY] = SDLDeviceHelper::getMousePLoc();
+                g_sdlDevice->drawTexture(texPtr, ptrX - texW / 2, ptrY - texH / 2);
+            }
+        }
     }
 
-    m_ControbBoard  .Draw();
-    m_InventoryBoard.Draw();
+    // draw NotifyBoard
+    if(false){
+        const int w = std::max<int>(g_notifyBoard->pw() + 10, 160);
+        const int h = g_notifyBoard->h();
+        const int x = 0;
+        const int y = g_sdlDevice->getRendererHeight() - h - 133;
 
-    // draw cursor location information on top-left
-    if(g_ClientArgParser->EnableDrawMouseLocation){
-        g_SDLDevice->PushColor(0, 0, 0, 230);
-        g_SDLDevice->PushBlendMode(SDL_BLENDMODE_BLEND);
-        g_SDLDevice->FillRectangle(0, 0, 200, 60);
-        g_SDLDevice->PopBlendMode();
-        g_SDLDevice->PopColor();
-
-        int nPointX = -1;
-        int nPointY = -1;
-        SDL_GetMouseState(&nPointX, &nPointY);
-
-        m_MousePixlLoc.SetText("Pix_Loc: %3d, %3d", nPointX, nPointY);
-        m_MouseGridLoc.SetText("Til_Loc: %3d, %3d", (nPointX + m_ViewX) / SYS_MAPGRIDXP, (nPointY + m_ViewY) / SYS_MAPGRIDYP);
-
-        m_MouseGridLoc.DrawEx(10, 10, 0, 0, m_MouseGridLoc.W(), m_MouseGridLoc.H());
-        m_MousePixlLoc.DrawEx(10, 30, 0, 0, m_MousePixlLoc.W(), m_MousePixlLoc.H());
+        g_sdlDevice->fillRectangle(colorf::GREEN + colorf::A_SHF(180), x, y, w, h);
+        g_sdlDevice->drawRectangle(colorf::BLUE  + colorf::A_SHF(255), x, y, w, h);
+        g_notifyBoard->drawAt(DIR_UPLEFT, x, y);
     }
 
-    g_SDLDevice->Present();
+    if(g_clientArgParser->drawMouseLocation){
+        drawMouseLocation();
+    }
+
+    if(g_clientArgParser->drawFPS){
+        drawFPS();
+    }
 }
 
-void ProcessRun::ProcessEvent(const SDL_Event &rstEvent)
+void ProcessRun::processEvent(const SDL_Event &event)
 {
-    bool bValid = true;
-    if(m_InventoryBoard.ProcessEvent(rstEvent, &bValid)){ return; }
-    if(m_ControbBoard  .ProcessEvent(rstEvent, &bValid)){ return; }
+    if(m_GUIManager.processEvent(event, true)){
+        return;
+    }
 
-    switch(rstEvent.type){
+    switch(event.type){
         case SDL_MOUSEBUTTONDOWN:
             {
-                int nMouseGridX = -1;
-                int nMouseGridY = -1;
-                ScreenPoint2Grid(rstEvent.button.x, rstEvent.button.y, &nMouseGridX, &nMouseGridY);
-
-                switch(rstEvent.button.button){
+                const auto [mouseGridX, mouseGridY] = fromPLoc2Grid(event.button.x, event.button.y);
+                switch(event.button.button){
                     case SDL_BUTTON_LEFT:
                         {
-                            if(auto nUID = FocusUID(FOCUS_MOUSE)){
-                                m_FocusUIDTable[FOCUS_ATTACK] = nUID;
-                                TrackAttack(true, nUID);
-                            }else{
-                                auto &rstGroundItemList = GetGroundItemListRef(nMouseGridX, nMouseGridY);
-                                if(!rstGroundItemList.empty()){
-                                    GetMyHero()->EmplaceAction(ActionPickUp(nMouseGridX, nMouseGridY, rstGroundItemList.back().ID()));
+                            if(const auto uid = getFocusUID(FOCUS_MOUSE)){
+                                switch(uidf::getUIDType(uid)){
+                                    case UID_MON:
+                                        {
+                                            setFocusUID(FOCUS_ATTACK, uid);
+                                            trackAttack(true, uid);
+                                            break;
+                                        }
+                                    case UID_NPC:
+                                        {
+                                            sendNPCEvent(uid, SYS_NPCINIT);
+                                        }
+                                    default:
+                                        {
+                                            break;
+                                        }
                                 }
+                            }
+
+                            else if(const auto grabbedItem = getMyHero()->getInvPack().getGrabbedItem(); grabbedItem){
+                                requestDropItem(grabbedItem.itemID, grabbedItem.seqID, grabbedItem.count);
+                            }
+
+                            else if(!getGroundItemIDList(mouseGridX, mouseGridY).empty()){
+                                getMyHero()->emplaceAction(ActionMove
+                                {
+                                    .speed = SYS_DEFSPEED,
+                                    .x = getMyHero()->currMotion()->endX,
+                                    .y = getMyHero()->currMotion()->endY,
+                                    .aimX = mouseGridX,
+                                    .aimY = mouseGridY,
+                                    .pickUp = true,
+                                    .onHorse = getMyHero()->onHorse(),
+                                });
                             }
                             break;
                         }
@@ -546,34 +556,29 @@ void ProcessRun::ProcessEvent(const SDL_Event &rstEvent)
                             // 4. if "+GOOD" client will release the motion lock
                             // 5. if "+FAIL" client will use the backup position and direction
 
-                            m_FocusUIDTable[FOCUS_ATTACK] = 0;
-                            m_FocusUIDTable[FOCUS_FOLLOW] = 0;
+                            setFocusUID(FOCUS_ATTACK, 0);
+                            setFocusUID(FOCUS_FOLLOW, 0);
 
-                            if(auto nUID = FocusUID(FOCUS_MOUSE)){
-                                m_FocusUIDTable[FOCUS_FOLLOW] = nUID;
-                            }else{
-                                int nX = -1;
-                                int nY = -1;
-                                if(true
-                                        && ScreenPoint2Grid(rstEvent.button.x, rstEvent.button.y, &nX, &nY)
-                                        && MathFunc::LDistance2(GetMyHero()->CurrMotion().EndX, GetMyHero()->CurrMotion().EndY, nX, nY)){
+                            if(auto nUID = getFocusUID(FOCUS_MOUSE)){
+                                setFocusUID(FOCUS_FOLLOW, nUID);
+                            }
 
-                                    // we get a valid dst to go
-                                    // provide myHero with new move action command
+                            else if(mathf::LDistance2(getMyHero()->currMotion()->endX, getMyHero()->currMotion()->endY, mouseGridX, mouseGridY)){
+                                // we get a valid dst to go
+                                // provide myHero with new move action command
 
-                                    // when post move action don't use X() and Y()
-                                    // since if clicks during hero moving then X() may not equal to EndX
+                                // when post move action don't use X() and Y()
+                                // since if clicks during hero moving then X() may not equal to EndX
 
-                                    GetMyHero()->EmplaceAction(ActionMove
-                                    {
-                                        GetMyHero()->CurrMotion().EndX,    // don't use X()
-                                        GetMyHero()->CurrMotion().EndY,    // don't use Y()
-                                        nX,
-                                        nY,
-                                        SYS_DEFSPEED,
-                                        GetMyHero()->OnHorse() ? 1 : 0
-                                    });
-                                }
+                                getMyHero()->emplaceAction(ActionMove
+                                {
+                                    .speed = SYS_DEFSPEED,
+                                    .x = getMyHero()->currMotion()->endX,
+                                    .y = getMyHero()->currMotion()->endY,
+                                    .aimX = mouseGridX,
+                                    .aimY = mouseGridY,
+                                    .onHorse = getMyHero()->onHorse(),
+                                });
                             }
                             break;
                         }
@@ -590,70 +595,40 @@ void ProcessRun::ProcessEvent(const SDL_Event &rstEvent)
             }
         case SDL_KEYDOWN:
             {
-                switch(rstEvent.key.keysym.sym){
-                    case SDLK_e:
-                        {
-                            std::exit(0);
-                            break;
-                        }
+                switch(event.key.keysym.sym){
                     case SDLK_ESCAPE:
                         {
-                            CenterMyHero();
+                            centerMyHero();
                             break;
                         }
-                    case SDLK_t:
+                    case SDLK_TAB:
                         {
-                            if(auto nMouseFocusUID = FocusUID(FOCUS_MOUSE)){
-                                m_FocusUIDTable[FOCUS_MAGIC] = nMouseFocusUID;
-                            }else{
-                                if(!RetrieveUID(m_FocusUIDTable[FOCUS_MAGIC])){
-                                    m_FocusUIDTable[FOCUS_MAGIC] = 0;
-                                }
-                            }
-
-                            if(auto nFocusUID = FocusUID(FOCUS_MAGIC)){
-                                GetMyHero()->EmplaceAction(ActionSpell
-                                {
-                                    GetMyHero()->CurrMotion().EndX,
-                                    GetMyHero()->CurrMotion().EndY,
-                                    nFocusUID,
-                                    DBCOM_MAGICID(u8"雷电术"),
-                                });
-                            }else{
-                                int nAimX   = -1;
-                                int nAimY   = -1;
-                                int nMouseX = -1;
-                                int nMouseY = -1;
-                                SDL_GetMouseState(&nMouseX, &nMouseY);
-                                ScreenPoint2Grid(nMouseX, nMouseY, &nAimX, &nAimY);
-                                GetMyHero()->EmplaceAction(ActionSpell
-                                {
-                                    GetMyHero()->CurrMotion().EndX,
-                                    GetMyHero()->CurrMotion().EndY,
-                                    nAimX,
-                                    nAimY,
-                                    DBCOM_MAGICID(u8"雷电术"),
-                                });
-                            }
-                            break;
-                        }
-                    case SDLK_p:
-                        {
-                            GetMyHero()->PickUp();
-                            break;
-                        }
-                    case SDLK_y:
-                        {
-                            GetMyHero()->EmplaceAction(ActionSpell(GetMyHero()->X(), GetMyHero()->Y(), GetMyHero()->UID(), DBCOM_MAGICID(u8"魔法盾")));
-                            break;
-                        }
-                    case SDLK_u:
-                        {
-                            GetMyHero()->EmplaceAction(ActionSpell(GetMyHero()->X(), GetMyHero()->Y(), GetMyHero()->UID(), DBCOM_MAGICID(u8"召唤骷髅")));
+                            requestPickUp();
                             break;
                         }
                     default:
                         {
+                            if(event.key.keysym.mod & (KMOD_LALT | KMOD_RALT)){
+                                switch(SDLDeviceHelper::getKeyChar(event, false)){
+                                    case 'e':
+                                        {
+                                            std::exit(0);
+                                            break;
+                                        }
+                                    case 'f':
+                                        {
+                                            g_sdlDevice->toggleWindowFullscreen();
+                                            break;
+                                        }
+                                    default:
+                                        {
+                                            break;
+                                        }
+                                }
+                            }
+                            else{
+                                checkMagicSpell(event);
+                            }
                             break;
                         }
                 }
@@ -670,32 +645,102 @@ void ProcessRun::ProcessEvent(const SDL_Event &rstEvent)
     }
 }
 
-int ProcessRun::LoadMap(uint32_t nMapID)
+void ProcessRun::loadMap(uint32_t mapID, int centerGX, int centerGY)
 {
-    if(nMapID){
-        if(auto pMapBin = g_MapBinDBN->Retrieve(nMapID)){
-            m_MapID        =  nMapID;
-            m_Mir2xMapData = *pMapBin;
+    fflassert(mapID > 0);
+    ModalStringBoard loadStringBoard;
 
-            auto nW = m_Mir2xMapData.W();
-            auto nH = m_Mir2xMapData.H();
+    const auto fnSetDoneRatio = [&loadStringBoard, mapID](int ratio)
+    {
+        const std::string mapName = to_cstr(DBCOM_MAPRECORD(mapID).name);
+        loadStringBoard.loadXML(str_printf
+        (
+            u8R"###( <layout>                                     )###""\n"
+            u8R"###(     <par>加载地图<t color="red">%s</t></par> )###""\n"
+            u8R"###(     <par>完成<t color="red">%%%d</t></par>   )###""\n"
+            u8R"###( </layout>                                    )###""\n",
 
-            m_GroundItemList.clear();
-            m_GroundItemList.resize(nW);
+            mapName.substr(0, mapName.find('_')).c_str(),
+            mathf::bound<int>(ratio, 0, 100)
+        ));
 
-            for(int nX = 0; nX < nW; ++nX){
-                m_GroundItemList[nX].resize(nH);
+        if(ratio >= 100){
+            loadStringBoard.setDone();
+        }
+    };
+
+    const auto fnLoadMap = [mapID, &fnSetDoneRatio, centerGX, centerGY, this]()
+    {
+        const auto mapBinPtr = g_mapBinDB->retrieve(mapID);
+        fflassert(mapBinPtr);
+        fnSetDoneRatio(30);
+
+        m_mapID = mapID;
+        m_mir2xMapData = *mapBinPtr;
+        m_groundItemIDList.clear();
+        fnSetDoneRatio(40);
+
+        // don't use getRenererSize() here
+        // SDLDevice::getRenererSize() doesn't have lock protection
+        const int winW = 1200;
+        const int winH = 1200;
+
+        const int x0 = mathf::bound<int>(centerGX - winW / 2 / SYS_MAPGRIDXP - SYS_OBJMAXW, 0, m_mir2xMapData.w());
+        const int x1 = mathf::bound<int>(centerGX + winW / 2 / SYS_MAPGRIDXP + SYS_OBJMAXW, 0, m_mir2xMapData.w());
+        const int y0 = mathf::bound<int>(centerGY - winH / 2 / SYS_MAPGRIDYP - SYS_OBJMAXH, 0, m_mir2xMapData.h());
+        const int y1 = mathf::bound<int>(centerGY + winH / 2 / SYS_MAPGRIDYP + SYS_OBJMAXH, 0, m_mir2xMapData.h());
+
+        int lastRatio = 0;
+        int doneGridCount = 0;
+        const int totalGridCount = (y1 - y0 + 1) * (x1 - x0 + 1);
+
+        // TODO the g_mapDB->retrieve() calls g_sdlDevice->createPNGTexture()
+        // SDL2 is not thread safe, the ModalStringBoard calls g_sdlDevice->present() can crash the data
+
+        for(int y = y0; y < y1; ++y){
+            for(int x = x0; x <= x1; ++x){
+                if(m_mir2xMapData.validC(x, y)){
+                    // if((x % 2 == 0) && (y % 2 == 0)){
+                    //     if(const auto &tile = m_mir2xMapData.tile(x, y); tile.valid){
+                    //         g_mapDB->retrieve(tile.texID);
+                    //     }
+                    // }
+                    //
+                    // for(const int i: {0, 1}){
+                    //     if(const auto &obj = m_mir2xMapData.cell(x, y).obj[i]; obj.valid){
+                    //         g_mapDB->retrieve(obj.texID);
+                    //     }
+                    // }
+                }
+
+                if(const auto currRatio = to_d(std::lround(to_f(doneGridCount++ * (100 - 40)) / totalGridCount)); currRatio > lastRatio){
+                    lastRatio = currRatio;
+                    fnSetDoneRatio(40 + currRatio);
+                }
             }
+        }
+        fnSetDoneRatio(100);
+    };
 
-            return 0;
+    fnSetDoneRatio(0);
+    auto loadThread = std::async(std::launch::async, fnLoadMap);
+    loadStringBoard.waitDone();
+    loadThread.get();
+
+    if(auto boardPtr = dynamic_cast<MiniMapBoard *>(getWidget("MiniMapBoard"))){
+        if(boardPtr->show()){
+            if(boardPtr->getMiniMapTexture()){
+                boardPtr->setPLoc();
+            }
+            else{
+                boardPtr->show(false);
+                addCBLog(CBLOG_ERR, u8"没有可用的地图");
+            }
         }
     }
-
-    m_MapID = 0;
-    return -1;
 }
 
-bool ProcessRun::CanMove(bool bCheckGround, int nCheckCreature, int nX, int nY)
+bool ProcessRun::canMove(bool bCheckGround, int nCheckCreature, int nX, int nY)
 {
     switch(auto nGrid = CheckPathGrid(nX, nY)){
         case PathFind::FREE:
@@ -722,26 +767,24 @@ bool ProcessRun::CanMove(bool bCheckGround, int nCheckCreature, int nX, int nY)
                         }
                     default:
                         {
-                            g_Log->AddLog(LOGTYPE_FATAL, "Invalid CheckCreature provided: %d, should be (0, 1, 2)", nCheckCreature);
-                            return false;
+                            throw fflerror("invalid CheckCreature provided: %d, should be (0, 1, 2)", nCheckCreature);
                         }
                 }
             }
         default:
             {
-                g_Log->AddLog(LOGTYPE_FATAL, "Invalid grid provided: %d at (%d, %d)", nGrid, nX, nY);
-                return false;
+                throw fflerror("invalid grid provided: %d at (%d, %d)", nGrid, nX, nY);
             }
     }
 }
 
 int ProcessRun::CheckPathGrid(int nX, int nY) const
 {
-    if(!m_Mir2xMapData.ValidC(nX, nY)){
+    if(!m_mir2xMapData.validC(nX, nY)){
         return PathFind::INVALID;
     }
 
-    if(!m_Mir2xMapData.Cell(nX, nY).CanThrough()){
+    if(!m_mir2xMapData.cell(nX, nY).land.canThrough()){
         return PathFind::OBSTACLE;
     }
 
@@ -749,24 +792,24 @@ int ProcessRun::CheckPathGrid(int nX, int nY) const
     // because server only checks EndX/EndY, if we use X()/Y() to request move it just fails
 
     bool bLocked = false;
-    for(auto pCreature: m_CreatureList){
+    for(auto &p: m_coList){
         if(true
-                && (pCreature.second)
-                && (pCreature.second->CurrMotion().EndX == nX)
-                && (pCreature.second->CurrMotion().EndY == nY)){
+                && (p.second)
+                && (p.second->currMotion()->endX == nX)
+                && (p.second->currMotion()->endY == nY)){
             return PathFind::OCCUPIED;
         }
 
         if(!bLocked
-                && pCreature.second->X() == nX
-                && pCreature.second->Y() == nY){
+                && p.second->x() == nX
+                && p.second->y() == nY){
             bLocked = true;
         }
     }
     return bLocked ? PathFind::LOCKED : PathFind::FREE;
 }
 
-bool ProcessRun::CanMove(bool bCheckGround, int nCheckCreature, int nX0, int nY0, int nX1, int nY1)
+bool ProcessRun::canMove(bool bCheckGround, int nCheckCreature, int nX0, int nY0, int nX1, int nY1)
 {
     return OneStepCost(nullptr, bCheckGround, nCheckCreature, nX0, nY0, nX1, nY1) >= 0.00;
 }
@@ -782,13 +825,12 @@ double ProcessRun::OneStepCost(const ClientPathFinder *pFinder, bool bCheckGroun
             }
         default:
             {
-                g_Log->AddLog(LOGTYPE_FATAL, "Invalid CheckCreature provided: %d, should be (0, 1, 2)", nCheckCreature);
-                break;
+                throw fflerror("invalid CheckCreature provided: %d, should be (0, 1, 2)", nCheckCreature);
             }
     }
 
     int nMaxIndex = -1;
-    switch(MathFunc::LDistance2(nX0, nY0, nX1, nY1)){
+    switch(mathf::LDistance2(nX0, nY0, nX1, nY1)){
         case 0:
             {
                 nMaxIndex = 0;
@@ -825,7 +867,7 @@ double ProcessRun::OneStepCost(const ClientPathFinder *pFinder, bool bCheckGroun
     for(int nIndex = 0; nIndex <= nMaxIndex; ++nIndex){
         int nCurrX = nX0 + nDX * nIndex;
         int nCurrY = nY0 + nDY * nIndex;
-        switch(auto nGrid = pFinder ? pFinder->GetGrid(nCurrX, nCurrY) : this->CheckPathGrid(nCurrX, nCurrY)){
+        switch(auto nGrid = pFinder ? pFinder->getGrid(nCurrX, nCurrY) : this->CheckPathGrid(nCurrX, nCurrY)){
             case PathFind::FREE:
                 {
                     break;
@@ -862,8 +904,7 @@ double ProcessRun::OneStepCost(const ClientPathFinder *pFinder, bool bCheckGroun
                 }
             default:
                 {
-                    g_Log->AddLog(LOGTYPE_FATAL, "Invalid grid provided: %d at (%d, %d)", nGrid, nCurrX, nCurrY);
-                    break;
+                    throw fflerror("invalid grid provided: %d at (%d, %d)", nGrid, nCurrX, nCurrY);
                 }
         }
     }
@@ -871,113 +912,117 @@ double ProcessRun::OneStepCost(const ClientPathFinder *pFinder, bool bCheckGroun
     return 1.00 + nMaxIndex * 0.10 + fExtraPen;
 }
 
-bool ProcessRun::ScreenPoint2Grid(int nPX, int nPY, int *pX, int *pY)
+bool ProcessRun::luaCommand(const char *luaCmdString)
 {
-    if(pX){ *pX = (nPX + m_ViewX) / SYS_MAPGRIDXP; }
-    if(pY){ *pY = (nPY + m_ViewY) / SYS_MAPGRIDYP; }
+    if(!luaCmdString){
+        return false;
+    }
 
+    const auto callResult = m_luaModule.getLuaState().script(luaCmdString, [](lua_State *, sol::protected_function_result result)
+    {
+        // default handler
+        // do nothing and let the call site handle the errors
+        return result;
+    });
+
+    if(callResult.valid()){
+        return true;
+    }
+
+    const auto fnReplaceTabChar = [](std::string line) -> std::string
+    {
+        for(auto pos = line.find('\t'); pos != std::string::npos; pos = line.find('\t')){
+            line.replace(pos, 1, "    ");
+        }
+        return line;
+    };
+
+    const sol::error err = callResult;
+    std::stringstream errStream(err.what());
+
+    std::string errLine;
+    while(std::getline(errStream, errLine, '\n')){
+        addCBLog(CBLOG_ERR, to_u8cstr(fnReplaceTabChar(errLine)));
+    }
     return true;
 }
 
-bool ProcessRun::LuaCommand(const char *szLuaCommand)
+bool ProcessRun::userCommand(const char *userCmdString)
 {
-    if(szLuaCommand){
-        auto stCallResult = m_LuaModule.GetLuaState().script(szLuaCommand, [](lua_State *, sol::protected_function_result stResult){
-            // default handler
-            // do nothing and let the call site handle the errors
-            return stResult;
+    if(!userCmdString){
+        return false;
+    }
+
+    const char *beginPtr = userCmdString;
+    const char *endPtr   = userCmdString + std::strlen(userCmdString);
+
+    std::vector<std::string> tokenList;
+    while(true){
+        beginPtr = std::find_if_not(beginPtr, endPtr, [](char chByte)
+        {
+            return chByte == ' ';
         });
 
-        if(stCallResult.valid()){
-            // default nothing printed
-            // we can put information here to show call succeeds
-            // or we can unlock the input widget to allow next command
-        }else{
-            sol::error stError = stCallResult;
-
-            g_Log->AddLog(LOGTYPE_WARNING, "%s", stError.what());
+        if(beginPtr == endPtr){
+            break;
         }
 
-        // always return true if command get evaluated
-        // return false only if provided is unhandled
+        const char *donePtr = std::find(beginPtr, endPtr, ' ');
+        tokenList.emplace_back(beginPtr, donePtr);
+        beginPtr = donePtr;
+    }
+
+    if(tokenList.empty()){
         return true;
     }
-    return false;
-}
 
-bool ProcessRun::UserCommand(const char *szUserCommand)
-{
-    if(szUserCommand){
-        // 1. split commands into an array
-        std::vector<std::string> stvToken;
-        {
-            auto pBegin = szUserCommand;
-            auto pEnd   = szUserCommand + std::strlen(szUserCommand);
+    int matchCount = 0;
+    UserCommand *entryPtr = nullptr;
 
-            while(true){
-                pBegin = std::find_if_not(pBegin, pEnd, [](char chByte){ return chByte == ' '; });
-                if(pBegin != pEnd){
-                    auto pDone = std::find(pBegin, pEnd, ' ');
-                    stvToken.emplace_back(pBegin, pDone);
-                    pBegin = pDone;
-                }else{ break; }
-            }
-
-            if(stvToken.empty()){
-                return true;
-            }
-        }
-
-        // 2. to find the command
-        //    alert and return if can't find it
-        UserCommandEntry *pEntry = nullptr;
-        {
-            int nCount = 0;
-            for(auto &rstEntry : m_UserCommandGroup){
-                if(rstEntry.Command.substr(0, stvToken[0].size()) == stvToken[0]){
-                    pEntry = &rstEntry;
-                    nCount++;
-                }
-            }
-
-            switch(nCount){
-                case 0:
-                    {
-                        AddOPLog(OUTPORT_CONTROLBOARD, 1, "", "Invalid command: %s", stvToken[0].c_str());
-                        break;
-                    }
-                case 1:
-                    {
-                        if(pEntry->Callback){
-                            pEntry->Callback(stvToken);
-                        }
-                        break;
-                    }
-                default:
-                    {
-                        AddOPLog(OUTPORT_CONTROLBOARD, 1, "", "Ambiguous command: %s", stvToken[0].c_str());
-                        for(auto &rstEntry : m_UserCommandGroup){
-                            if(rstEntry.Command.substr(0, stvToken[0].size()) == stvToken[0]){
-                                AddOPLog(OUTPORT_CONTROLBOARD, 1, "", "Possible command: %s", rstEntry.Command.c_str());
-                            }
-                        }
-                        break;
-                    }
-            }
+    for(auto &entry : m_userCommandList){
+        if(entry.command.substr(0, tokenList[0].size()) == tokenList[0]){
+            entryPtr = &entry;
+            matchCount++;
         }
     }
-    return false;
+
+    switch(matchCount){
+        case 0:
+            {
+                addCBLog(CBLOG_ERR, u8"-> Invalid user command: %s", tokenList[0].c_str());
+                return true;
+            }
+        case 1:
+            {
+                if(!entryPtr->callback){
+                    throw fflerror("command callback is not callable: %s", entryPtr->command.c_str());
+                }
+
+                entryPtr->callback(tokenList);
+                return true;
+            }
+        default:
+            {
+                addCBLog(CBLOG_ERR, u8">> Ambiguous user command: %s", tokenList[0].c_str());
+                for(auto &entry : m_userCommandList){
+                    if(entry.command.substr(0, tokenList[0].size()) == tokenList[0]){
+                        addCBLog(CBLOG_ERR, u8">> Candicate: %s", entry.command.c_str());
+                    }
+                }
+                return true;
+            }
+    }
 }
 
 std::vector<int> ProcessRun::GetPlayerList()
 {
-    std::vector<int> stRetV {};
-    for(auto p = m_CreatureList.begin(); p != m_CreatureList.end();){
-        if(p->second->Visible()){
-            switch(p->second->Type()){
-                case CREATURE_PLAYER:
+    std::vector<int> result;
+    for(auto p = m_coList.begin(); p != m_coList.end();){
+        if(p->second->visible()){
+            switch(p->second->type()){
+                case UID_PLY:
                     {
-                        stRetV.push_back(p->second->UID());
+                        result.push_back(p->second->UID());
                         break;
                     }
                 default:
@@ -987,380 +1032,382 @@ std::vector<int> ProcessRun::GetPlayerList()
             }
             ++p;
         }else{
-            p = m_CreatureList.erase(p);
+            p = m_coList.erase(p);
         }
     }
-    return stRetV;
+    return result;
 }
 
-bool ProcessRun::RegisterUserCommand()
+void ProcessRun::RegisterUserCommand()
 {
-    // 1. register command: moveTo
-    //    usage:
-    //              moveTo        120 250
-    //              moveTo 某地图 120 250
-    auto fnMoveTo = [this](const std::vector<std::string> &rstvParam) -> int
+    const auto fnCreateLuaCmdString = [](const std::string &luaCommand, const std::vector<std::string> &parmList) -> std::string
     {
-        switch(rstvParam.size()){
-            case 1 + 2:
+        // don't use parmList[0] as lua function name
+        // user commands can have shortcut matching which fails in lua
+
+        switch(parmList.size()){
+            case 0:
                 {
-                    int nX = std::atoi(rstvParam[1].c_str());
-                    int nY = std::atoi(rstvParam[2].c_str());
-                    RequestSpaceMove(MapID(), nX, nY);
-                    return 0;
+                    throw fflerror("argument list empty");
                 }
-            case 1 + 3:
+            case 1:
                 {
-                    int nX = std::atoi(rstvParam[2].c_str());
-                    int nY = std::atoi(rstvParam[3].c_str());
-                    auto nMapID = DBCOM_MAPID(rstvParam[1].c_str());
-                    RequestSpaceMove(nMapID, nX, nY);
-                    return 0;
+                    return luaCommand + "()";
                 }
             default:
                 {
-                    AddOPLog(OUTPORT_CONTROLBOARD, 1, "", "Invalid argument to command: moveTo");
-                    return 1;
+                    std::string luaString = luaCommand + "(" + parmList[1];
+                    for(size_t i = 2; i < parmList.size(); ++i){
+                        luaString += (std::string(", ") + parmList[i]);
+                    }
+                    return luaString + ")";
                 }
         }
     };
-    m_UserCommandGroup.emplace_back("moveTo", fnMoveTo);
 
-    auto fnLuaEditor = [this](const std::vector<std::string> &) -> int
+    m_userCommandList.emplace_back("moveTo", [&fnCreateLuaCmdString, this](const std::vector<std::string> &parmList) -> int
     {
-        AddOPLog(OUTPORT_CONTROLBOARD, 1, "", "LuaEditor not implemented yet");
+        return luaCommand(fnCreateLuaCmdString("moveTo", parmList).c_str());
+    });
+
+    m_userCommandList.emplace_back("luaEditor", [this](const std::vector<std::string> &) -> int
+    {
+        addCBLog(CBLOG_ERR, u8">> Lua editor not implemented yet");
         return 0;
-    };
-    m_UserCommandGroup.emplace_back("luaEditor", fnLuaEditor);
+    });
 
-    auto fnMakeItem = [this](const std::vector<std::string> &rstvParam) -> int
+    m_userCommandList.emplace_back("makeItem", [this](const std::vector<std::string> &parmList) -> int
     {
-        switch(rstvParam.size()){
-            case 0 + 1:
+        switch(parmList.size()){
+            case 1 + 0:
                 {
-                    AddOPLog(OUTPORT_CONTROLBOARD, 2, "", u8"@make 物品名字");
+                    addCBLog(CBLOG_SYS, u8"@make 物品名字");
                     return 1;
                 }
             case 1 + 1:
                 {
-                    AddOPLog(OUTPORT_CONTROLBOARD, 2, "", u8"获得%s", rstvParam[1].c_str());
+                    addCBLog(CBLOG_SYS, u8"获得%s", parmList[1].c_str());
                     return 0;
                 }
             default:
                 {
-                    AddOPLog(OUTPORT_CONTROLBOARD, 2, "", u8"Invalid argument for @make");
+                    addCBLog(CBLOG_ERR, u8"Invalid argument to @make");
                     return 1;
                 }
         }
-    };
-    m_UserCommandGroup.emplace_back("makeItem", fnMakeItem);
+    });
 
-    auto fnGetAttackUID = [this](const std::vector<std::string> &) -> int
+    m_userCommandList.emplace_back("getAttackUID", [this](const std::vector<std::string> &) -> int
     {
-        AddOPLog(OUTPORT_CONTROLBOARD, 2, "", std::to_string(FocusUID(FOCUS_ATTACK)).c_str());
+        addCBLog(CBLOG_ERR, to_u8cstr(std::to_string(getFocusUID(FOCUS_ATTACK))));
+        return 1;
+    });
+
+    m_userCommandList.emplace_back("killPets", [this](const std::vector<std::string> &) -> int
+    {
+        RequestKillPets();
+        addCBLog(CBLOG_SYS, u8"杀死所有宝宝");
         return 0;
-    };
-    m_UserCommandGroup.emplace_back("getAttackUID", fnGetAttackUID);
+    });
 
-    return true;
-}
-
-bool ProcessRun::RegisterLuaExport(ClientLuaModule *pModule, int nOutPort)
-{
-    if(pModule){
-
-        // initialization before registration
-        pModule->GetLuaState().script(R"()");
-
-        // register command printLine
-        // print one line to the out port allocated for the lua module
-        pModule->GetLuaState().set_function("printLine", [this, nOutPort](sol::object stLogType, sol::object stPrompt, sol::object stLogInfo)
-        {
-            if(true
-                    && stLogType.is<int>()
-                    &&  stPrompt.is<std::string>()
-                    && stLogInfo.is<std::string>()){
-                AddOPLog(nOutPort, stLogType.as<int>(), stPrompt.as<std::string>().c_str(), "%s", stLogInfo.as<std::string>().c_str());
-                return;
-            }
-
-            // invalid argument provided
-            AddOPLog(nOutPort, 2, ">>> ", "%s", "printLine(LogType: int, Prompt: string, LogInfo: string)");
-        });
-
-        // register command addLog
-        // add to client system log file only, same as g_Log->AddLog(LOGTYPE_XXXX, LogInfo)
-        pModule->GetLuaState().set_function("addLog", [this, nOutPort](sol::object stLogType, sol::object stLogInfo)
-        {
-            if(true
-                    && stLogType.is<int>()
-                    && stLogInfo.is<std::string>()){
-
-                switch(stLogType.as<int>()){
-                    case 0  : g_Log->AddLog(LOGTYPE_INFO   , "%s", stLogInfo.as<std::string>().c_str()); return;
-                    case 1  : g_Log->AddLog(LOGTYPE_WARNING, "%s", stLogInfo.as<std::string>().c_str()); return;
-                    case 2  : g_Log->AddLog(LOGTYPE_FATAL  , "%s", stLogInfo.as<std::string>().c_str()); return;
-                    default : g_Log->AddLog(LOGTYPE_DEBUG  , "%s", stLogInfo.as<std::string>().c_str()); return;
-                }
-            }
-
-            // invalid argument provided
-            AddOPLog(nOutPort, 2, ">>> ", "%s", "addLog(LogType: int, LogInfo: string)");
-        });
-
-        // register command playerList
-        // return a table (userData) to lua for ipairs() check
-        pModule->GetLuaState().set_function("playerList", [this](sol::this_state stThisLua)
-        {
-            return sol::make_object(sol::state_view(stThisLua), GetPlayerList());
-        });
-
-        // register command moveTo(x, y)
-        // wait for server to move player if possible
-        pModule->GetLuaState().set_function("moveTo", [this, nOutPort](sol::object stLocX, sol::object stLocY)
-        {
-            if(true
-                    && stLocX.is<int>()
-                    && stLocY.is<int>()){
-
-                int nX = stLocX.as<int>();
-                int nY = stLocY.as<int>();
-
-                RequestSpaceMove(MapID(), nX, nY);
-                AddOPLog(nOutPort, 0, ">", "moveTo(%d, %d)", nX, nY);
-            }
-        });
-
-
-        // register command ``listPlayerInfo"
-        // this command call to get a player info table and print to out port
-        pModule->GetLuaState().script(R"#(
-            function listPlayerInfo ()
-                for k, v in ipairs(playerList())
-                do
-                    printLine(0, "> ", tostring(v))
-                end
-            end
-        )#");
-
-        // register command ``help"
-        // part-1: divide into two parts, part-1 create the table for help
-        pModule->GetLuaState().script(R"#(
-            helpInfoTable = {
-                wear     = "put on different dress",
-                moveTo   = "move to other position on current map",
-                randMove = "random move on current map"
-            }
-        )#");
-
-        // part-2: make up the function to print the table entry
-        pModule->GetLuaState().script(R"#(
-            function help (queryKey)
-                if helpInfoTable[queryKey]
-                then
-                    printLine(0, "> ", helpInfoTable[queryKey])
-                else
-                    printLine(2, "> ", "No entry find for input")
-                end
-            end
-        )#");
-
-        // register command ``myHero.xxx"
-        // I need to insert a table to micmic a instance myHero in the future
-        pModule->GetLuaState().set_function("myHero_dress", [this](int nDress)
-        {
-            if(nDress >= 0){
-                GetMyHero()->Dress((uint32_t)(nDress));
-            }
-        });
-
-        // register command ``myHero.xxx"
-        // I need to insert a table to micmic a instance myHero in the future
-        pModule->GetLuaState().set_function("myHero_weapon", [this](int nWeapon)
-        {
-            if(nWeapon >= 0){
-                GetMyHero()->Weapon((uint32_t)(nWeapon));
-            }
-        });
-
-
-        // registration done
-        return true;
-    }
-    return false;
-}
-
-void ProcessRun::AddOPLog(int nOutPort, int nLogType, const char *szPrompt, const char *szLogFormat, ...)
-{
-    std::string szLog;
-    bool bError = false;
+    m_userCommandList.emplace_back("addExp", [this](const std::vector<std::string> &parms) -> int
     {
-        va_list ap;
-        va_start(ap, szLogFormat);
+        requestAddExp(to_u64(std::stol(parms.at(1))));
+        return 0;
+    });
 
-        try{
-            szLog = str_vprintf(szLogFormat, ap);
-        }catch(const std::exception &e){
-            bError = true;
-            szLog = str_printf("Exception caught in ProcessRun::AddOPLog(\"%s\", ...): %s", szLogFormat, e.what());
+    m_userCommandList.emplace_back("help", [this](const std::vector<std::string> &) -> int
+    {
+        for(const auto &cmd: m_userCommandList){
+            addCBLog(CBLOG_SYS, u8"@%s", cmd.command.c_str());
         }
-
-        va_end(ap);
-    }
-
-    if(bError){
-        nLogType = Log::LOGTYPEV_WARNING;
-    }
-
-    if(nOutPort & OUTPORT_LOG){
-        switch(nLogType){
-            case Log::LOGTYPEV_INFO    : g_Log->AddLog(LOGTYPE_INFO   , u8"%s%s", szPrompt ? szPrompt : "", szLog.c_str()); break;
-            case Log::LOGTYPEV_WARNING : g_Log->AddLog(LOGTYPE_WARNING, u8"%s%s", szPrompt ? szPrompt : "", szLog.c_str()); break;
-            case Log::LOGTYPEV_DEBUG   : g_Log->AddLog(LOGTYPE_DEBUG,   u8"%s%s", szPrompt ? szPrompt : "", szLog.c_str()); break;
-            default                    : g_Log->AddLog(LOGTYPE_FATAL  , u8"%s%s", szPrompt ? szPrompt : "", szLog.c_str()); break;
-        }
-    }
-
-    if(nOutPort & OUTPORT_SCREEN){
-    }
-
-    if(nOutPort & OUTPORT_CONTROLBOARD){
-        m_ControbBoard.AddLog(nLogType, szLog.c_str());
-    }
+        return 0;
+    });
 }
 
-bool ProcessRun::OnMap(uint32_t nMapID, int nX, int nY) const
+void ProcessRun::RegisterLuaExport(ClientLuaModule *luaModulePtr)
 {
-    return (MapID() == nMapID) && m_Mir2xMapData.ValidC(nX, nY);
+    if(!luaModulePtr){
+        throw fflerror("null ClientLuaModule pointer");
+    }
+
+    // initialization before registration
+    luaModulePtr->getLuaState().script(str_printf("CBLOG_DEF = %d", CBLOG_DEF));
+    luaModulePtr->getLuaState().script(str_printf("CBLOG_SYS = %d", CBLOG_SYS));
+    luaModulePtr->getLuaState().script(str_printf("CBLOG_DBG = %d", CBLOG_DBG));
+    luaModulePtr->getLuaState().script(str_printf("CBLOG_ERR = %d", CBLOG_ERR));
+    luaModulePtr->getLuaState().set_function("addCBLog", [this](sol::object logType, sol::object logInfo)
+    {
+        if(logType.is<int>() && logInfo.is<std::string>()){
+            switch(logType.as<int>()){
+                case CBLOG_DEF:
+                case CBLOG_SYS:
+                case CBLOG_DBG:
+                case CBLOG_ERR:
+                    {
+                        addCBLog(logType.as<int>(), to_u8cstr(logInfo.as<std::string>()));
+                        return;
+                    }
+                default:
+                    {
+                        addCBLog(CBLOG_ERR, u8"Invalid argument: logType requires [CBLOG_DEF, CBLOG_SYS, CBLOG_DBG, CBLOG_ERR]");
+                        return;
+                    }
+            }
+        }
+
+        if(logType.is<int>()){
+            addCBLog(CBLOG_ERR, str_printf(u8"Invalid argument: addCBLog(%d, \"?\")", logType.as<int>()).c_str());
+            return;
+        }
+
+        if(logInfo.is<std::string>()){
+            addCBLog(CBLOG_ERR, str_printf(u8"Invalid argument: addCBLog(?, \"%s\")", logInfo.as<std::string>().c_str()).c_str());
+            return;
+        }
+
+        addCBLog(CBLOG_ERR, u8"Invalid argument: addCBLog(?, \"?\")");
+        return;
+    });
+
+    // register command playerList
+    // return a table (userData) to lua for ipairs() check
+    luaModulePtr->getLuaState().set_function("playerList", [this](sol::this_state stThisLua)
+    {
+        return sol::make_object(sol::state_view(stThisLua), GetPlayerList());
+    });
+
+    // register command moveTo(x, y)
+    // wait for server to move player if possible
+    luaModulePtr->getLuaState().set_function("moveTo", [this](sol::variadic_args args)
+    {
+        int locX = 0;
+        int locY = 0;
+        uint32_t argMapID = 0;
+
+        const std::vector<sol::object> argList(args.begin(), args.end());
+        switch(argList.size()){
+            case 0:
+                {
+                    argMapID = mapID();
+                    std::tie(locX, locY) = getRandLoc(mapID());
+                    break;
+                }
+            case 1:
+                {
+                    if(!argList[0].is<int>()){
+                        throw fflerror("invalid arguments: moveTo(mapID: int)");
+                    }
+
+                    argMapID = argList[0].as<int>();
+                    std::tie(locX, locY) = getRandLoc(argMapID);
+                    break;
+                }
+            case 2:
+                {
+                    if(!(argList[0].is<int>() && argList[1].is<int>())){
+                        throw fflerror("invalid arguments: moveTo(x: int, y: int)");
+                    }
+
+                    argMapID = mapID();
+                    locX  = argList[0].as<int>();
+                    locY  = argList[1].as<int>();
+                    break;
+                }
+            case 3:
+                {
+                    if(!(argList[0].is<int>() && argList[1].is<int>() && argList[2].is<int>())){
+                        throw fflerror("invalid arguments: moveTo(mapID: int, x: int, y: int)");
+                    }
+
+                    argMapID = argList[0].as<int>();
+                    locX = argList[1].as<int>();
+                    locY = argList[2].as<int>();
+                    break;
+                }
+            default:
+                {
+                    throw fflerror("invalid arguments: moveTo([mapID: int,] x: int, y: int)");
+                }
+        }
+
+        if(requestSpaceMove(argMapID, locX, locY)){
+            addCBLog(CBLOG_SYS, u8"Move request (mapName = %s, x = %d, y = %d) sent", to_cstr(DBCOM_MAPRECORD(argMapID).name), locX, locY);
+        }
+        else{
+            addCBLog(CBLOG_ERR, u8"Move request (mapName = %s, x = %d, y = %d) failed", to_cstr(DBCOM_MAPRECORD(argMapID).name), locX, locY);
+        }
+    });
+
+    // register command ``listPlayerInfo"
+    // this command call to get a player info table and print to out port
+    luaModulePtr->getLuaState().script(R"#(
+        function listPlayerInfo ()
+            for k, v in ipairs(playerList())
+            do
+                addLog(CBLOG_SYS, "> " .. tostring(v))
+            end
+        end
+    )#");
+
+    // register command ``help"
+    // part-1: divide into two parts, part-1 create the table for help
+    luaModulePtr->getLuaState().script(R"#(
+        helpInfoTable = {
+            wear     = "put on different dress",
+            moveTo   = "move to other position on current map",
+            randMove = "random move on current map"
+        }
+    )#");
+
+    // part-2: make up the function to print the table entry
+    luaModulePtr->getLuaState().script(R"#(
+        function help (queryKey)
+            if helpInfoTable[queryKey]
+            then
+                printLine(0, "> ", helpInfoTable[queryKey])
+            else
+                printLine(2, "> ", "No entry find for input")
+            end
+        end
+    )#");
+
+    // register command ``myHero.xxx"
+    // I need to insert a table to micmic a instance myHero in the future
+    luaModulePtr->getLuaState().set_function("myHero_dress", [this](int nDress)
+    {
+        if(nDress >= 0){
+            getMyHero()->setWLItem(WLG_DRESS, SDItem
+            {
+                .itemID = to_u32(nDress),
+            });
+        }
+    });
+
+    // register command ``myHero.xxx"
+    // I need to insert a table to micmic a instance myHero in the future
+    luaModulePtr->getLuaState().set_function("myHero_weapon", [this](int nWeapon)
+    {
+        if(nWeapon >= 0){
+            getMyHero()->setWLItem(WLG_WEAPON, SDItem
+            {
+                .itemID = to_u32(nWeapon),
+            });
+        }
+    });
 }
 
-Creature *ProcessRun::RetrieveUID(uint64_t nUID)
+void ProcessRun::addCBLog(int logType, const char8_t *format, ...)
 {
-    if(!nUID){
+    std::u8string logStr;
+    str_format(format, logStr);
+    dynamic_cast<ControlBoard *>(getGUIManager()->getWidget("ControlBoard"))->addLog(logType, to_cstr(logStr));
+}
+
+ClientCreature *ProcessRun::findUID(uint64_t uid, bool checkVisible) const
+{
+    if(!uid){
         return nullptr;
     }
 
-    if(auto p = m_CreatureList.find(nUID); p != m_CreatureList.end()){
-        if(p->second->Visible()){
-            if(p->second->UID() != nUID){
-                g_Log->AddLog(LOGTYPE_FATAL, "Invalid creature record: %p, UID = %" PRIu64, p->second, p->second->UID());
-                return nullptr;
-            }
+    // TODO don't remove invisible creatures, this causes too much crash
+    // let ProcessRun::update() loop clean it
+
+    if(auto p = m_coList.find(uid); p != m_coList.end()){
+        if(p->second->UID() != uid){
+            throw fflerror("invalid creature: %p, UID = %llu", to_cvptr(p->second.get()), to_llu(p->second->UID()));
+        }
+
+        if(!checkVisible || p->second->visible()){
             return p->second.get();
         }
-        m_CreatureList.erase(p);
     }
     return nullptr;
 }
 
-bool ProcessRun::LocateUID(uint64_t nUID, int *pX, int *pY)
+bool ProcessRun::trackAttack(bool bForce, uint64_t nUID)
 {
-    if(auto pCreature = RetrieveUID(nUID)){
-        if(pX){ *pX = pCreature->X(); }
-        if(pY){ *pY = pCreature->Y(); }
-        return true;
-    }
-    return false;
-}
-
-bool ProcessRun::TrackAttack(bool bForce, uint64_t nUID)
-{
-    if(RetrieveUID(nUID)){
-        if(bForce || GetMyHero()->StayIdle()){
-            auto nEndX = GetMyHero()->CurrMotion().EndX;
-            auto nEndY = GetMyHero()->CurrMotion().EndY;
-            return GetMyHero()->EmplaceAction(ActionAttack(nEndX, nEndY, DC_PHY_PLAIN, SYS_DEFSPEED, nUID));
+    if(findUID(nUID)){
+        if(bForce || getMyHero()->stayIdle()){
+            return getMyHero()->emplaceAction(ActionAttack
+            {
+                .speed = SYS_DEFSPEED,
+                .x = getMyHero()->currMotion()->endX,
+                .y = getMyHero()->currMotion()->endY,
+                .aimUID = nUID,
+                .magicID = [this]() -> uint32_t
+                {
+                    if(getMyHero()->getNextStrike()){
+                        getMyHero()->setNextStrike(false);
+                        return DBCOM_MAGICID(u8"攻杀剑术");
+                    }
+                    else if(getMyHero()->hasSwingMagic(DBCOM_MAGICID(u8"莲月剑法"))){
+                        getMyHero()->toggleSwingMagic(DBCOM_MAGICID(u8"莲月剑法"), false);
+                        return DBCOM_MAGICID(u8"莲月剑法");
+                    }
+                    else if(getMyHero()->hasSwingMagic(DBCOM_MAGICID(u8"翔空剑法"))){
+                        getMyHero()->toggleSwingMagic(DBCOM_MAGICID(u8"翔空剑法"), false);
+                        return DBCOM_MAGICID(u8"翔空剑法");
+                    }
+                    else if(getMyHero()->hasSwingMagic(DBCOM_MAGICID(u8"烈火剑法"))){
+                        getMyHero()->toggleSwingMagic(DBCOM_MAGICID(u8"烈火剑法"), false);
+                        return DBCOM_MAGICID(u8"烈火剑法");
+                    }
+                    else if(getMyHero()->hasSwingMagic(DBCOM_MAGICID(u8"十方斩"))){
+                        return DBCOM_MAGICID(u8"十方斩");
+                    }
+                    else if(getMyHero()->hasSwingMagic(DBCOM_MAGICID(u8"半月弯刀"))){
+                        return DBCOM_MAGICID(u8"半月弯刀");
+                    }
+                    else{
+                        return DBCOM_MAGICID(u8"物理攻击");
+                    }
+                }(),
+            });
         }
     }
     return false;
 }
 
-uint32_t ProcessRun::GetFocusFaceKey()
+void ProcessRun::addAscendStr(int nType, int nValue, int nX, int nY)
 {
-    uint32_t nFaceKey = 0X02000000;
-    if(auto nUID = FocusUID(FOCUS_MOUSE)){
-        if(auto pCreature = RetrieveUID(nUID)){
-            switch(pCreature->Type()){
-                case CREATURE_PLAYER:
-                    {
-                        nFaceKey = 0X02000000;
-                        break;
-                    }
-                case CREATURE_MONSTER:
-                    {
-                        auto nLookID = ((Monster*)(pCreature))->LookID();
-                        if(nLookID >= 0){
-                            nFaceKey = 0X01000000 + (nLookID - LID_MIN);
-                        }
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    }
-            }
-        }
-    }
-
-    return nFaceKey;
+    m_ascendStrList.push_back(std::make_unique<AscendStr>(nType, nValue, nX, nY));
 }
 
-void ProcessRun::AddAscendStr(int nType, int nValue, int nX, int nY)
+void ProcessRun::centerMyHero()
 {
-    m_AscendStrList.emplace_back(std::make_shared<AscendStr>(nType, nValue, nX, nY));
-}
+    const auto nMotion     = getMyHero()->currMotion()->type;
+    const auto nDirection  = getMyHero()->currMotion()->direction;
+    const auto nX          = getMyHero()->currMotion()->x;
+    const auto nY          = getMyHero()->currMotion()->y;
+    const auto currFrame   = getMyHero()->currMotion()->frame;
+    const auto frameCount = getMyHero()->getFrameCount(nMotion, nDirection);
 
-bool ProcessRun::GetUIDLocation(uint64_t nUID, bool bDrawLoc, int *pX, int *pY)
-{
-    if(auto pCreature = RetrieveUID(nUID)){
-        if(bDrawLoc){
-        }else{
-            if(pX){ *pX = pCreature->X(); }
-            if(pY){ *pY = pCreature->Y(); }
-        }
-        return true;
-    }
-    return false;
-}
-
-void ProcessRun::CenterMyHero()
-{
-    auto nMotion     = GetMyHero()->CurrMotion().Motion;
-    auto nDirection  = GetMyHero()->CurrMotion().Direction;
-    auto nX          = GetMyHero()->CurrMotion().X;
-    auto nY          = GetMyHero()->CurrMotion().Y;
-    auto nFrame      = GetMyHero()->CurrMotion().Frame;
-    auto nFrameCount = GetMyHero()->MotionFrameCount(nMotion, nDirection);
-
-    if(nFrameCount <= 0){
-        throw std::runtime_error(str_fflprintf("Current hero has invalid frame count: %d", nFrameCount));
+    if(frameCount <= 0){
+        throw fflerror("invalid frame count: %d", frameCount);
     }
 
-    auto fnSetOff = [this, nX, nY, nDirection, nFrame, nFrameCount](int nStepLen)
+    const auto fnSetOff = [this, nX, nY, nDirection, currFrame, frameCount](int stepLen)
     {
-        auto nShowWindowW = g_SDLDevice->WindowW(false);
-        auto nShowWindowH = g_SDLDevice->WindowH(false);
+        const auto [rendererWidth, rendererHeight] = g_sdlDevice->getRendererSize();
+        const auto controlBoardPtr = dynamic_cast<ControlBoard *>(getGUIManager()->getWidget("ControlBoard"));
+        const auto showWindowW = rendererWidth;
+        const auto showWindowH = rendererHeight - controlBoardPtr->h();
 
-        switch(nStepLen){
+        switch(stepLen){
             case 0:
                 {
-                    m_ViewX = nX * SYS_MAPGRIDXP - nShowWindowW / 2;
-                    m_ViewY = nY * SYS_MAPGRIDYP - nShowWindowH / 2;
+                    m_viewX = nX * SYS_MAPGRIDXP - showWindowW / 2;
+                    m_viewY = nY * SYS_MAPGRIDYP - showWindowH / 2;
                     return;
                 }
             case 1:
             case 2:
             case 3:
                 {
-                    int nDX = -1;
-                    int nDY = -1;
-                    PathFind::GetFrontLocation(&nDX, &nDY, 0, 0, nDirection, nStepLen);
-
-                    int nOffX = nDX * SYS_MAPGRIDXP * (nFrame + 1) / nFrameCount;
-                    int nOffY = nDY * SYS_MAPGRIDYP * (nFrame + 1) / nFrameCount;
-
-                    m_ViewX = nX * SYS_MAPGRIDXP + nOffX - nShowWindowW / 2;
-                    m_ViewY = nY * SYS_MAPGRIDYP + nOffY - nShowWindowH / 2;
+                    const auto [shiftX, shiftY] = getMyHero()->getShift(getMyHero()->currMotion()->frame);
+                    m_viewX = nX * SYS_MAPGRIDXP + shiftX - showWindowW / 2;
+                    m_viewY = nY * SYS_MAPGRIDYP + shiftY - showWindowH / 2;
                     return;
                 }
             default:
@@ -1395,115 +1442,852 @@ void ProcessRun::CenterMyHero()
     }
 }
 
-bool ProcessRun::RequestSpaceMove(uint32_t nMapID, int nX, int nY)
+std::tuple<int, int> ProcessRun::getRandLoc(uint32_t reqMapID)
 {
-    if(auto pMapBin = g_MapBinDBN->Retrieve(nMapID)){
-        if(pMapBin->ValidC(nX, nY) && pMapBin->Cell(nX, nY).CanThrough()){
-            CMReqestSpaceMove stCMRSM;
-            stCMRSM.MapID = nMapID;
-            stCMRSM.X     = nX;
-            stCMRSM.Y     = nY;
-            g_Client->Send(CM_REQUESTSPACEMOVE, stCMRSM);
+    std::shared_ptr<Mir2xMapData> newPtr;
+    const auto mapBinPtr = [reqMapID, &newPtr, this]() -> const Mir2xMapData *
+    {
+        if(reqMapID == 0 || reqMapID == mapID()){
+            return &m_mir2xMapData;
+        }
+
+        if(newPtr = g_mapBinDB->retrieve(reqMapID)){
+            return newPtr.get();
+        }
+        return nullptr;
+    }();
+
+    if(!mapBinPtr){
+        throw fflerror("failed to find map with mapID = %llu", to_llu(reqMapID));
+    }
+
+    while(true){
+        const int nX = std::rand() % mapBinPtr->w();
+        const int nY = std::rand() % mapBinPtr->h();
+
+        if(mapBinPtr->validC(nX, nY) && mapBinPtr->cell(nX, nY).land.canThrough()){
+            return {nX, nY};
+        }
+    }
+
+    throw fflreach();
+}
+
+bool ProcessRun::requestSpaceMove(uint32_t nMapID, int nX, int nY)
+{
+    const auto mapBinPtr = g_mapBinDB->retrieve(nMapID);
+    if(!mapBinPtr){
+        return false;
+    }
+
+    if(!(mapBinPtr->validC(nX, nY) && mapBinPtr->cell(nX, nY).land.canThrough())){
+        return false;
+    }
+
+    CMRequestSpaceMove cmRSM;
+    std::memset(&cmRSM, 0, sizeof(cmRSM));
+
+    cmRSM.mapID = nMapID;
+    cmRSM.X     = nX;
+    cmRSM.Y     = nY;
+
+    g_client->send(CM_REQUESTSPACEMOVE, cmRSM);
+    return true;
+}
+
+void ProcessRun::requestSetMagicKey(uint32_t magicID, char key)
+{
+    fflassert(DBCOM_MAGICRECORD(magicID));
+    fflassert((key >= 'a' && key <= 'z') || (key >= '0' && key <= '9'));
+
+    CMSetMagicKey cmSMK;
+    std::memset(&cmSMK, 0, sizeof(cmSMK));
+
+    cmSMK.magicID = magicID;
+    cmSMK.key = key;
+
+    g_client->send(CM_SETMAGICKEY, cmSMK);
+}
+
+void ProcessRun::requestRemoveSecuredItem(uint32_t itemID, uint32_t seqID)
+{
+    fflassert(DBCOM_ITEMRECORD(itemID));
+
+    CMRequestRetrieveSecuredItem cmRRSI;
+    std::memset(&cmRRSI, 0, sizeof(cmRRSI));
+
+    cmRRSI.itemID = itemID;
+    cmRRSI.seqID = seqID;
+
+    g_client->send(CM_REQUESTRETRIEVESECUREDITEM, cmRRSI);
+}
+
+void ProcessRun::RequestKillPets()
+{
+    g_client->send(CM_REQUESTKILLPETS);
+}
+
+void ProcessRun::requestAddExp(uint64_t exp)
+{
+    if(exp){
+        CMRequestAddExp cmRAE;
+        std::memset(&cmRAE, 0, sizeof(cmRAE));
+
+        cmRAE.addExp = exp;
+        g_client->send(CM_REQUESTADDEXP, cmRAE);
+    }
+}
+
+void ProcessRun::queryCORecord(uint64_t nUID) const
+{
+    CMQueryCORecord cmQCOR;
+    std::memset(&cmQCOR, 0, sizeof(cmQCOR));
+
+    cmQCOR.AimUID = nUID;
+    g_client->send(CM_QUERYCORECORD, cmQCOR);
+}
+
+void ProcessRun::onActionSpawn(uint64_t uid, const ActionNode &action)
+{
+    fflassert(uid);
+    fflassert(action.type == ACTION_SPAWN);
+
+    if(uidf::getUIDType(uid) != UID_MON){
+        queryCORecord(uid);
+        return;
+    }
+
+    switch(uidf::getMonsterID(uid)){
+        case DBCOM_MONSTERID(u8"变异骷髅"):
+            {
+                m_actionBlocker.insert(uid);
+                addCBLog(CBLOG_SYS, u8"使用魔法: 召唤骷髅");
+                addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
+                {
+                    u8"召唤骷髅",
+                    u8"开始",
+                    action.x,
+                    action.y,
+
+                }))->addTrigger([action, uid, this](BaseMagic *magicPtr) -> bool
+                {
+                    if(magicPtr->frame() < 10){
+                        return false;
+                    }
+
+                    m_coList[uid].reset(new ClientTaoSkeleton(uid, this, ActionStand
+                    {
+                        .x = action.x,
+                        .y = action.y,
+                        .direction = DIR_DOWNLEFT,
+                    }));
+
+                    m_actionBlocker.erase(uid);
+                    queryCORecord(uid);
+                    return true;
+                });
+                return;
+            }
+        case DBCOM_MONSTERID(u8"超强骷髅"):
+            {
+                m_actionBlocker.insert(uid);
+                addCBLog(CBLOG_SYS, u8"使用魔法: 超强召唤骷髅");
+                addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
+                {
+                    u8"超强召唤骷髅",
+                    u8"开始",
+                    action.x,
+                    action.y,
+
+                }))->addTrigger([action, uid, this](BaseMagic *magicPtr) -> bool
+                {
+                    if(magicPtr->frame() < 10){
+                        return false;
+                    }
+
+                    m_coList[uid].reset(new ClientTaoSkeletonExt(uid, this, ActionStand
+                    {
+                        .x = action.x,
+                        .y = action.y,
+                        .direction = DIR_DOWNLEFT,
+                    }));
+
+                    m_actionBlocker.erase(uid);
+                    queryCORecord(uid);
+                    return true;
+                });
+                return;
+            }
+        case DBCOM_MONSTERID(u8"神兽"):
+            {
+                addCBLog(CBLOG_SYS, u8"使用魔法: 召唤神兽");
+                m_coList[uid].reset(new ClientTaoDog(uid, this, action));
+                queryCORecord(uid);
+                return;
+            }
+        default:
+            {
+                m_coList[uid].reset(ClientMonster::create(uid, this, action));
+                queryCORecord(uid);
+                return;
+            }
+    }
+}
+
+void ProcessRun::sendNPCEvent(uint64_t uid, std::string event, std::optional<std::string> value)
+{
+    fflassert(uidf::getUIDType(uid) == UID_NPC);
+
+    CMNPCEvent cmNPCE;
+    std::memset(&cmNPCE, 0, sizeof(cmNPCE));
+
+    cmNPCE.uid = uid;
+
+    fflassert(!event.empty());
+    fflassert(event.size() < sizeof(cmNPCE.event));
+    std::strcpy(cmNPCE.event, event.c_str());
+
+    if(value.has_value()){
+        fflassert(value.value().size() < sizeof(cmNPCE.value));
+        cmNPCE.valueSize = to_i16(value.value().size());
+        std::strcpy(cmNPCE.value, value.value().c_str());
+    }
+    else{
+        cmNPCE.valueSize = -1;
+    }
+    g_client->send(CM_NPCEVENT, cmNPCE);
+}
+
+void ProcessRun::drawGroundItem(int x0, int y0, int x1, int y1) const
+{
+    for(const auto &p: m_groundItemIDList){
+        const auto [x, y] = p.first;
+        if(!(x >= x0 && x < x1 && y >= y0 && y < y1)){
+            continue;
+        }
+
+        for(const auto itemID: p.second){
+            const auto &ir = DBCOM_ITEMRECORD(itemID);
+            if(!ir){
+                throw fflerror("invalid itemID: %llu", to_llu(itemID));
+            }
+
+            if(ir.pkgGfxID < 0){
+                continue;
+            }
+
+            auto texPtr = g_itemDB->retrieve(ir.pkgGfxID);
+            if(!texPtr){
+                continue;
+            }
+
+            const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
+            const int drawPX = x * SYS_MAPGRIDXP - m_viewX + SYS_MAPGRIDXP / 2 - texW / 2;
+            const int drawPY = y * SYS_MAPGRIDYP - m_viewY + SYS_MAPGRIDYP / 2 - texH / 2;
+
+            const auto [mouseX, mouseY] = SDLDeviceHelper::getMousePLoc();
+            const int mouseGridX = (mouseX + m_viewX) / SYS_MAPGRIDXP;
+            const int mouseGridY = (mouseY + m_viewY) / SYS_MAPGRIDYP;
+
+            bool mouseOver = false;
+            if(mouseGridX == x && mouseGridY == y){
+                mouseOver = true;
+                SDL_SetTextureBlendMode(texPtr, SDL_BLENDMODE_ADD);
+            }
+            else{
+                SDL_SetTextureBlendMode(texPtr, SDL_BLENDMODE_BLEND);
+            }
+
+            // draw item shadow
+            SDL_SetTextureColorMod(texPtr, 0, 0, 0);
+            SDL_SetTextureAlphaMod(texPtr, 128);
+            g_sdlDevice->drawTexture(texPtr, drawPX + 1, drawPY - 1);
+
+            // draw item body
+            SDL_SetTextureColorMod(texPtr, 255, 255, 255);
+            SDL_SetTextureAlphaMod(texPtr, 255);
+            g_sdlDevice->drawTexture(texPtr, drawPX, drawPY);
+
+            if(mouseOver){
+                LabelBoard itemName(DIR_UPLEFT, 0, 0, ir.name, 1, 12, 0, colorf::RGBA(0XFF, 0XFF, 0X00, 0XFF));
+                const int boardW = itemName.w();
+                const int boardH = itemName.h();
+
+                const int drawNameX = x * SYS_MAPGRIDXP - m_viewX + SYS_MAPGRIDXP / 2 - itemName.w() / 2;
+                const int drawNameY = y * SYS_MAPGRIDYP - m_viewY + SYS_MAPGRIDYP / 2 - itemName.h() / 2 - 20;
+                itemName.drawEx(drawNameX, drawNameY, 0, 0, boardW, boardH);
+            }
+        }
+    }
+}
+
+void ProcessRun::drawTile(int x0, int y0, int x1, int y1) const
+{
+    for(int y = y0; y < y1; ++y){
+        for(int x = x0; x <= x1; ++x){
+            if(m_mir2xMapData.validC(x, y) && !(x % 2) && !(y % 2)){
+                if(const auto &tile = m_mir2xMapData.tile(x, y); tile.valid){
+                    if(auto texPtr = g_mapDB->retrieve(tile.texID)){
+                        g_sdlDevice->drawTexture(texPtr, x * SYS_MAPGRIDXP - m_viewX, y * SYS_MAPGRIDYP - m_viewY);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void ProcessRun::drawObject(int x, int y, int objd, bool alpha) const
+{
+    if(!m_mir2xMapData.validC(x, y)){
+        return;
+    }
+
+    for(const int i: {0, 1}){
+        const auto &obj = m_mir2xMapData.cell(x, y).obj[i];
+        if(!obj.valid){
+            continue;
+        }
+
+        if(obj.depth != objd){
+            continue;
+        }
+
+        uint32_t imageId = obj.texID;
+        if(obj.animated){
+            const int fileIndex = to_d(imageId >> 16);
+            if(false
+                    || fileIndex == 11
+                    || fileIndex == 26
+                    || fileIndex == 41
+                    || fileIndex == 56
+                    || fileIndex == 71){ // TODO remove this check
+                imageId += m_aniTimer.frame(obj.tickType, obj.frameCount);
+            }
+        }
+
+        if(auto texPtr = g_mapDB->retrieve(imageId)){
+            const int texH = SDLDeviceHelper::getTextureHeight(texPtr);
+            const auto drawAlphaObj = [&obj, alpha]() -> uint8_t
+            {
+                if(obj.alpha){
+                    return 96;
+                }
+
+                if(alpha){
+                    return 128;
+                }
+                return 255;
+            }();
+
+            SDLDeviceHelper::EnableTextureModColor enableColor(texPtr, colorf::RGBA(0XFF, 0XFF, 0XFF, drawAlphaObj));
+            g_sdlDevice->drawTexture(texPtr, x * SYS_MAPGRIDXP - m_viewX, (y + 1) * SYS_MAPGRIDYP - m_viewY - texH);
+        }
+    }
+}
+
+void ProcessRun::drawRotateStar(int x0, int y0, int x1, int y1) const
+{
+    if(m_starRatio > 1.0){
+        return;
+    }
+
+    auto texPtr = g_progUseDB->retrieve(0X00000090);
+    if(!texPtr){
+        return;
+    }
+
+    const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
+    const auto currSize = to_d(std::lround(m_starRatio * texW / 2.50));
+
+    for(const auto &p: m_groundItemIDList){
+        const auto [x, y] = p.first;
+        if(p.second.empty()){
+            throw fflerror("empty ground item list at (%d, %d)", x, y);
+        }
+
+        if(!(x >= x0 && x < x1 && y >= y0 && y < y1)){
+            continue;
+        }
+
+        const auto drawPX = x * SYS_MAPGRIDXP - m_viewX + SYS_MAPGRIDXP / 2 - currSize / 2;
+        const auto drawPY = y * SYS_MAPGRIDYP - m_viewY + SYS_MAPGRIDYP / 2 - currSize / 2;
+
+        // TODO make this to be more informative
+        // use different color of rotating star for different type
+
+        SDL_SetTextureAlphaMod(texPtr, 128);
+        g_sdlDevice->drawTextureExt(texPtr, 0, 0, texW, texH, drawPX, drawPY, currSize, currSize, currSize / 2, currSize / 2, std::lround(m_starRatio * 360.0));
+    }
+}
+
+std::tuple<int, int> ProcessRun::getACNum(const std::string &name) const
+{
+    if(name == "AC"){
+        return {1, 2};
+    }
+
+    else if(name == "DC"){
+        return {2, 3};
+    }
+
+    else if(name == "MA"){
+        return {3, 4};
+    }
+
+    else if(name == "MC"){
+        return {4, 5};
+    }
+
+    else{
+        throw fflerror("invalid argument: %s", name.c_str());
+    }
+}
+
+void ProcessRun::drawMouseLocation() const
+{
+    g_sdlDevice->fillRectangle(colorf::RGBA(0, 0, 0, 230), 0, 0, 200, 60);
+
+    const auto [mouseX, mouseY] = SDLDeviceHelper::getMousePLoc();
+    const auto locPixel = str_printf(u8"Pixel: %d, %d", mouseX, mouseY);
+    const auto locGrid  = str_printf(u8"Grid: %d, %d", (mouseX + m_viewX) / SYS_MAPGRIDXP, (mouseY + m_viewY) / SYS_MAPGRIDYP);
+
+    LabelBoard locPixelBoard(DIR_UPLEFT, 10, 10, locPixel.c_str(), 1, 12, 0, colorf::RGBA(0XFF, 0XFF, 0X00, 0X00));
+    LabelBoard locGridBoard (DIR_UPLEFT, 10, 30, locGrid .c_str(), 1, 12, 0, colorf::RGBA(0XFF, 0XFF, 0X00, 0X00));
+
+    locPixelBoard.draw();
+    locGridBoard .draw();
+}
+
+void ProcessRun::drawFPS() const
+{
+    const auto fpsStr = std::to_string(g_sdlDevice->getFPS());
+    LabelBoard fpsBoard(DIR_UPLEFT, 0, 0, to_u8cstr(fpsStr), 1, 12, 0, colorf::RGBA(0XFF, 0XFF, 0X00, 0XFF));
+
+    const int winWidth = g_sdlDevice->getRendererWidth();
+    fpsBoard.moveTo(winWidth - fpsBoard.w(), 0);
+
+    g_sdlDevice->fillRectangle(colorf::BLACK + 200, fpsBoard.x() - 1, fpsBoard.y(), fpsBoard.w() + 1, fpsBoard.h());
+    g_sdlDevice->drawRectangle(colorf::BLUE  + 255, fpsBoard.x() - 1, fpsBoard.y(), fpsBoard.w() + 1, fpsBoard.h());
+    fpsBoard.draw();
+}
+
+void ProcessRun::checkMagicSpell(const SDL_Event &event)
+{
+    const char key = SDLDeviceHelper::getKeyChar(event, false);
+    if(key == '\0'){
+        return;
+    }
+
+    const auto magicID = dynamic_cast<SkillBoard *>(m_GUIManager.getWidget("SkillBoard"))->getConfig().key2MagicID(key);
+    if(!magicID){
+        return;
+    }
+
+    // always setup the target UID
+    // even the magic itself is cooling down
+
+    if(auto uid = getFocusUID(FOCUS_MOUSE)){
+        setFocusUID(FOCUS_MAGIC, uid);
+    }
+    else{
+        if(!findUID(getFocusUID(FOCUS_MAGIC))){
+            setFocusUID(FOCUS_MAGIC, 0);
+        }
+    }
+
+    if(getMyHero()->getMagicCoolDownAngle(magicID) < 360){
+        addCBLog(CBLOG_ERR, u8"%s尚未冷却", to_cstr(DBCOM_MAGICRECORD(magicID).name));
+        return;
+    }
+
+    switch(magicID){
+        case DBCOM_MAGICID(u8"空拳刀法"):
+            {
+                getMyHero()->brakeMove();
+                if(const auto uid = getFocusUID(FOCUS_MAGIC)){
+                    getMyHero()->emplaceAction(ActionSpinKick
+                    {
+                        .x = getMyHero()->currMotion()->endX,
+                        .y = getMyHero()->currMotion()->endY,
+                        .aimUID = uid,
+                    });
+                }
+                else{
+                    // even there is no target UID
+                    // we still cast the magic to show gfx
+
+                    const auto [aimX, aimY] = getMouseGLoc();
+                    getMyHero()->emplaceAction(ActionSpinKick
+                    {
+                        .x = getMyHero()->currMotion()->endX,
+                        .y = getMyHero()->currMotion()->endY,
+                        .aimX = aimX,
+                        .aimY = aimY,
+                    });
+                }
+                break;
+            }
+        case DBCOM_MAGICID(u8"烈火剑法"):
+        case DBCOM_MAGICID(u8"翔空剑法"):
+        case DBCOM_MAGICID(u8"莲月剑法"):
+        case DBCOM_MAGICID(u8"半月弯刀"):
+        case DBCOM_MAGICID(u8"十方斩"):
+            {
+                getMyHero()->toggleSwingMagic(magicID);
+                break;
+            }
+        case DBCOM_MAGICID(u8"圣言术"):
+        case DBCOM_MAGICID(u8"治愈术"):
+        case DBCOM_MAGICID(u8"困魔咒"):
+        case DBCOM_MAGICID(u8"施毒术"):
+        case DBCOM_MAGICID(u8"云寂术"):
+        case DBCOM_MAGICID(u8"回生术"):
+        case DBCOM_MAGICID(u8"雷电术"):
+        case DBCOM_MAGICID(u8"火球术"):
+        case DBCOM_MAGICID(u8"大火球"):
+        case DBCOM_MAGICID(u8"冰咆哮"):
+        case DBCOM_MAGICID(u8"龙卷风"):
+        case DBCOM_MAGICID(u8"霹雳掌"):
+        case DBCOM_MAGICID(u8"风掌"):
+        case DBCOM_MAGICID(u8"击风"):
+        case DBCOM_MAGICID(u8"月魂断玉"):
+        case DBCOM_MAGICID(u8"月魂灵波"):
+        case DBCOM_MAGICID(u8"斗转星移"):
+        case DBCOM_MAGICID(u8"爆裂火焰"):
+        case DBCOM_MAGICID(u8"地狱雷光"):
+        case DBCOM_MAGICID(u8"怒神霹雳"):
+        case DBCOM_MAGICID(u8"灵魂火符"):
+        case DBCOM_MAGICID(u8"冰月神掌"):
+        case DBCOM_MAGICID(u8"冰月震天"):
+        case DBCOM_MAGICID(u8"乾坤大挪移"):
+        case DBCOM_MAGICID(u8"群体治愈术"):
+        case DBCOM_MAGICID(u8"幽灵盾"):
+        case DBCOM_MAGICID(u8"神圣战甲术"):
+        case DBCOM_MAGICID(u8"强魔震法"):
+        case DBCOM_MAGICID(u8"猛虎强势"):
+        case DBCOM_MAGICID(u8"集体隐身术"):
+        case DBCOM_MAGICID(u8"移花接玉"):
+        case DBCOM_MAGICID(u8"诱惑之光"):
+            {
+                getMyHero()->brakeMove();
+                if(const auto uid = getFocusUID(FOCUS_MAGIC)){
+                    getMyHero()->emplaceAction(ActionSpell
+                    {
+                        .x = getMyHero()->currMotion()->endX,
+                        .y = getMyHero()->currMotion()->endY,
+                        .aimUID = uid,
+                        .magicID = magicID,
+                    });
+                }
+                else{
+                    // even there is no target UID
+                    // we still cast the magic to show gfx
+
+                    const auto [aimX, aimY] = getMouseGLoc();
+                    getMyHero()->emplaceAction(ActionSpell
+                    {
+                        .x = getMyHero()->currMotion()->endX,
+                        .y = getMyHero()->currMotion()->endY,
+                        .aimX = aimX,
+                        .aimY = aimY,
+                        .magicID = magicID,
+                    });
+                }
+                break;
+            }
+        case DBCOM_MAGICID(u8"火墙"):
+        case DBCOM_MAGICID(u8"风震天"):
+        case DBCOM_MAGICID(u8"地狱火"):
+        case DBCOM_MAGICID(u8"冰沙掌"):
+        case DBCOM_MAGICID(u8"魄冰刺"):
+        case DBCOM_MAGICID(u8"疾光电影"):
+        case DBCOM_MAGICID(u8"焰天火雨"):
+        case DBCOM_MAGICID(u8"瞬息移动"):
+        case DBCOM_MAGICID(u8"异形换位"):
+            {
+                const auto [aimX, aimY] = getMouseGLoc();
+                getMyHero()->brakeMove();
+                getMyHero()->emplaceAction(ActionSpell
+                {
+                    .x = getMyHero()->currMotion()->endX,
+                    .y = getMyHero()->currMotion()->endY,
+                    .aimX = aimX,
+                    .aimY = aimY,
+                    .magicID = magicID,
+                });
+                break;
+            }
+        case DBCOM_MAGICID(u8"隐身术"):
+        case DBCOM_MAGICID(u8"凝血离魂"):
+        case DBCOM_MAGICID(u8"妙影无踪"):
+        case DBCOM_MAGICID(u8"魔法盾"):
+        case DBCOM_MAGICID(u8"铁布衫"):
+        case DBCOM_MAGICID(u8"阴阳法环"):
+        case DBCOM_MAGICID(u8"抗拒火环"):
+        case DBCOM_MAGICID(u8"破血狂杀"):
+        case DBCOM_MAGICID(u8"召唤骷髅"):
+        case DBCOM_MAGICID(u8"超强召唤骷髅"):
+        case DBCOM_MAGICID(u8"召唤神兽"):
+            {
+                getMyHero()->brakeMove();
+                getMyHero()->emplaceAction(ActionSpell
+                {
+                    .x = getMyHero()->currMotion()->endX,
+                    .y = getMyHero()->currMotion()->endY,
+                    .aimUID = getMyHero()->UID(),
+                    .magicID = magicID,
+                });
+                break;
+            }
+        default:
+            {
+                break;
+            }
+    }
+}
+
+void ProcessRun::requestPickUp()
+{
+    const int x = getMyHero()->currMotion()->endX;
+    const int y = getMyHero()->currMotion()->endY;
+    if(getGroundItemIDList(x, y).empty()){
+        return;
+    }
+
+    CMPickUp cmPU;
+    std::memset(&cmPU, 0, sizeof(cmPU));
+
+    cmPU.x = x;
+    cmPU.y = y;
+    cmPU.mapID = mapID();
+    g_client->send(CM_PICKUP, cmPU);
+}
+
+void ProcessRun::requestMagicDamage(int magicID, uint64_t aimUID)
+{
+    CMRequestMagicDamage cmRMD;
+    std::memset(&cmRMD, 0, sizeof(cmRMD));
+
+    cmRMD.magicID = magicID;
+    cmRMD.aimUID  = aimUID;
+
+    g_client->send(CM_REQUESTMAGICDAMAGE, cmRMD);
+}
+
+void ProcessRun::queryPlayerWLDesp(uint64_t uid) const
+{
+    if(uidf::getUIDType(uid) != UID_PLY){
+        throw fflerror("invalid uid: %llu, type: %s", to_llu(uid), uidf::getUIDTypeCStr(uid));
+    }
+
+    CMQueryPlayerWLDesp cmQPWLD;
+    std::memset(&cmQPWLD, 0, sizeof(cmQPWLD));
+
+    cmQPWLD.uid = uid;
+    g_client->send(CM_QUERYPLAYERWLDESP, cmQPWLD);
+}
+
+void ProcessRun::requestBuy(uint64_t npcUID, uint32_t itemID, uint32_t seqID, size_t count)
+{
+    fflassert(uidf::getUIDType(npcUID) == UID_NPC);
+    fflassert(SDItem
+    {
+        .itemID = itemID,
+        .seqID = seqID,
+        .count = 1, // can buy more than SYS_INVGRIDMAXHOLD
+    });
+
+    if(count <= 0){
+        throw fflerror("invalid buy count: %zu", count);
+    }
+
+    CMBuy cmB;
+    std::memset(&cmB, 0, sizeof(cmB));
+
+    cmB.npcUID = npcUID;
+    cmB.itemID = itemID;
+    cmB. seqID =  seqID;
+    cmB. count =  count;
+    g_client->send(CM_BUY, cmB);
+}
+
+
+void ProcessRun::requestConsumeItem(uint32_t itemID, uint32_t seqID, size_t count)
+{
+    CMConsumeItem cmCI;
+    std::memset(&cmCI, 0, sizeof(cmCI));
+
+    cmCI.itemID = itemID;
+    cmCI.seqID  =  seqID;
+    cmCI.count  =  count;
+    g_client->send(CM_CONSUMEITEM, cmCI);
+}
+
+void ProcessRun::requestEquipWear(uint32_t itemID, uint32_t seqID, int wltype)
+{
+    if(!(wltype >= WLG_BEGIN && wltype < WLG_END)){
+        throw fflerror("invalid wltype: %d", wltype);
+    }
+
+    const auto &ir = DBCOM_ITEMRECORD(itemID);
+    if(!ir){
+        throw fflerror("invalid itemID: %llu", to_llu(itemID));
+    }
+
+    if(!seqID){
+        throw fflerror("invalid seqID: %llu", to_llu(seqID));
+    }
+
+    if(!ir.wearable(wltype)){
+        throw fflerror("can't equip %s to wltype %d", to_cstr(ir.name), wltype);
+    }
+
+    if(!getMyHero()->canWear(itemID, wltype)){
+        return;
+    }
+
+    CMRequestEquipWear cmREW;
+    std::memset(&cmREW, 0, sizeof(cmREW));
+
+    cmREW.itemID = itemID;
+    cmREW.seqID  = seqID;
+    cmREW.wltype = wltype;
+    g_client->send(CM_REQUESTEQUIPWEAR, cmREW);
+}
+
+void ProcessRun::requestGrabWear(int wltype)
+{
+    if(!(wltype >= WLG_BEGIN && wltype < WLG_END)){
+        throw fflerror("invalid wltype: %d", wltype);
+    }
+
+    if(!getMyHero()->getWLItem(wltype)){
+        return;
+    }
+
+    CMRequestGrabWear cmRGW;
+    std::memset(&cmRGW, 0, sizeof(cmRGW));
+    cmRGW.wltype = wltype;
+    g_client->send(CM_REQUESTGRABWEAR, cmRGW);
+}
+
+void ProcessRun::requestEquipBelt(uint32_t itemID, uint32_t seqID, int slot)
+{
+    if(!(slot >= 0 && slot < 6)){
+        throw fflerror("invalid slot: %d", slot);
+    }
+
+    const auto &ir = DBCOM_ITEMRECORD(itemID);
+    if(!ir){
+        throw fflerror("invalid itemID: %llu", to_llu(itemID));
+    }
+
+    if(!seqID){
+        throw fflerror("invalid seqID: %llu", to_llu(seqID));
+    }
+
+    if(!ir.beltable()){
+        throw fflerror("can't equip %s to slot %d", to_cstr(ir.name), slot);
+    }
+
+    CMRequestEquipBelt cmREB;
+    std::memset(&cmREB, 0, sizeof(cmREB));
+
+    cmREB.itemID = itemID;
+    cmREB.seqID = seqID;
+    cmREB.slot = slot;
+    g_client->send(CM_REQUESTEQUIPBELT, cmREB);
+}
+
+void ProcessRun::requestGrabBelt(int slot)
+{
+    if(!(slot >= 0 && slot < 6)){
+        throw fflerror("invalid slot: %d", slot);
+    }
+
+    if(!getMyHero()->getBelt(slot)){
+        return;
+    }
+
+    CMRequestGrabBelt cmRGB;
+    std::memset(&cmRGB, 0, sizeof(cmRGB));
+    cmRGB.slot = slot;
+    g_client->send(CM_REQUESTGRABBELT, cmRGB);
+}
+
+void ProcessRun::requestDropItem(uint32_t itemID, uint32_t seqID, size_t count)
+{
+    fflassert(SDItem
+    {
+        .itemID = itemID,
+        .seqID = seqID,
+        .count = count,
+    });
+
+    CMDropItem cmDI;
+    std::memset(&cmDI, 0, sizeof(cmDI));
+
+    cmDI.itemID = itemID;
+    cmDI.seqID = seqID;
+    cmDI.count = count;
+    g_client->send(CM_DROPITEM, cmDI);
+}
+
+bool ProcessRun::hasGroundItemID(uint32_t itemID, int x, int y) const
+{
+    for(const auto id: getGroundItemIDList(x, y)){
+        if(id == itemID){
             return true;
         }
     }
     return false;
 }
 
-void ProcessRun::ClearCreature()
+bool ProcessRun::addGroundItemID(uint32_t itemID, int x, int y)
 {
-    m_CreatureList.clear();
-}
-
-void ProcessRun::QueryCORecord(uint64_t nUID) const
-{
-    CMQueryCORecord stCMQCOR;
-    std::memset(&stCMQCOR, 0, sizeof(stCMQCOR));
-
-    stCMQCOR.AimUID = nUID;
-    g_Client->Send(CM_QUERYCORECORD, stCMQCOR);
-}
-
-void ProcessRun::OnActionSpawn(uint64_t nUID, const ActionNode &rstAction)
-{
-    condcheck(nUID);
-    condcheck(rstAction.Action == ACTION_SPAWN);
-
-    if(UIDFunc::GetUIDType(nUID) != UID_MON){
-        QueryCORecord(nUID);
-        return;
+    if(!m_mir2xMapData.validC(x, y)){
+        return false;
     }
 
-    switch(UIDFunc::GetMonsterID(nUID)){
-        case DBCOM_MONSTERID(u8"变异骷髅"):
-            {
-                AddOPLog(OUTPORT_CONTROLBOARD, 2, "", u8"使用魔法: 召唤骷髅"), 
-                m_IndepMagicList.emplace_back(std::make_shared<IndepMagic>
-                (
-                    rstAction.ActionParam,
-                    DBCOM_MAGICID(u8"召唤骷髅"), 
-                    0,
-                    EGS_START,
-                    rstAction.Direction,
-                    rstAction.X,
-                    rstAction.Y,
-                    rstAction.X,
-                    rstAction.Y,
-                    nUID
-                ));
+    if(!DBCOM_ITEMRECORD(itemID)){
+        throw fflerror("invalid itemID: %llu", to_llu(itemID));
+    }
 
-                m_UIDPending.insert(nUID);
-                m_IndepMagicList.back()->AddFunc([this, nUID, rstAction, pMagic = m_IndepMagicList.back()]() -> bool
-                {
-                    // if(!pMagic->Done()){
-                    //     return false;
-                    // }
+    m_groundItemIDList[{x, y}].push_back(itemID);
+    return true;
+}
 
-                    if(pMagic->Frame() < 10){
-                        return false;
-                    }
+bool ProcessRun::removeGroundItemID(uint32_t itemID, int x, int y)
+{
+    auto p = m_groundItemIDList.find({x, y});
+    if(p == m_groundItemIDList.end()){
+        return false;
+    }
 
-                    ActionStand stActionStand
-                    {
-                        rstAction.X,
-                        rstAction.Y,
-                        DIR_DOWNLEFT,
-                    };
+    for(auto i = to_lld(p->second.size()) - 1; i >= 0; --i){
+        if(p->second[i] == itemID){
+            p->second.erase(p->second.begin() + i);
+            return true;
+        }
+    }
 
-                    if(auto pMonster = Monster::CreateMonster(nUID, this, stActionStand)){
-                        m_CreatureList[nUID].reset(pMonster);
-                    }
+    if(p->second.empty()){
+        m_groundItemIDList.erase(p);
+    }
+    return false;
+}
 
-                    m_UIDPending.erase(nUID);
-                    QueryCORecord(nUID);
-                    return true;
-                });
-
-                return;
+int ProcessRun::getAimDirection(const ActionNode &action, int defDir) const
+{
+    fflassert(action.aimUID);
+    if(const auto coPtr = findUID(action.aimUID)){
+        if(const auto box = coPtr->getTargetBox()){ // just ot check if still a good target
+            const auto [aimX, aimY] = coPtr->location();
+            const auto dir = pathf::getDir8(aimX - action.x, aimY - action.y);
+            if(dir >= 0 && directionValid(dir + DIR_BEGIN)){
+                return dir + DIR_BEGIN;
             }
-        default:
-            {
-                ActionStand stActionStand
-                {
-                    rstAction.X,
-                    rstAction.Y,
-                    PathFind::ValidDir(rstAction.Direction) ? rstAction.Direction : DIR_UP,
-                };
-
-                if(auto pMonster = Monster::CreateMonster(nUID, this, stActionStand)){
-                    m_CreatureList[nUID].reset(pMonster);
-                }
-
-                QueryCORecord(nUID);
-                return;
-            }
+        }
     }
-}
-
-Widget *ProcessRun::GetWidget(const char *szWidgetName)
-{
-    if(szWidgetName){
-        if(!std::strcmp(szWidgetName, "InventoryBoard")){ return &m_InventoryBoard; }
-    }
-    return nullptr;
+    return defDir;
 }

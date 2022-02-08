@@ -7,15 +7,14 @@
  *
  *                 Internal Database support for 
  *                 1. LRU
- *                 2. Double level cache
- *                 3. Easy for extension
+ *                 2. Easy for extension
  *
  *                 this class load resources with a external handler function
- *                 store it in a hash-table based cache, linear cache is optional
+ *                 store it in a hash-table based cache
  *
  *                 to instantiation this class
- *                 1. define LoadResource()
- *                 2. define FreeResource()
+ *                 1. define loadResource()
+ *                 2. define freeResource()
  *
  *        Version: 1.0
  *       Revision: none
@@ -27,109 +26,134 @@
  *
  * =====================================================================================
  */
-#ifndef __INNDB_HPP__
-#define __INNDB_HPP__
 
-#include "abdlist.hpp"
+#pragma once
+#include <list>
+#include <mutex>
 #include <tuple>
+#include <concepts>
+#include <optional>
+#include <type_traits>
 #include <unordered_map>
 
-template<typename KeyT, typename ResT, size_t ResMax> class InnDB
+template<std::unsigned_integral KeyT, typename ResT, bool ThreadSafe = false> class innDB
 {
     private:
-        struct ResourceEntry
+        struct DummyMutex
         {
-            ResT    Resource;
-            size_t  Weight;
-            size_t  DLinkOff;
+            void   lock() {}
+            void unlock() {}
         };
 
     private:
-        std::unordered_map<KeyT, ResourceEntry> m_Cache;
+        using InnMutex = std::conditional_t<ThreadSafe, std::mutex, DummyMutex>;
 
     private:
-        ABDList<KeyT> m_DLink;
+        struct ResElement
+        {
+            size_t weight = 0;
+            std::optional<ResT> res {};
+            std::list<KeyT>::iterator keyiter {};
+        };
 
     private:
-        size_t m_ResourceSum;
+        std::list<KeyT> m_keyList;
+        std::unordered_map<KeyT, ResElement> m_elemList;
+
+    private:
+        InnMutex m_lock;
+
+    private:
+        size_t m_resSum = 0;
+
+    private:
+        const size_t m_resMax;
 
     public:
-        InnDB()
-            : m_Cache()
-            , m_DLink()
-            , m_ResourceSum(0)
+        innDB(size_t resMax)
+            : m_resMax(resMax)
+        {}
+
+    public:
+        virtual ~innDB()
         {
-            static_assert(std::is_unsigned<KeyT>::value, "InnDB only support unsigned intergal key");
+            clear();
         }
 
     public:
-        virtual ~InnDB() = default;
+        virtual std::optional<std::tuple<ResT, size_t>> loadResource(KeyT  ) = 0;
+        virtual void                                    freeResource(ResT &) = 0;
 
     public:
-        virtual std::tuple<ResT, size_t> LoadResource(KeyT  ) = 0;
-        virtual void                     FreeResource(ResT &) = 0;
-
-    public:
-        void ClearCache()
+        void clear()
         {
-            for(auto &rstEntry: m_Cache){
-                FreeResource(rstEntry.second.Resource);
+            std::lock_guard<InnMutex> lockGurad(m_lock);
+            for(auto &elemp: m_elemList){
+                if(elemp.second.res.has_value()){
+                    freeResource(elemp.second.res.value());
+                }
             }
-            m_Cache.clear();
-            m_DLink.Clear();
+
+            m_resSum = 0;
+            m_keyList.clear();
+            m_elemList.clear();
         }
 
     protected:
-        bool RetrieveResource(KeyT nKey, ResT *pResource)
+        ResT *innLoad(KeyT key)
         {
-            if(auto p = m_Cache.find(nKey); p != m_Cache.end()){
-                if(pResource){
-                    *pResource = p->second.Resource;
+            std::lock_guard<InnMutex> lockGurad(m_lock);
+            if(auto p = m_elemList.find(key); p != m_elemList.end()){
+                if(m_resMax > 0){
+                    m_keyList.erase(p->second.keyiter);
+                    m_keyList.push_front(key);
+                    p->second.keyiter = m_keyList.begin();
                 }
-                if(ResMax > 0){
-                    m_DLink.MoveHead(p->second.DLinkOff);
+
+                if(p->second.res.has_value()){
+                    return &(p->second.res.value());
                 }
-                return true;
+                return nullptr;
             }
 
-            auto [stResource, nWeight] = LoadResource(nKey);
-
-            if(ResMax){
-                m_DLink.PushHead(nKey);
+            if(m_resMax > 0){
+                m_keyList.push_front(key);
             }
 
-            ResourceEntry stEntry;
-            stEntry.Resource = stResource;
-            stEntry.Weight   = nWeight;
-            stEntry.DLinkOff = (ResMax > 0) ? m_DLink.HeadOff() : 0;
+            auto newRes = loadResource(key);
+            auto emplaced = m_elemList.emplace(key, newRes.has_value() ? ResElement
+            {
+                .weight  = std::get<1>(newRes.value()),
+                .res     = std::move(std::get<0>(newRes.value())),
+                .keyiter = m_keyList.begin(),
+            }
 
-            m_Cache[nKey] = stEntry;
+            : ResElement
+            {
+                .keyiter = m_keyList.begin(),
+            }).first;
 
-            if(ResMax){
-                m_ResourceSum += nWeight;
-                if(m_ResourceSum > ResMax){
-                    Resize();
+            if(m_resMax > 0){
+                m_resSum += emplaced->second.weight;
+                while(m_resSum > m_resMax){
+                    fflassert(!m_keyList.empty());
+                    fflassert(!m_elemList.empty());
+
+                    auto poldest = m_elemList.find(m_keyList.back());
+
+                    fflassert(poldest != m_elemList.end());
+                    fflassert(m_resSum >= poldest->second.weight);
+
+                    if(poldest->second.res.has_value()){
+                        freeResource(poldest->second.res.value());
+                    }
+                    m_resSum -= poldest->second.weight;
                 }
             }
 
-            if(pResource){
-                *pResource = stResource;
+            if(emplaced->second.res.has_value()){
+                return &(emplaced->second.res.value());
             }
-            return true;
-        }
-
-    private:
-        void Resize()
-        {
-            while((ResMax > 0) && (m_ResourceSum > ResMax / 2) && !m_DLink.Empty()){
-                if(auto p = m_Cache.find(m_DLink.Back()); p != m_Cache.end()){
-                    FreeResource(p->second.Resource);
-                    m_ResourceSum -= p->second.Weight;
-                    m_Cache.erase(p);
-                }
-                m_DLink.PopBack();
-            }
+            return nullptr;
         }
 };
-
-#endif

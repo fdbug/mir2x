@@ -1,9 +1,9 @@
 /*
  * =====================================================================================
  *
- *       Filename: xmlboardview.hpp
+ *       Filename: xmltypesetview.hpp
  *        Created: 12/18/2018 07:48:26
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none

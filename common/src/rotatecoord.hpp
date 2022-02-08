@@ -3,7 +3,7 @@
  *
  *       Filename: rotatecoord.hpp
  *        Created: 08/15/2015 04:01:57
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -15,57 +15,74 @@
  *
  * =====================================================================================
  */
+
 #pragma once
 
 class RotateCoord
 {
     private:
-        bool m_Overlap[4];
-
-    private:
-        int m_CurrentX;
-        int m_CurrentY;
-
-    private:
-        int m_CenterX;
-        int m_CenterY;
-
-    private:
-        int m_StartX;
-        int m_StartY;
-        int m_StopX;
-        int m_StopY;
-
-    private:
-        int m_Distance;
-
-    private:
+        // define the direction current x/y increments
         //      2
         //  <-------A
         //  |       |
         // 3|       |1
         //  |   0   |
         //  v------->
-        int  m_Direction;
-
-    public:
-        RotateCoord() = default;
-       ~RotateCoord() = default;
-
-    public:
-        int X() const { return m_CurrentX; }
-        int Y() const { return m_CurrentY; }
-
-    public:
-        bool Reset(int,
-                int,
-                int,
-                int,
-                int,
-                int);
-        bool Forward();
+        //
+        enum class DirType
+        {
+            DIR_0,
+            DIR_1,
+            DIR_2,
+            DIR_3,
+        };
 
     private:
-        void CheckOverlap();
-        bool MoveToNextRound();
+        const int m_centerX;
+        const int m_centerY;
+
+    private:
+        const int m_startX;
+        const int m_startY;
+
+    private:
+        const int m_stopX;
+        const int m_stopY;
+
+    private:
+        int m_distance;
+
+    private:
+        DirType m_direction;
+
+    private:
+        int m_currentX;
+        int m_currentY;
+
+    private:
+        bool m_overlap[4];
+
+    public:
+        RotateCoord(int, int, int, int, int, int);
+
+    public:
+        ~RotateCoord() = default;
+
+    public:
+        int x() const
+        {
+            return m_currentX;
+        }
+
+        int y() const
+        {
+            return m_currentY;
+        }
+
+    public:
+        bool forward();
+
+    private:
+        void checkOverlap();
+        bool moveToNextRound();
 };

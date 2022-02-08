@@ -19,40 +19,86 @@
 #include <vector>
 #include "pack2d.hpp"
 #include "sysconst.hpp"
+#include "serdesmsg.hpp"
 
 class InvPack
 {
     private:
-        const size_t m_W;
+        // TODO: Leave it as a variable, not using SYS_INVGRIDGW directly
+        //       Later I may change the texture width of inventory board to make it bigger
+        const size_t m_w;
 
     private:
-        std::vector<PackBin> m_PackBinList;
+        size_t m_gold = 0;
+
+    private:
+        int m_repackIndex = 0;
+
+    private:
+        SDItem m_grabbedItem;
+        std::vector<PackBin> m_packBinList;
 
     public:
-        InvPack(size_t nW = SYS_INVGRIDW)
-            : m_W(nW)
-            , m_PackBinList()
+        InvPack(size_t argW = SYS_INVGRIDGW)
+            : m_w(argW)
         {}
 
     public:
-        const std::vector<PackBin> &GetPackBinList() const
+        const auto &getGrabbedItem() const
         {
-            return m_PackBinList;
+            return m_grabbedItem;
+        }
+
+        const auto &getPackBinList() const
+        {
+            return m_packBinList;
         }
 
     public:
-        size_t W() const
+        int getWeight() const;
+
+    public:
+        size_t w() const
         {
-            return m_W;
+            return m_w;
         }
 
     public:
-        bool Repack();
+        void repack()
+        {
+            Pack2D::pack(m_packBinList, w(), m_repackIndex++);
+        }
 
     public:
-        bool Add(uint32_t);
-        bool Remove(uint32_t, int, int);
+        void add(SDItem);
+        void add(SDItem, int, int);
 
-    private:
-        static PackBin MakePackBin(uint32_t);
+    public:
+        int update(SDItem);
+
+    public:
+        size_t remove(uint32_t, uint32_t, size_t);
+
+    public:
+        size_t remove(const SDItem &item)
+        {
+            return remove(item.itemID, item.seqID, item.count);
+        }
+
+    public:
+        static PackBin makePackBin(SDItem);
+        static std::tuple<int, int> getPackBinSize(uint32_t);
+
+    public:
+        void setGrabbedItem(SDItem);
+
+    public:
+        void setGold(int);
+        void addGold(int);
+
+    public:
+        size_t getGold() const;
+
+    public:
+        void setInventory(const SDInventory &);
 };

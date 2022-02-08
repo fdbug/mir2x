@@ -22,26 +22,21 @@
 #include <cinttypes>
 #include <FL/fl_ask.H>
 #include <FL/fl_draw.H>
-#include "mathfunc.hpp"
+#include "mathf.hpp"
+#include "fflerror.hpp"
 #include "sysconst.hpp"
 #include "drawarea.hpp"
+#include "fflerror.hpp"
+#include "totype.hpp"
 
-BaseArea::BaseArea(int nX, int nY, int nW, int nH)
-    : Fl_Box(nX, nY, nW, nH)
-    , m_ColorStack()
-    , m_CoverRecord()
-{
-    PushColor(FL_RED);
-}
-
-void BaseArea::DrawImage(Fl_Image *pImage, int nX, int nY)
+void BaseArea::drawImage(Fl_Image *pImage, int nX, int nY)
 {
     if(pImage){
-        DrawImage(pImage, nX, nY, 0, 0, pImage->w(), pImage->h());
+        drawImage(pImage, nX, nY, 0, 0, pImage->w(), pImage->h());
     }
 }
 
-void BaseArea::DrawImage(Fl_Image *pImage, int nX, int nY, int nImageX, int nImageY, int nImageW, int nImageH)
+void BaseArea::drawImage(Fl_Image *pImage, int nX, int nY, int nImageX, int nImageY, int nImageW, int nImageH)
 {
     if(true
             && w() > 0
@@ -57,7 +52,7 @@ void BaseArea::DrawImage(Fl_Image *pImage, int nX, int nY, int nImageX, int nIma
         if(true
                 && nImageW > 0
                 && nImageH > 0
-                && MathFunc::RectangleOverlapRegion<int>(0, 0, pImage->w(), pImage->h(), &nImageX, &nImageY, &nImageW, &nImageH)){
+                && mathf::rectangleOverlapRegion<int>(0, 0, pImage->w(), pImage->h(), nImageX, nImageY, nImageW, nImageH)){
 
             nX += (nImageX - nOldImageX);
             nY += (nImageY - nOldImageY);
@@ -68,7 +63,7 @@ void BaseArea::DrawImage(Fl_Image *pImage, int nX, int nY, int nImageX, int nIma
             if(true
                     && nImageW > 0
                     && nImageH > 0
-                    && MathFunc::RectangleOverlapRegion<int>(0, 0, w(), h(), &nX, &nY, &nImageW, &nImageH)){
+                    && mathf::rectangleOverlapRegion<int>(0, 0, w(), h(), nX, nY, nImageW, nImageH)){
 
                 nImageX += (nX - nOldAX);
                 nImageY += (nY - nOldAY);
@@ -83,7 +78,7 @@ void BaseArea::DrawImage(Fl_Image *pImage, int nX, int nY, int nImageX, int nIma
     }
 }
 
-void BaseArea::DrawText(int nX, int nY, const char *szLogFormat, ...)
+void BaseArea::drawText(int nX, int nY, const char *szLogFormat, ...)
 {
     auto fnDraw = [this](int nX, int nY, const char *szLogInfo)
     {
@@ -147,7 +142,7 @@ void BaseArea::DrawText(int nX, int nY, const char *szLogFormat, ...)
     }
 }
 
-void BaseArea::DrawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
+void BaseArea::drawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
 {
     if(true
             && pImage
@@ -156,7 +151,7 @@ void BaseArea::DrawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
 
             && nW > 0
             && nH > 0
-            && MathFunc::RectangleOverlapRegion(0, 0, w(), h(), &nX, &nY, &nW, &nH)){
+            && mathf::rectangleOverlapRegion(0, 0, w(), h(), nX, nY, nW, nH)){
 
         // use an image as a cover to repeat
         // should do partically drawing at end of x and y
@@ -168,13 +163,13 @@ void BaseArea::DrawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
 
         for(int nGX = 0; nGX < nGXCnt; ++nGX){
             for(int nGY = 0; nGY < nGYCnt; ++nGY){
-                DrawImage(pImage, nX + nGX * pImage->w(), nY + nGY * pImage->h());
+                drawImage(pImage, nX + nGX * pImage->w(), nY + nGY * pImage->h());
             }
         }
 
         if(nGXRes > 0){
             for(int nGY = 0; nGY < nGYCnt; ++nGY){
-                DrawImage(pImage,
+                drawImage(pImage,
                         nX + nGXCnt * pImage->w(),
                         nY + nGY    * pImage->h(),
                         0,
@@ -186,7 +181,7 @@ void BaseArea::DrawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
 
         if(nGYRes > 0){
             for(int nGX = 0; nGX < nGXCnt; ++nGX){
-                DrawImage(pImage,
+                drawImage(pImage,
                         nX + nGX    * pImage->w(),
                         nY + nGYCnt * pImage->h(),
                         0,
@@ -200,7 +195,7 @@ void BaseArea::DrawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
                 && nGXRes > 0
                 && nGYRes > 0){
 
-            DrawImage(pImage,
+            drawImage(pImage,
                     nX + nGXCnt * pImage->w(),
                     nY + nGYCnt * pImage->h(),
                     0,
@@ -211,7 +206,7 @@ void BaseArea::DrawImageCover(Fl_Image *pImage, int nX, int nY, int nW, int nH)
     }
 }
 
-void BaseArea::DrawCircle(int nX, int nY, int nR)
+void BaseArea::drawCircle(int nX, int nY, int nR)
 {
     if(nR > 0){
         int nCBoxX = nX - nR - 1;
@@ -219,7 +214,7 @@ void BaseArea::DrawCircle(int nX, int nY, int nR)
         int nCBoxW =  2 * nR - 1;
 
         // draw a full circle
-        if(MathFunc::RectangleInside(0, 0, w(), h(), nCBoxX, nCBoxY, nCBoxW, nCBoxW)){
+        if(mathf::rectangleInside(0, 0, w(), h(), nCBoxX, nCBoxY, nCBoxW, nCBoxW)){
             fl_circle(x() + nX, y() + nY, nR);
             return;
         }
@@ -229,104 +224,73 @@ void BaseArea::DrawCircle(int nX, int nY, int nR)
     }
 }
 
-void BaseArea::DrawLine(int nX0, int nY0, int nX1, int nY1)
+void BaseArea::drawLine(int nX0, int nY0, int nX1, int nY1)
 {
-    if(MathFunc::LocateLineSegment(0, 0, w(), h(), &nX0, &nY0, &nX1, &nY1)){
+    if(mathf::locateLineSegment(0, 0, w(), h(), &nX0, &nY0, &nX1, &nY1)){
         fl_line(nX0 + x(), nY0 + y(), nX1 + x(), nY1 + y());
     }
 }
 
-void BaseArea::DrawLoop(int nX1, int nY1, int nX2, int nY2, int nX3, int nY3)
+void BaseArea::drawLoop(int nX1, int nY1, int nX2, int nY2, int nX3, int nY3)
 {
-    DrawLine(nX1, nY1, nX2, nY2);
-    DrawLine(nX2, nY2, nX3, nY3);
-    DrawLine(nX3, nY3, nX1, nY1);
+    drawLine(nX1, nY1, nX2, nY2);
+    drawLine(nX2, nY2, nX3, nY3);
+    drawLine(nX3, nY3, nX1, nY1);
 }
 
-void BaseArea::DrawRectangle(int nX, int nY, int nW, int nH)
+void BaseArea::drawRectangle(int nX, int nY, int nW, int nH)
 {
-    DrawLine(nX         , nY         , nX + nW - 1, nY         );
-    DrawLine(nX         , nY         , nX         , nY + nH - 1);
-    DrawLine(nX + nW - 1, nY         , nX + nW - 1, nY + nH - 1);
-    DrawLine(nX         , nY + nH - 1, nX + nW - 1, nY + nH - 1);
+    drawLine(nX         , nY         , nX + nW - 1, nY         );
+    drawLine(nX         , nY         , nX         , nY + nH - 1);
+    drawLine(nX + nW - 1, nY         , nX + nW - 1, nY + nH - 1);
+    drawLine(nX         , nY + nH - 1, nX + nW - 1, nY + nH - 1);
 }
 
-void BaseArea::PushColor(Fl_Color stColor)
-{
-    if(m_ColorStack.empty() || stColor != m_ColorStack.back().Color){
-        fl_color(stColor);
-        m_ColorStack.push_back({stColor, 1});
-    }else{
-        // have to put it here to reset
-        // fl_color() is global and other class may call it
-        fl_color(stColor);
-        m_ColorStack.back().Count++;
-    }
-}
-
-void BaseArea::PopColor()
-{
-    if(m_ColorStack.empty()){
-        PushColor(FL_WHITE);
-    }else{
-        condcheck(m_ColorStack.back().Count > 0);
-        if(m_ColorStack.back().Count == 1){
-            m_ColorStack.pop_back();
-            if(m_ColorStack.empty()){
-                PushColor(FL_WHITE);
-            }else{
-                fl_color(m_ColorStack.back().Color);
-            }
-        }else{
-            m_ColorStack.back().Count--;
-
-            // have to put it here to reset
-            // fl_color() is global and other class may call it
-            fl_color(m_ColorStack.back().Color);
-        }
-    }
-}
-
-void BaseArea::Clear()
+void BaseArea::clear()
 {
     fl_rectf(x(), y(), w(), h(), 0, 0, 0);
 }
 
-void BaseArea::FillRectangle(int nX, int nY, int nW, int nH, uint32_t nARGB)
+void BaseArea::fillRectangle(int argX, int argY, int argW, int argH, uint32_t color)
 {
     if(true
-            && nW > 0
-            && nH > 0
-            && MathFunc::RectangleOverlap(0, 0, w(), h(), nX, nY, nW, nH)
-            && ((nARGB & 0XFF000000))){
+            && argW > 0
+            && argH > 0
+            && mathf::rectangleOverlap(0, 0, w(), h(), argX, argY, argW, argH)
+            && (color & 0XFF000000)){
 
-        if(auto pImage = RetrieveImageCover(nARGB)){
-            DrawImageCover(pImage, nX, nY, nW, nH);
+        if(auto img = retrieveImageCover(color)){
+            drawImageCover(img, argX, argY, argW, argH);
         }
     }
 }
 
-Fl_Image *BaseArea::CreateImageCover(int nW, int nH, uint32_t nColor)
+void BaseArea::fillGrid(int argX, int argY, int argW, int argH, uint32_t color)
 {
-    if(true
-            && nW > 0
-            && nH > 0){
-        std::vector<uint32_t> stvBuf(nW * nH, nColor);
-        return Fl_RGB_Image((uchar *)(&(stvBuf[0])), nW, nH, 4, 0).copy(nW, nH);
-    }else{
-        fl_alert("Invalid size for CreateImageCover(%d, %d, 0X%08" PRIu32 ")", nW, nH, nColor);
-        return nullptr;
-    }
+    const auto [offsetX, offsetY] = offset();
+    fillRectangle(
+            argX * SYS_MAPGRIDXP - offsetX,
+            argY * SYS_MAPGRIDYP - offsetY,
+
+            argW * SYS_MAPGRIDXP,
+            argH * SYS_MAPGRIDYP,
+
+            color);
 }
 
-Fl_Image *BaseArea::RetrieveImageCover(uint32_t nARGB)
+Fl_Image *BaseArea::createImageCover(int argW, int argH, uint32_t color)
 {
-    auto pRecord = m_CoverRecord.find(nARGB);
-    if(pRecord != m_CoverRecord.end()){
-        return pRecord->second.get();
-    }else{
-        auto pImage = CreateImageCover(SYS_MAPGRIDXP, SYS_MAPGRIDYP, nARGB);
-        m_CoverRecord[nARGB].reset(pImage);
-        return pImage;
+    fflassert(argW > 0);
+    fflassert(argH > 0);
+
+    std::vector<uint32_t> imgBuf(argW * argH, color);
+    return Fl_RGB_Image((uchar *)(imgBuf.data()), argW, argH, 4, 0).copy();
+}
+
+Fl_Image *BaseArea::retrieveImageCover(uint32_t color)
+{
+    if(auto p = m_coverList.find(color); p != m_coverList.end()){
+        return p->second.get();
     }
+    return (m_coverList[color] = std::unique_ptr<Fl_Image>(createImageCover(SYS_MAPGRIDXP, SYS_MAPGRIDYP, color))).get();
 }

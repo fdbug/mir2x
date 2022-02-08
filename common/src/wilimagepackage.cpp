@@ -21,315 +21,197 @@
 #include <cstdio>
 #include <cstring>
 
-#include "condcheck.hpp"
+#include "alphaf.hpp"
+#include "colorf.hpp"
+#include "totype.hpp"
+#include "filesys.hpp"
+#include "fflerror.hpp"
 #include "wilimagepackage.hpp"
 
-static uint32_t Color16To32Mapping(uint16_t srcColor, uint32_t chColor)
+static void memcpy_color_u16_2_u32(uint32_t *dst, const uint16_t *src, size_t n)
 {
-    uint8_t r  = (uint8_t)((srcColor & 0XF800) >> 8);
-    uint8_t g  = (uint8_t)((srcColor & 0X07E0) >> 3);
-    uint8_t b  = (uint8_t)((srcColor & 0X001F) << 3);
+    fflassert(src);
+    fflassert(dst);
 
-    if((chColor & 0X00FFFFFF) != 0X00FFFFFF){
-        uint8_t br = (uint8_t)((chColor & 0X00FF0000) >> 16);
-        uint8_t bg = (uint8_t)((chColor & 0X0000FF00) >>  8);
-        uint8_t bb = (uint8_t)((chColor & 0X000000FF) >>  0);
-
-        r = (br <= r) ? br : (uint8_t)std::lround(255.0 * r / br);
-        g = (bg <= g) ? bg : (uint8_t)std::lround(255.0 * g / bg);
-        b = (bb <= b) ? bb : (uint8_t)std::lround(255.0 * b / bb);
-    }
-
-    return (chColor & 0XFF000000) + (((uint32_t)(b)) << 16) + (((uint32_t)(g)) << 8) + (uint32_t)(r);
-}
-
-static void Memcpy16To32(uint32_t *dst, const uint16_t *src, int32_t n, uint32_t dwColor)
-{
-    if(src && dst){
-        for(int32_t ptr = 0; ptr < n; ptr++){
-            dst[ptr] = Color16To32Mapping(src[ptr], dwColor);
-        }
+    for(size_t i = 0; i < n; i++){
+        dst[i] = colorf::RGBA(to_u8((src[i] & 0XF800) >> 8), to_u8((src[i] & 0X07E0) >> 3), to_u8((src[i] & 0X001F) << 3), 0XFF);
     }
 }
 
-static void MemSet32(uint32_t *dst, int n, uint32_t src)
+WilImagePackage::WilImagePackage(const char* wilFilePath, const char *wilFileName)
+    : m_wilFile(make_fileptr(hasWilFile(wilFilePath, wilFileName, {"wil", "Wil", "WIL"}).c_str(), "rb"))
 {
-    if(dst){
-        for(int32_t ptr = 0; ptr < n; ptr++){
-            dst[ptr] = src;
-        }
+    read_fileptr(m_wilFile, &m_wilFileHeader, sizeof(m_wilFileHeader));
+
+    wilOff(m_wilFileHeader.version); // check if version supported
+    fflassert(m_wilFileHeader.imageCount >= 0);
+
+    auto wixFile = make_fileptr(hasWilFile(wilFilePath, wilFileName, {"wix", "Wix", "WIX"}).c_str(), "rb");
+
+    read_fileptr(wixFile, &m_wixImageInfo, sizeof(m_wixImageInfo));
+    fflassert(m_wixImageInfo.indexCount >= 0);
+
+    seek_fileptr(wixFile, wixOff(m_wilFileHeader.version), SEEK_SET);
+    read_fileptr(wixFile, m_wilPositionList, m_wixImageInfo.indexCount);
+}
+
+const WILIMAGEINFO *WilImagePackage::setIndex(uint32_t imageIndex)
+{
+    if(m_currImageIndex.has_value() && m_currImageIndex.value() == imageIndex){
+        return &m_currImageInfo;
     }
-}
 
-WilImagePackage::WilImagePackage()
-    : m_CurrentImageIndex(-1)
-    , m_CurrentImageValid(false)
-    , m_CurrentImageBuffer(2048)
-    , m_WilPosition(2048)
-    , m_WilFile(nullptr)
-{
-    std::memset(&m_WixImageInfo,        0, sizeof(WIXIMAGEINFO ));
-    std::memset(&m_CurrentWilImageInfo, 0, sizeof(WILIMAGEINFO ));
-    std::memset(&m_WilFileHeader,       0, sizeof(WILFILEHEADER));
-}
-
-WilImagePackage::~WilImagePackage()
-{
-    if(m_WilFile){ std::fclose(m_WilFile); }
-}
-
-bool WilImagePackage::SetIndex(uint32_t dwIndex)
-{
+    m_currImageIndex.reset();
     if(false
-            || m_WilFile == nullptr
-            || dwIndex   >= (uint32_t)(m_WilPosition.size())
-            || dwIndex   >= (uint32_t)(m_WixImageInfo.nIndexCount)){
-
-        m_CurrentImageValid = false;
-        m_CurrentImageIndex = -1;
-        return false;
-    }
-
-    if((dwIndex == (uint32_t)(m_CurrentImageIndex)) && m_CurrentImageValid){
-        return true;
-    }
-
-    m_CurrentImageIndex = (int32_t)(dwIndex);
-    if(m_WilPosition[dwIndex] <= 0){
-        // invalid image but set index operation succeeds
-        m_CurrentImageValid = false;
-        return true;
-    }
-
-    if(std::fseek(m_WilFile, m_WilPosition[dwIndex], SEEK_SET)){
-        m_CurrentImageValid = false;
-        return false;
-    }
-
-    if(std::fread(&m_CurrentWilImageInfo, sizeof(WILIMAGEINFO), 1, m_WilFile) != 1){
-        m_CurrentImageValid = false;
-        return false;
-    }
-
-    m_CurrentImageBuffer.resize(0);
-    m_CurrentImageBuffer.resize(m_CurrentWilImageInfo.dwImageLength);
-
-    auto nWilOffset = WilOffset(m_WilFileHeader.shVer);
-    if(nWilOffset < 0){
-        m_CurrentImageValid = false;
-        return false;
-    }
-
-    std::fseek(m_WilFile, m_WilPosition[dwIndex], SEEK_SET);
-    std::fseek(m_WilFile, nWilOffset, SEEK_CUR);
-
-    auto nCurrDataLen = m_CurrentWilImageInfo.dwImageLength;
-    if(std::fread(&(m_CurrentImageBuffer[0]), sizeof(uint16_t), nCurrDataLen, m_WilFile) != nCurrDataLen){
-        m_CurrentImageValid = false;
-        return false;
-    }
-
-    m_CurrentImageValid = true;
-    return true;
-}
-
-bool WilImagePackage::Load(const char* wilFilePath, const char *wilFileName, const char *)
-{
-    // 1. set current image invalid if load or reload
-    m_CurrentImageValid = false;
-
-    auto fnReleaseFile = [this]()
-    {
-        if(m_WilFile){ std::fclose(m_WilFile); m_WilFile = nullptr; }
-    };
-
-    // 2. load wil image library
-    fnReleaseFile();
-
-    if(!m_WilFile){ m_WilFile = std::fopen((std::string(wilFilePath) + "/" + wilFileName + ".wil").c_str(), "rb"); }
-    if(!m_WilFile){ m_WilFile = std::fopen((std::string(wilFilePath) + "/" + wilFileName + ".Wil").c_str(), "rb"); }
-    if(!m_WilFile){ m_WilFile = std::fopen((std::string(wilFilePath) + "/" + wilFileName + ".WIL").c_str(), "rb"); }
-
-    if(m_WilFile == nullptr){ return false; }
-
-    if(std::fread(&m_WilFileHeader, sizeof(WILFILEHEADER), 1, m_WilFile) != 1){
-        fnReleaseFile(); return false;
-    }
-
-    // 3. load wix index library
-    FILE *hWixFile = nullptr;
-    if(!hWixFile){ hWixFile = std::fopen((std::string(wilFilePath) + "/" + wilFileName + ".wix").c_str(), "rb"); }
-    if(!hWixFile){ hWixFile = std::fopen((std::string(wilFilePath) + "/" + wilFileName + ".Wix").c_str(), "rb"); }
-    if(!hWixFile){ hWixFile = std::fopen((std::string(wilFilePath) + "/" + wilFileName + ".WIX").c_str(), "rb"); }
-
-    if(hWixFile == nullptr){
-        fnReleaseFile(); return false;
-    }
-
-    if(std::fread(&m_WixImageInfo, sizeof(WIXIMAGEINFO), 1, hWixFile) != 1){
-        std::fclose(hWixFile); fnReleaseFile(); return false;
-    }
-
-    m_WilPosition.resize(0);
-    m_WilPosition.resize(m_WixImageInfo.nIndexCount);
-
-    auto nWixOffset = WixOffset(m_WilFileHeader.shVer);
-    if(nWixOffset < 0){
-        std::fclose(hWixFile); fnReleaseFile(); return false;
-    }
-
-    std::fseek(hWixFile, nWixOffset, SEEK_SET);
-
-    auto nCurrDataLen = m_WixImageInfo.nIndexCount;
-    if(std::fread(&(m_WilPosition[0]), sizeof(int32_t), nCurrDataLen, hWixFile) != (size_t)(nCurrDataLen)){
-        std::fclose(hWixFile); fnReleaseFile(); return false;
-    }
-
-    // set current index to an invalid index
-    m_CurrentImageIndex = -1;
-    return true;
-}
-
-const uint16_t *WilImagePackage::CurrentImageBuffer()
-{
-    if(m_CurrentImageValid){
-        return &(m_CurrentImageBuffer[0]);
-    }else{
+            || imageIndex >= to_u32(m_wilPositionList.size())
+            || imageIndex >= to_u32(m_wixImageInfo.indexCount)
+            || m_wilPositionList.at(imageIndex) <= 0){
         return nullptr;
     }
-}
 
-const WILIMAGEINFO &WilImagePackage::CurrentImageInfo()
-{
-    if(m_CurrentImageValid){
-        return m_CurrentWilImageInfo;
-    }else{
-        const static WILIMAGEINFO rstEmptyImageInfo = []()
-        {
-            WILIMAGEINFO stWilImageInfo;
-            std::memset(&stWilImageInfo, 0, sizeof(stWilImageInfo));
-            return stWilImageInfo;
-        }();
+    seek_fileptr(m_wilFile, m_wilPositionList[imageIndex], SEEK_SET);
+    read_fileptr(m_wilFile, &m_currImageInfo, sizeof(m_currImageInfo));
 
-        return rstEmptyImageInfo;
+    if(false
+            || m_currImageInfo.width  <= 0
+            || m_currImageInfo.height <= 0
+            || m_currImageInfo.imageLength <= 0){
+        return nullptr;
     }
+
+    seek_fileptr(m_wilFile, m_wilPositionList[imageIndex] + wilOff(m_wilFileHeader.version), SEEK_SET);
+    read_fileptr(m_wilFile, m_currImageBuffer, m_currImageInfo.imageLength);
+
+    m_currImageIndex = imageIndex;
+    return &m_currImageInfo;
 }
 
-void WilImagePackage::Decode(uint32_t *rectImageBuffer, uint32_t dwColor0, uint32_t dwColor1, uint32_t dwColor2)
+std::array<const uint32_t *, 3> WilImagePackage::decode(bool mergeLayer, bool removeShadow, bool autoAlpha)
 {
-    auto pwSrc   = &(m_CurrentImageBuffer[0]);
-    int  nWidth  = m_CurrentWilImageInfo.shWidth;
-    int  nHeight = m_CurrentWilImageInfo.shHeight;
+    fflassert(currImageValid());
+
+    m_decodeBuf0.clear();
+    m_decodeBuf1.clear();
+    m_decodeBuf2.clear();
+
+    // checked all .wil packages, none of them has layer[2]
+    // the following packages has layer[1], all packages has layer[0]
+    //
+    //                  0 1 2 layers
+    // DMon-1.wil     : v v x
+    // Equip.wil      : v v x
+    // Flag.wil       : v v x
+    // GameInter.wil  : v v x
+    // Inventory.wil  : v v x
+    // M-Hair.wil     : x v x
+    // M-Hum.wil      : v v x
+    // Mon-17.wil     : v v x
+    // ProgUse.wil    : v v x
+    // WM-Hair.wil    : x v x
+    // WM-Hum.wil     : v v x
+
+    // check decode in suprcode/mir2: LibraryEditor/Graphics/WeMadeLibrary.cs
 
     size_t srcBeginPos    = 0;
     size_t srcEndPos      = 0;
     size_t srcNowPos      = 0;
     size_t dstNowPosInRow = 0;
 
-    for(int nRow = 0; nRow < nHeight; ++nRow){
-        srcEndPos     += pwSrc[srcBeginPos++];
+    for(int row = 0; row < m_currImageInfo.height; ++row){
+        srcEndPos     += m_currImageBuffer[srcBeginPos++];
         srcNowPos      = srcBeginPos;
         dstNowPosInRow = 0;
 
         while(srcNowPos < srcEndPos){
-            uint16_t  hdCode  = pwSrc[srcNowPos++];
-            uint16_t  cntCopy = pwSrc[srcNowPos++];
+            const uint16_t hdCode      = m_currImageBuffer[srcNowPos++];
+            const uint16_t hdCopyCount = m_currImageBuffer[srcNowPos++];
+
+            // TODO some images have row can overflow to next row, i.e.: W-Hum.wil index 09010
+            // this can causes issue if currently is last row, if not last row then next row decoding can override it
+            const int rowLeftCount = std::max<int>(0, m_currImageInfo.width - to_d(dstNowPosInRow));
+            const int rowCopyCount = std::min<int>(hdCopyCount, rowLeftCount);
 
             switch(hdCode){
-                case 0XC0: // jump code
-                    MemSet32(rectImageBuffer + nRow * nWidth + dstNowPosInRow, cntCopy, 0X00000000);
-                    break;
+                case 0XC0: // transparent
+                    {
+                        break;
+                    }
                 case 0XC1:
-                    Memcpy16To32(rectImageBuffer + nRow * nWidth + dstNowPosInRow, pwSrc + srcNowPos, cntCopy, dwColor0);
-                    srcNowPos += cntCopy;
-                    break;
+                    {
+                        if(m_decodeBuf0.empty()){
+                            m_decodeBuf0.resize(m_currImageInfo.width * m_currImageInfo.height, 0X00000000);
+                        }
+
+                        memcpy_color_u16_2_u32(m_decodeBuf0.data() + row * m_currImageInfo.width + dstNowPosInRow, m_currImageBuffer.data() + srcNowPos, rowCopyCount);
+                        srcNowPos += hdCopyCount;
+                        break;
+                    }
                 case 0XC2:
-                    Memcpy16To32(rectImageBuffer + nRow * nWidth + dstNowPosInRow, pwSrc + srcNowPos, cntCopy, dwColor1);
-                    srcNowPos += cntCopy;
-                    break;
+                    {
+                        if(mergeLayer){
+                            if(m_decodeBuf0.empty()){
+                                m_decodeBuf0.resize(m_currImageInfo.width * m_currImageInfo.height, 0X00000000);
+                            }
+                            memcpy_color_u16_2_u32(m_decodeBuf0.data() + row * m_currImageInfo.width + dstNowPosInRow, m_currImageBuffer.data() + srcNowPos, rowCopyCount);
+                        }
+                        else{
+                            if(m_decodeBuf1.empty()){
+                                m_decodeBuf1.resize(m_currImageInfo.width * m_currImageInfo.height, 0X00000000);
+                            }
+                            memcpy_color_u16_2_u32(m_decodeBuf1.data() + row * m_currImageInfo.width + dstNowPosInRow, m_currImageBuffer.data() + srcNowPos, rowCopyCount);
+                        }
+
+                        srcNowPos += hdCopyCount;
+                        break;
+                    }
                 case 0XC3:
-                    Memcpy16To32(rectImageBuffer + nRow * nWidth + dstNowPosInRow, pwSrc + srcNowPos, cntCopy, dwColor2);
-                    srcNowPos += cntCopy;
-                    break;
+                    {
+                        if(mergeLayer){
+                            if(m_decodeBuf0.empty()){
+                                m_decodeBuf0.resize(m_currImageInfo.width * m_currImageInfo.height, 0X00000000);
+                            }
+                            memcpy_color_u16_2_u32(m_decodeBuf0.data() + row * m_currImageInfo.width + dstNowPosInRow, m_currImageBuffer.data() + srcNowPos, rowCopyCount);
+                        }
+                        else{
+                            if(m_decodeBuf2.empty()){
+                                m_decodeBuf2.resize(m_currImageInfo.width * m_currImageInfo.height, 0X00000000);
+                            }
+                            memcpy_color_u16_2_u32(m_decodeBuf2.data() + row * m_currImageInfo.width + dstNowPosInRow, m_currImageBuffer.data() + srcNowPos, rowCopyCount);
+                        }
+
+                        srcNowPos += hdCopyCount;
+                        break;
+                    }
                 default:
-                    // printf("Warning: unexpected hard code in WilImagePackage::Decode()\n");
-                    break;
+                    {
+                        throw fflreach();
+                    }
             }
-            dstNowPosInRow += cntCopy;
+            dstNowPosInRow += hdCopyCount;
         }
 
-        // actually I don't think it's needed here, but put it here
-        MemSet32(rectImageBuffer + nRow * nWidth + dstNowPosInRow, nWidth - dstNowPosInRow, 0X00000000);
+        // TODO wired code detected
+        // found image with dstNowPosInRow > m_currImageInfo.width, i.e.: W-Hum.wil index 09010
+
+        // this means the row data can overflow to next row, suprcode/mir2 checks each u16 to avoid this
+        // if not at last row it's fine since decoding for next row override it, but the last row may have issue
+
         srcEndPos++;
         srcBeginPos = srcEndPos;
     }
-}
 
-int32_t WilImagePackage::ImageCount()
-{
-    return m_WilFile ? m_WilFileHeader.nImageCount : 0;
-}
-
-int32_t WilImagePackage::IndexCount()
-{
-    return m_WilFile ? m_WixImageInfo.nIndexCount: 0;
-}
-
-bool WilImagePackage::CurrentImageValid()
-{
-    return m_CurrentImageValid;
-}
-
-int16_t WilImagePackage::Version()
-{
-    return m_WilFileHeader.shVer;
-}
-
-const WILFILEHEADER &WilImagePackage::HeaderInfo() const
-{
-    return m_WilFileHeader;
-}
-
-int WilImagePackage::WixOffset(int nVersion)
-{
-    switch(nVersion){
-        case 17:
-            {
-                return 24;
-            }
-        case 5000:
-            {
-                return 28;
-            }
-        case 6000:
-            {
-                return 32;
-            }
-        default:
-            {
-                return -1;
-            }
+    if(removeShadow && !m_decodeBuf0.empty()){
+        alphaf::removeShadowMosaic(m_decodeBuf0.data(), m_currImageInfo.width, m_currImageInfo.height, colorf::BLACK + colorf::A_SHF(0X80));
     }
-}
 
-int WilImagePackage::WilOffset(int nVersion)
-{
-    switch(nVersion){
-        case 17:
-            {
-                return 17;
-            }
-        case 5000:
-            {
-                return 21;
-            }
-        case 6000:
-            {
-                return 21;
-            }
-        default:
-            {
-                return -1;
-            }
+    if(autoAlpha && !m_decodeBuf0.empty()){
+        alphaf::autoAlpha(m_decodeBuf0.data(), m_currImageInfo.width * m_currImageInfo.height);
     }
+
+    return
+    {
+        m_decodeBuf0.empty() ? nullptr : m_decodeBuf0.data(),
+        m_decodeBuf1.empty() ? nullptr : m_decodeBuf1.data(),
+        m_decodeBuf2.empty() ? nullptr : m_decodeBuf2.data(),
+    };
 }

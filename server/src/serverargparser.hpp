@@ -1,0 +1,126 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename: serverargparser.hpp
+ *        Created: 11/26/2018 07:34:22
+ *    Description:
+ *
+ *        Version: 1.0
+ *       Revision: none
+ *       Compiler: gcc
+ *
+ *         Author: ANHONG
+ *          Email: anhonghe@gmail.com
+ *   Organization: USTC
+ *
+ * =====================================================================================
+ */
+
+#pragma once
+#include <thread>
+#include <cstdint>
+#include "totype.hpp"
+#include "fflerror.hpp"
+#include "argparser.hpp"
+#include "dbcomid.hpp"
+#include "dbcomrecord.hpp"
+
+struct ServerArgParser
+{
+    const bool disableProfiler;             // "--disable-profiler"
+    const bool disableMapScript;            // "--disable-map-script"
+
+    const bool traceActorMessage;           // "--trace-actor-message"
+    const bool traceActorMessageCount;      // "--trace-actor-message-count"
+    const bool enableUniqueActorMessageID;  // "--enable-unique-actor-message-id"
+
+    const bool disablePetSpawn;             // "--disable-pet-spawn"
+    const bool disableGuardSpawn;           // "--disable-guard-spawn"
+    const bool disableMonsterSpawn;         // "--disable-monster-spawn"
+    const bool disableNPCSpawn;             // "--disable-npc-spawn"
+
+    const bool forceMonsterRandomMove;      // "--force-monster-random-move"
+    const bool showStrikeGrid;              // "--show-strike-grid"
+    const bool preloadMap;                  // "--preload-map"
+    const int  preloadMapID;                // "--preload-map-id"
+    const int  actorPoolThread;             // "--actor-pool-thread"
+    const int  logicalFPS;                  // "--logical-fps"
+
+    ServerArgParser(const argh::parser &cmdParser)
+        : disableProfiler(cmdParser["disable-profiler"])
+        , disableMapScript(cmdParser["disable-map-script"])
+        , traceActorMessage(cmdParser["trace-actor-message"])
+        , traceActorMessageCount(cmdParser["trace-actor-message-count"])
+        , enableUniqueActorMessageID(cmdParser["enable-unique-actor-message-id"])
+        , disablePetSpawn(cmdParser["disable-pet-spawn"])
+        , disableGuardSpawn(cmdParser["disable-guard-spawn"])
+        , disableMonsterSpawn(cmdParser["disable-monster-spawn"])
+        , disableNPCSpawn(cmdParser["disable-npc-spawn"])
+        , forceMonsterRandomMove(cmdParser["force-monster-random-move"])
+        , showStrikeGrid(cmdParser["show-strike-grid"])
+        , preloadMap(cmdParser["preload-map"])
+        , preloadMapID([&cmdParser]() -> int
+          {
+              if(const auto s = cmdParser("preload-map-id").str(); !s.empty()){
+                  const auto mapID = [&s]() -> uint32_t
+                  {
+                      try{
+                          return to_u32(std::stoi(s));
+                      }
+                      catch(...){
+                          return 0;
+                      }
+                  }();
+
+                  if(mapID > 0){
+                      if(DBCOM_MAPRECORD(mapID)){
+                          return mapID;
+                      }
+                      else{
+                          throw fflerror("no valid map for mapID: %llu", to_llu(mapID));
+                      }
+                  }
+
+                  if(const auto mapIDFromName = DBCOM_MAPID(to_u8cstr(s)); mapIDFromName > 0){
+                      return mapIDFromName;
+                  }
+                  throw fflerror("failed to parse mapID: %s", to_cstr(s));
+              }
+              return 0;
+          }())
+        , actorPoolThread([&cmdParser]() -> int
+          {
+              if(const auto numStr = cmdParser("actor-pool-thread").str(); !numStr.empty()){
+                  try{
+                      return std::stoi(numStr);
+                  }
+                  catch(...){
+                      return 1;
+                  }
+              }
+              else if(const auto hw = std::thread::hardware_concurrency(); hw > 0){
+                  return hw;
+              }
+              else{
+                  return 4;
+              }
+          }())
+        , logicalFPS([&cmdParser]() -> int
+          {
+              if(const auto numStr = cmdParser("logical-fps").str(); !numStr.empty()){
+                  try{
+                      if(const auto fps = std::stoi(numStr); fps > 0){
+                          return fps;
+                      }
+                  }
+                  catch(...){
+                      // ...
+                  }
+                  throw fflerror("invalid fps: %s", numStr.c_str());
+              }
+              else{
+                  return 10;
+              }
+          }())
+    {}
+};

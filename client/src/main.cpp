@@ -3,7 +3,7 @@
  *
  *       Filename: main.cpp
  *        Created: 08/31/2015 08:52:57 PM
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -20,95 +20,89 @@
 #include "log.hpp"
 #include "client.hpp"
 #include "xmlconf.hpp"
-#include "pngtexdbn.hpp"
-#include "fontexdbn.hpp"
-#include "mapbindbn.hpp"
-#include "emoticondbn.hpp"
+#include "pngtexdb.hpp"
+#include "fontexdb.hpp"
+#include "mapbindb.hpp"
+#include "emojidb.hpp"
 #include "notifyboard.hpp"
-#include "pngtexoffdbn.hpp"
+#include "pngtexoffdb.hpp"
 #include "clientargparser.hpp"
 
 // global variables, decide to follow pattern in MapEditor
 // put all global in one place and create them togother
 
-ClientArgParser *g_ClientArgParser = nullptr;
-Log             *g_Log             = nullptr; // log information handler, must be inited first
-PNGTexDBN       *g_ProgUseDBN      = nullptr; // database for all PNG texture only
-PNGTexDBN       *g_GroundItemDBN   = nullptr; // database for all PNG texture only
-PNGTexDBN       *g_CommonItemDBN   = nullptr; // database for all PNG texture only
-PNGTexDBN       *g_MapDBN          = nullptr;
-PNGTexOffDBN    *g_HeroDBN         = nullptr; // database for hero
-PNGTexOffDBN    *g_MonsterDBN      = nullptr; // database for monster
-PNGTexOffDBN    *g_WeaponDBN       = nullptr; // database for weapon
-PNGTexOffDBN    *g_MagicDBN        = nullptr; // database for magic
-EmoticonDBN     *g_EmoticonDBN     = nullptr; // database for emoticons
-MapBinDBN       *g_MapBinDBN       = nullptr;
-FontexDBN       *g_FontexDBN       = nullptr;
-XMLConf         *g_XMLConf         = nullptr; // for client configure XML parsing
-SDLDevice       *g_SDLDevice       = nullptr; // for SDL hardware device
-NotifyBoard     *g_NotifyBoard     = nullptr;
-Client          *g_Client          = nullptr; // gobal instance
+ClientArgParser *g_clientArgParser = nullptr;
+Log             *g_log             = nullptr; // log information handler, must be inited first
+PNGTexDB        *g_progUseDB       = nullptr; // database for all PNG texture only
+PNGTexDB        *g_itemDB          = nullptr; // database for all PNG texture only
+PNGTexDB        *g_mapDB           = nullptr;
+PNGTexOffDB     *g_heroDB          = nullptr; // database for hero
+PNGTexOffDB     *g_hairDB          = nullptr; // database for hair
+PNGTexOffDB     *g_monsterDB       = nullptr; // database for monster
+PNGTexOffDB     *g_weaponDB        = nullptr; // database for weapon
+PNGTexOffDB     *g_helmetDB        = nullptr; // database for helmet
+PNGTexOffDB     *g_equipDB         = nullptr; // database for equipment in player status board
+PNGTexOffDB     *g_magicDB         = nullptr; // database for magic
+PNGTexOffDB     *g_standNPCDB      = nullptr; // database for NPC
+PNGTexOffDB     *g_selectCharDB    = nullptr; // database for chars in ProcessSelectChar and ProcessCreateChar
+EmojiDB         *g_emojiDB         = nullptr; // database for emoticons
+MapBinDB        *g_mapBinDB        = nullptr;
+FontexDB        *g_fontexDB        = nullptr;
+XMLConf         *g_xmlConf         = nullptr; // for client configure XML parsing
+SDLDevice       *g_sdlDevice       = nullptr; // for SDL hardware device
+NotifyBoard     *g_notifyBoard     = nullptr;
+Client          *g_client          = nullptr; // gobal instance
 
 int main(int argc, char *argv[])
 {
     std::srand((unsigned int)std::time(nullptr));
     try{
-        arg_parser stCmdParser(argc, argv);
-        auto fnAtExit = []()
-        {
-            delete g_ClientArgParser; g_ClientArgParser = nullptr;
-            delete g_Log            ; g_Log             = nullptr;
-            delete g_XMLConf        ; g_XMLConf         = nullptr;
-            delete g_SDLDevice      ; g_SDLDevice       = nullptr;
-            delete g_ProgUseDBN     ; g_ProgUseDBN      = nullptr;
-            delete g_GroundItemDBN  ; g_GroundItemDBN   = nullptr;
-            delete g_CommonItemDBN  ; g_CommonItemDBN   = nullptr;
-            delete g_MapDBN         ; g_MapDBN          = nullptr;
-            delete g_HeroDBN        ; g_HeroDBN         = nullptr;
-            delete g_MonsterDBN     ; g_MonsterDBN      = nullptr;
-            delete g_FontexDBN      ; g_FontexDBN       = nullptr;
-            delete g_MapBinDBN      ; g_MapBinDBN       = nullptr;
-            delete g_EmoticonDBN    ; g_EmoticonDBN     = nullptr;
-            delete g_NotifyBoard    ; g_NotifyBoard     = nullptr;
-            delete g_Client         ; g_Client          = nullptr;
-        };
+        arg_parser cmdParser(argc, argv);
+        g_clientArgParser = new ClientArgParser(cmdParser);
 
-        std::atexit(fnAtExit);
+        if(g_clientArgParser->disableProfiler){
+            logDisableProfiler();
+        }
+        g_log = new Log("mir2x-client-v0.1");
 
-        g_ClientArgParser = new ClientArgParser(stCmdParser);
-        g_Log             = new Log("mir2x-client-v0.1");
-
-    }catch(const std::exception &e){
+    }
+    catch(const std::exception &e){
         std::fprintf(stderr, "Caught exception: %s\n", e.what());
         return -1;
-    }catch(...){
+    }
+    catch(...){
         std::fprintf(stderr, "Caught unknown exception, exit...\n");
         return -1;
     }
 
     try{
-        g_XMLConf         = new XMLConf();
-        g_SDLDevice       = new SDLDevice();
-        g_ProgUseDBN      = new PNGTexDBN();
-        g_GroundItemDBN   = new PNGTexDBN();
-        g_CommonItemDBN   = new PNGTexDBN();
-        g_MapDBN          = new PNGTexDBN();
-        g_HeroDBN         = new PNGTexOffDBN();
-        g_MonsterDBN      = new PNGTexOffDBN();
-        g_WeaponDBN       = new PNGTexOffDBN();
-        g_MagicDBN        = new PNGTexOffDBN();
-        g_FontexDBN       = new FontexDBN();
-        g_MapBinDBN       = new MapBinDBN();
-        g_EmoticonDBN     = new EmoticonDBN();
-        g_Client          = new Client();       // loads fontex resource
-        g_NotifyBoard     = new NotifyBoard();  // needs fontex
+        g_xmlConf         = new XMLConf();
+        g_sdlDevice       = new SDLDevice();
+        g_progUseDB       = new PNGTexDB(1024);
+        g_itemDB          = new PNGTexDB(1024);
+        g_mapDB           = new PNGTexDB(8192);
+        g_heroDB          = new PNGTexOffDB(1024);
+        g_hairDB          = new PNGTexOffDB(1024);
+        g_monsterDB       = new PNGTexOffDB(1024);
+        g_weaponDB        = new PNGTexOffDB(1024);
+        g_helmetDB        = new PNGTexOffDB(1024);
+        g_equipDB         = new PNGTexOffDB(1024);
+        g_magicDB         = new PNGTexOffDB(1024);
+        g_standNPCDB      = new PNGTexOffDB(1024);
+        g_selectCharDB    = new PNGTexOffDB(512);
+        g_fontexDB        = new FontexDB(1024);
+        g_mapBinDB        = new MapBinDB();
+        g_emojiDB         = new EmojiDB();
+        g_client          = new Client();       // loads fontex resource
+        g_notifyBoard     = new NotifyBoard(DIR_UPLEFT, 0, 0, 10240, 0, 15, 0, colorf::RED + colorf::A_SHF(255), 0, 5);
 
-        g_Client->MainLoop();
-
-    }catch(const std::exception &e){
-        g_Log->AddLog(LOGTYPE_FATAL, "Caught exception: %s", e.what());
-    }catch(...){
-        g_Log->AddLog(LOGTYPE_FATAL, "Caught unknown exception, exit...");
+        g_client->mainLoop();
+    }
+    catch(const std::exception &e){
+        g_log->addLog(LOGTYPE_FATAL, "Caught exception: %s", e.what());
+    }
+    catch(...){
+        g_log->addLog(LOGTYPE_FATAL, "Caught unknown exception, exit...");
     }
     return 0;
 }

@@ -3,7 +3,7 @@
  *
  *       Filename: processlogin.hpp
  *        Created: 08/14/2015 02:47:30 PM
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -20,39 +20,56 @@
 #include <cstdint>
 #include <SDL2/SDL.h>
 
-#include "idbox.hpp"
+#include "strf.hpp"
+#include "totype.hpp"
 #include "process.hpp"
 #include "message.hpp"
+#include "inputline.hpp"
+#include "labelboard.hpp"
 #include "passwordbox.hpp"
+#include "notifyboard.hpp"
 #include "tritexbutton.hpp"
 
 class ProcessLogin: public Process
 {
     private:
-        TritexButton    m_Button1;
-        TritexButton    m_Button2;
-        TritexButton    m_Button3;
-        TritexButton    m_Button4;
+        TritexButton    m_button1;
+        TritexButton    m_button2;
+        TritexButton    m_button3;
+        TritexButton    m_button4;
 
-        IDBox           m_IDBox;
-        PasswordBox     m_PasswordBox;
+    private:
+        InputLine       m_idBox;
+        PasswordBox     m_passwordBox;
+
+    private:
+        LabelBoard m_buildSignature;
+
+    private:
+        NotifyBoard m_notifyBoard;
 
     public:
         ProcessLogin();
         virtual ~ProcessLogin() = default;
 
     public:
-        int ID() const
+        int id() const override
         {
             return PROCESSID_LOGIN;
         }
 
     public:
-        void Update(double);
-        void Draw();
-        void ProcessEvent(const SDL_Event &);
+        void draw() const override;
+        void update(double) override;
+        void processEvent(const SDL_Event &) override;
 
     private:
-        void DoLogin();
-        void DoCreateAccount();
+        void doExit();
+        void doLogin();
+        void doCreateAccount();
+        void doChangePassword();
+
+    public:
+        void net_LOGINOK   (const uint8_t *, size_t);
+        void net_LOGINERROR(const uint8_t *, size_t);
 };

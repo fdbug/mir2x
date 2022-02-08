@@ -17,6 +17,7 @@
  */
 
 #pragma once
+#include <map>
 #include "pathfinder.hpp"
 
 class ClientPathFinder final: public AStarPathFinder
@@ -25,18 +26,17 @@ class ClientPathFinder final: public AStarPathFinder
         friend class ProcessRun;
 
     private:
-        const bool m_CheckGround;
+        const bool m_checkGround;
 
     private:
-        const int m_CheckCreature;
+        const int m_checkCreature;
 
     private:
-        mutable std::map<uint64_t, int> m_Cache;
+        mutable std::map<uint64_t, int> m_cache;
 
     public:
         ClientPathFinder(bool, int, int);
-       ~ClientPathFinder() = default;
 
     private:
-       int GetGrid(int, int) const;
+        int getGrid(int, int) const;
 };

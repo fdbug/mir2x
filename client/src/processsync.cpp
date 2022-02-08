@@ -3,7 +3,7 @@
  *
  *       Filename: processsync.cpp
  *        Created: 08/14/2015 02:47:49
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -18,24 +18,26 @@
 
 #include "log.hpp"
 #include "client.hpp"
+#include "pngtexdb.hpp"
 #include "sdldevice.hpp"
-#include "pngtexdbn.hpp"
-#include "tokenboard.hpp"
 #include "processsync.hpp"
+
+extern Client *g_client;
+extern PNGTexDB *g_progUseDB;
+extern SDLDevice *g_sdlDevice;
 
 ProcessSync::ProcessSync()
 	: Process()
-    , m_Ratio(0)
-    , m_ProcessBarInfo(0, 0, "Connecting...", 1, 10, 0)
-{} 
-void ProcessSync::ProcessEvent(const SDL_Event &rstEvent)
+    , m_ratio(0)
+    , m_processBarInfo(DIR_UPLEFT, 0, 0, u8"Connecting...", 1, 10, 0)
+{}
+void ProcessSync::processEvent(const SDL_Event &event)
 {
-    switch(rstEvent.type){
+    switch(event.type){
         case SDL_KEYDOWN:
             {
-                if(rstEvent.key.keysym.sym == SDLK_ESCAPE){
-                    extern Client *g_Client;
-                    g_Client->RequestProcess(PROCESSID_LOGIN);
+                if(event.key.keysym.sym == SDLK_ESCAPE){
+                    g_client->requestProcess(PROCESSID_LOGIN);
                 }
                 break;
             }
@@ -46,40 +48,32 @@ void ProcessSync::ProcessEvent(const SDL_Event &rstEvent)
     }
 }
 
-void ProcessSync::Update(double fDeltaMS)
+void ProcessSync::update(double fUpdateTime)
 {
-    if(m_Ratio >= 100){
-        extern Client *g_Client;
-        g_Client->RequestProcess(PROCESSID_LOGIN);
+    if(m_ratio >= 100){
+        g_client->requestProcess(PROCESSID_LOGIN);
         return;
     }
 
-    m_Ratio += (fDeltaMS > 0.0 ? 1 : 0);
+    m_ratio += (fUpdateTime > 0.0 ? 1 : 0);
 }
 
-void ProcessSync::Draw()
+void ProcessSync::draw() const
 {
-    extern SDLDevice *g_SDLDevice;
-    extern PNGTexDBN *g_ProgUseDBN;
+    SDLDeviceHelper::RenderNewFrame newFrame;
+    auto texPtr = g_progUseDB->retrieve(0X00000002);
+    const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
 
-    auto pTexture = g_ProgUseDBN->Retrieve(0X00000002);
-    int nW, nH;
-
-    SDL_QueryTexture(pTexture, nullptr, nullptr, &nW, &nH);
-
-    g_SDLDevice->ClearScreen();
-    g_SDLDevice->DrawTexture(pTexture,
+    g_sdlDevice->drawTexture(texPtr,
             112,  // dst x
             528,  // dst y
             0,    // src x
             0,    // src y
-            std::lround(nW * (m_Ratio / 100.0)), // src w
-            nH);  // src h
-    g_SDLDevice->DrawTexture(g_ProgUseDBN->Retrieve(0X00000001), 0, 0);
+            std::lround(texW * (m_ratio / 100.0)), // src w
+            texH);  // src h
+    g_sdlDevice->drawTexture(g_progUseDB->retrieve(0X00000001), 0, 0);
 
-    int nInfoX = (g_SDLDevice->WindowW(false) - m_ProcessBarInfo.W()) / 2;
-    int nInfoY = 528 + (nH - m_ProcessBarInfo.H()) / 2;
-
-    m_ProcessBarInfo.DrawEx(nInfoX, nInfoY, 0, 0, m_ProcessBarInfo.W(), m_ProcessBarInfo.H());
-    g_SDLDevice->Present();
+    const int infoX = (800 - m_processBarInfo.w()) / 2;
+    const int infoY = 528 + (texH - m_processBarInfo.h()) / 2;
+    m_processBarInfo.drawEx(infoX, infoY, 0, 0, m_processBarInfo.w(), m_processBarInfo.h());
 }

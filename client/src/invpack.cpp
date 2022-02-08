@@ -3,7 +3,7 @@
  *
  *       Filename: invpack.cpp
  *        Created: 11/11/2017 01:03:43
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -16,87 +16,174 @@
  * =====================================================================================
  */
 
+#include "dbcomid.hpp"
 #include "invpack.hpp"
-#include "pngtexdbn.hpp"
+#include "pngtexdb.hpp"
+#include "fflerror.hpp"
+#include "sdldevice.hpp"
+#include "dbcomrecord.hpp"
 
-bool InvPack::Repack()
+extern PNGTexDB *g_itemDB;
+int InvPack::getWeight() const
 {
-    Pack2D stPack2D(W());
-    switch(stPack2D.Pack(&m_PackBinList)){
-        case 1:
-            {
-                return true;
+    int weight = 0;
+    for(const auto &bin: m_packBinList){
+        const auto &ir = DBCOM_ITEMRECORD(bin.item.itemID);
+        fflassert(ir);
+        weight += ir.weight;
+    }
+    return weight;
+}
+
+void InvPack::add(SDItem item)
+{
+    fflassert(item);
+    for(auto &bin: m_packBinList){
+        if((bin.item.itemID == item.itemID) && (bin.item.seqID == item.seqID)){
+            if(bin.item.count + item.count <= SYS_INVGRIDMAXHOLD){
+                bin.item.count += item.count;
+                return;
             }
-        default:
-            {
-                return false;
+            else{
+                throw fflerror("adding overlapping item exceeds SYS_INVGRIDMAXHOLD: %s", to_cstr(item.str()));
             }
+        }
+    }
+
+    // when reaching here
+    // means we need a new grid for the item
+
+    Pack2D pack2D(w());
+    for(auto &bin: m_packBinList){
+        pack2D.put(bin.x, bin.y, bin.w, bin.h);
+    }
+
+    auto addedBin = makePackBin(item);
+    pack2D.add(addedBin);
+    m_packBinList.push_back(addedBin);
+}
+
+void InvPack::add(SDItem item, int x, int y)
+{
+    fflassert(item);
+    auto itemBin = makePackBin(item);
+
+    if(!(x >= 0 && x + itemBin.w <= to_d(w()) && y >= 0)){
+        add(item);
+        return;
+    }
+
+    Pack2D pack2D(w());
+    for(auto &bin: m_packBinList){
+        pack2D.put(bin.x, bin.y, bin.w, bin.h);
+    }
+
+    if(pack2D.occupied(x, y, itemBin.w, itemBin.h, true)){
+        add(item);
+        return;
+    }
+
+    itemBin.x = x;
+    itemBin.y = y;
+    m_packBinList.push_back(itemBin);
+}
+
+int InvPack::update(SDItem item)
+{
+    fflassert(item);
+    if(item.seqID <= 0){
+        throw fflerror("udpate item with zero seqID: %s", to_cstr(item.str()));
+    }
+
+    for(auto &bin: m_packBinList){
+        if((bin.item.itemID == item.itemID) && (bin.item.seqID == item.seqID)){
+            const int changed = to_d(item.count) - to_d(bin.item.count);
+            bin.item = std::move(item);
+            return changed;
+        }
+    }
+
+    const int changed = to_d(item.count);
+    add(std::move(item));
+    return changed;
+}
+
+size_t InvPack::remove(uint32_t itemID, uint32_t seqID, size_t count)
+{
+    for(auto &bin: m_packBinList){
+        if((bin.item.itemID == itemID) && (bin.item.seqID == seqID)){
+            if(bin.item.count <= count){
+                const auto doneCount = bin.item.count;
+                std::swap(bin, m_packBinList.back());
+                m_packBinList.pop_back();
+                return doneCount;;
+            }
+            else{
+                bin.item.count -= count;
+                return count;
+            }
+        }
+    }
+    return 0;
+}
+
+std::tuple<int, int> InvPack::getPackBinSize(uint32_t itemID)
+{
+    if(auto texPtr = g_itemDB->retrieve(DBCOM_ITEMRECORD(itemID).pkgGfxID | 0X01000000)){
+        const auto [itemPW, itemPH] = SDLDeviceHelper::getTextureSize(texPtr);
+        return
+        {
+            (itemPW + (SYS_INVGRIDPW - 1)) / SYS_INVGRIDPW,
+            (itemPH + (SYS_INVGRIDPH - 1)) / SYS_INVGRIDPH,
+        };
+    }
+    throw fflerror("can't find size: itemID = %llu", to_llu(itemID));
+}
+
+PackBin InvPack::makePackBin(SDItem item)
+{
+    const auto [w, h] = getPackBinSize(item.itemID);
+    return
+    {
+        .item = std::move(item),
+        .x = -1,
+        .y = -1,
+        .w =  w,
+        .h =  h,
+    };
+}
+
+void InvPack::setGrabbedItem(SDItem item)
+{
+    if(item.itemID){
+        fflassert(item);
+        m_grabbedItem = std::move(item);
+    }
+    else{
+        m_grabbedItem = {};
     }
 }
 
-bool InvPack::Add(uint32_t nItemID)
+void InvPack::setGold(int gold)
 {
-    if(nItemID){
-        Pack2D stPack2D(W());
-        for(auto &rstPackBin: m_PackBinList){
-            switch(stPack2D.Put(rstPackBin.X, rstPackBin.Y, rstPackBin.W, rstPackBin.H)){
-                case 1:
-                    {
-                        break;
-                    }
-                default:
-                    {
-                        return false;
-                    }
-            }
-        }
-
-        if(auto stPackBin = MakePackBin(nItemID)){
-            switch(stPack2D.Add(&stPackBin)){
-                case 1:
-                    {
-                        m_PackBinList.push_back(stPackBin);
-                        return true;
-                    }
-                default:
-                    {
-                        return false;
-                    }
-            }
-        }
+    if(gold < 0){
+        throw fflerror("invalid argument: gold = %d", gold);
     }
-    return false;
+    m_gold = (size_t)(gold);
 }
 
-bool InvPack::Remove(uint32_t nItemID, int nX, int nY)
+void InvPack::addGold(int gold)
 {
-    for(size_t nIndex = 0; nIndex < m_PackBinList.size(); ++nIndex){
-        if(true
-                && m_PackBinList[nIndex].X  == nX
-                && m_PackBinList[nIndex].Y  == nY
-                && m_PackBinList[nIndex].ID == nItemID){
-            std::swap(m_PackBinList[nIndex], m_PackBinList.back());
-            m_PackBinList.pop_back();
-            return true;
-        }
+    if(const auto newGold = to_d(m_gold) + gold; newGold >= 0){
+        m_gold = (size_t)(newGold);
     }
-    return false;
+    throw fflerror("invalid argument: gold = %d", gold);
 }
 
-PackBin InvPack::MakePackBin(uint32_t nItemID)
+void InvPack::setInventory(const SDInventory &sdInv)
 {
-    extern PNGTexDBN *g_CommonItemDBN;
-    if(auto pTexture = g_CommonItemDBN->Retrieve(nItemID - 1)){
-
-        int nItemPW = -1;
-        int nItemPH = -1;
-        if(!SDL_QueryTexture(pTexture, nullptr, nullptr, &nItemPW, &nItemPH)){
-
-            int nItemGW = (nItemPW + (SYS_INVGRIDPW - 1)) / SYS_INVGRIDPW;
-            int nItemGH = (nItemPH + (SYS_INVGRIDPH - 1)) / SYS_INVGRIDPH;
-
-            return {nItemID, -1, -1, nItemGW, nItemGH};
-        }
+    m_packBinList.clear();
+    for(const auto &item: sdInv.getItemList()){
+        add(item);
     }
-    return {0};
 }

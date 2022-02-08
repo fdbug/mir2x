@@ -73,7 +73,7 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "mathfunc.hpp"
+#include "mathf.hpp"
 #include "cachequeue.hpp"
 
 // UnitSize   :    size of unit in bytes, this is the basic units for buffer length
@@ -212,7 +212,7 @@ class MemoryChunkPN
                 // or we can just use function ValidUnit(nIndex)
                 size_t nNodeSize = PoolSize * 2;
                 for(size_t nIndex = 0; nIndex < 2 * PoolSize - 1; ++nIndex){
-                    if(MathFunc::PowerOf2(nIndex + 1)){
+                    if(mathf::powerOf2(nIndex + 1)){
                         nNodeSize /= 2;
                     }
 
@@ -409,12 +409,12 @@ class MemoryChunkPN
         }InnMemoryChunkPoolBranch;
 
     private:
-        size_t m_Count;
+        size_t m_count;
         InnMemoryChunkPoolBranch m_MCPBV[BranchSize];
 
     public:
         MemoryChunkPN()
-            : m_Count(0)
+            : m_count(0)
         {
             // 1. check parameters
             static_assert(UnitSize > 0 && UnitSize <= 256 && (!(UnitSize & (UnitSize - 1))), "invalid argument for UnitSize");
@@ -438,8 +438,8 @@ class MemoryChunkPN
             size_t nSizeInUnit = (nSizeInByte + nOff + UnitSize - 1) / UnitSize;
 
             // then nSizeInUnit == 0 won't happen
-            if(!MathFunc::PowerOf2<size_t>(nSizeInUnit)){
-                nSizeInUnit = MathFunc::RoundByPowerOf2<size_t>(nSizeInUnit);
+            if(!mathf::powerOf2<size_t>(nSizeInUnit)){
+                nSizeInUnit = mathf::roundByPowerOf2<size_t>(nSizeInUnit);
             }
 
             // oooops, request tooo large memory chunk and any pool can't satisfy
@@ -455,7 +455,7 @@ class MemoryChunkPN
 
             if(BranchSize == 1){ return m_MCPBV[0].Get(nSizeInUnit); }
 
-            size_t nIndex = (m_Count++) % BranchSize;
+            size_t nIndex = (m_count++) % BranchSize;
             while(true){
                 if(auto pRet = m_MCPBV[nIndex].Get(nSizeInUnit)){
                     return pRet;

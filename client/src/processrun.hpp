@@ -3,7 +3,7 @@
  *
  *       Filename: processrun.hpp
  *        Created: 08/31/2015 03:42:07
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -28,122 +28,139 @@
 #include "myhero.hpp"
 #include "process.hpp"
 #include "message.hpp"
-#include "creature.hpp"
 #include "focustype.hpp"
 #include "ascendstr.hpp"
-#include "commonitem.hpp"
-#include "indepmagic.hpp"
-#include "labelboard.hpp"
+#include "guimanager.hpp"
+#include "wilanitimer.hpp"
+#include "delaycommand.hpp"
+#include "lochashtable.hpp"
 #include "mir2xmapdata.hpp"
-#include "controlboard.hpp"
-#include "inventoryboard.hpp"
+#include "fixedlocmagic.hpp"
+#include "followuidmagic.hpp"
+#include "clientcreature.hpp"
 #include "clientluamodule.hpp"
-#include "linebrowserboard.hpp"
 
 class ClientPathFinder;
 class ProcessRun: public Process
 {
     private:
-        struct UserCommandEntry
+        struct UserCommand
         {
-            std::string Command;
-            std::function<int(const std::vector<std::string> &)> Callback;
+            std::string command;
+            std::function<int(const std::vector<std::string> &)> callback;
 
-            UserCommandEntry(const char *szCommand, std::function<int(const std::vector<std::string> &)> rfnOP)
-                : Command(szCommand ? szCommand : "")
-                , Callback(rfnOP)
-            {}
+            UserCommand(const char *cmdString, std::function<int(const std::vector<std::string> &)> cmdCB)
+                : command(cmdString ? cmdString : "")
+                , callback(cmdCB)
+            {
+                if(command.empty()){
+                    throw fflerror("empty command name");
+                }
+
+                if(!callback){
+                    throw fflerror("command callback is not callable: %s", command.c_str());
+                }
+            }
         };
 
     private:
-        enum OutPortType: int
-        {
-            OUTPORT_NONE         = (0 << 0),
-            OUTPORT_LOG          = (1 << 0),
-            OUTPORT_SCREEN       = (2 << 1),
-            OUTPORT_CONTROLBOARD = (3 << 1),
-        };
+        std::vector<UserCommand> m_userCommandList;
 
     private:
-        std::vector<UserCommandEntry> m_UserCommandGroup;
+        uint32_t     m_mapID;
+        Mir2xMapData m_mir2xMapData;
 
     private:
-        uint32_t     m_MapID;
-        Mir2xMapData m_Mir2xMapData;
+        LocHashTable<std::vector<uint32_t>> m_groundItemIDList;
 
     private:
-        std::vector<std::vector<std::vector<CommonItem>>> m_GroundItemList;
+        DelayCommandQueue m_delayCmdQ;
 
     private:
-        uint64_t m_MyHeroUID;
+        uint64_t m_myHeroUID;
+
+    private:
+        FPSMonitor m_fps;
+
+    private:
+        LocHashTable<uint64_t> m_strikeGridList;
+
+    private:
+        bool m_drawMagicKey = true;
 
     public:
-        bool ValidC(int nX, int nY) const
+        bool validC(int nX, int nY) const
         {
-            return m_Mir2xMapData.ValidC(nX, nY);
+            return m_mir2xMapData.validC(nX, nY);
+        }
+
+        bool groundValid(int nX, int nY) const
+        {
+            return m_mir2xMapData.validC(nX, nY) && m_mir2xMapData.cell(nX, nY).land.canThrough();
         }
 
     private:
-        std::array<uint64_t, FOCUS_MAX> m_FocusUIDTable;
+        std::array<uint64_t, FOCUS_END> m_focusUIDTable;
 
     private:
-        int m_ViewX;
-        int m_ViewY;
+        int m_viewX;
+        int m_viewY;
 
     private:
-        bool m_RollMap;
+        bool m_mapScrolling;
 
     private:
-        ClientLuaModule m_LuaModule;
+        WilAniTimer m_aniTimer;
 
     private:
-        ControlBoard m_ControbBoard;
+        ClientLuaModule m_luaModule;
 
     private:
-        InventoryBoard m_InventoryBoard;
+        GUIManager m_GUIManager;
 
     private:
-        std::list<std::shared_ptr<IndepMagic>> m_IndepMagicList;
+        std::list<std::unique_ptr<FixedLocMagic>> m_fixedLocMagicList;
+        std::list<std::unique_ptr<FollowUIDMagic>> m_followUIDMagicList;
 
     private:
-        std::map<uint64_t, std::shared_ptr<Creature>> m_CreatureList;
+        std::unordered_map<uint64_t, std::unique_ptr<ClientCreature>> m_coList;
 
     private:
-        std::set<uint64_t> m_UIDPending;
+        std::set<uint64_t> m_actionBlocker;
 
     private:
-        // use a tokenboard to show all in future
-        LabelBoard m_MousePixlLoc;
-        LabelBoard m_MouseGridLoc;
+        LabelBoard m_mousePixlLoc;
+        LabelBoard m_mouseGridLoc;
 
     private:
-        std::list<std::shared_ptr<AscendStr>> m_AscendStrList;
+        std::list<std::shared_ptr<AscendStr>> m_ascendStrList;
 
     private:
-        void ScrollMap();
+        bool     m_lastPingDone = true;
+        uint32_t m_lastPingTick = 0;
 
     private:
-        int LoadMap(uint32_t);
+        double m_starRatio = 0.0;
+
+    private:
+        void scrollMap();
+
+    private:
+        void loadMap(uint32_t, int, int);
 
     public:
         ProcessRun();
         virtual ~ProcessRun() = default;
 
     public:
-        int ID() const
+        int id() const override
         {
             return PROCESSID_RUN;
         }
 
-        uint32_t MapID() const
+        uint32_t mapID() const
         {
-            return m_MapID;
-        }
-
-    public:
-        bool UIDPending(uint64_t nUID) const
-        {
-            return m_UIDPending.find(nUID) != m_UIDPending.end();
+            return m_mapID;
         }
 
     public:
@@ -151,152 +168,287 @@ class ProcessRun: public Process
         void Notify(const char *, const std::map<std::string, std::function<void()>> &);
 
     public:
-        virtual void Update(double);
-        virtual void Draw();
-        virtual void ProcessEvent(const SDL_Event &);
+        virtual void draw() const override;
+        virtual void update(double) override;
+        virtual void processEvent(const SDL_Event &) override;
 
     public:
-        bool ScreenPoint2Grid(int, int, int *, int *);
-
-    public:
-        std::tuple<int, int> ScreenPoint2Grid(int nPX, int nPY)
+        std::tuple<int, int> fromPLoc2Grid(int pixelX, int pixelY) const
         {
-            return {(nPX + m_ViewX) / SYS_MAPGRIDXP, (nPY + m_ViewY) / SYS_MAPGRIDYP};
+            return {(pixelX + m_viewX) / SYS_MAPGRIDXP, (pixelY + m_viewY) / SYS_MAPGRIDYP};
         }
 
+        std::tuple<int, int> getViewShift() const
+        {
+            return {m_viewX, m_viewY};
+        }
+
+        std::tuple<int, int> getMouseGLoc() const
+        {
+            const auto [mousePX, mousePY] = SDLDeviceHelper::getMousePLoc();
+            return fromPLoc2Grid(mousePX, mousePY);
+        }
 
     public:
-        bool OnMap(uint32_t, int, int) const;
+        bool onMap(uint32_t id, int nX, int nY) const
+        {
+            return (mapID() == id) && m_mir2xMapData.validC(nX, nY);
+        }
+
+        bool onMap(int x, int y) const
+        {
+            return m_mir2xMapData.validC(x, y);
+        }
 
     public:
-        void Net_EXP(const uint8_t *, size_t);
-        void Net_MISS(const uint8_t *, size_t);
-        void Net_GOLD(const uint8_t *, size_t);
-        void Net_ACTION(const uint8_t *, size_t);
-        void Net_OFFLINE(const uint8_t *, size_t);
-        void Net_LOGINOK(const uint8_t *, size_t);
-        void Net_PICKUPOK(const uint8_t *, size_t);
-        void Net_CORECORD(const uint8_t *, size_t);
-        void Net_UPDATEHP(const uint8_t *, size_t);
-        void Net_FIREMAGIC(const uint8_t *, size_t);
-        void Net_NOTIFYDEAD(const uint8_t *, size_t);
-        void Net_DEADFADEOUT(const uint8_t *, size_t);
-        void Net_MONSTERGINFO(const uint8_t *, size_t);
-        void Net_SHOWDROPITEM(const uint8_t *, size_t);
+        void net_EXP(const uint8_t *, size_t);
+        void net_BUFF(const uint8_t *, size_t);
+        void net_BUFFIDLIST(const uint8_t *, size_t);
+        void net_MISS(const uint8_t *, size_t);
+        void net_TEXT(const uint8_t *, size_t);
+        void net_PING(const uint8_t *, size_t);
+        void net_GOLD(const uint8_t *, size_t);
+        void net_INVOPCOST(const uint8_t *, size_t);
+        void net_ACTION(const uint8_t *, size_t);
+        void net_OFFLINE(const uint8_t *, size_t);
+        void net_NPCSELL(const uint8_t *, size_t);
+        void net_STARTGAMESCENE(const uint8_t *, size_t);
+        void net_RUNTIMECONFIG(const uint8_t *, size_t);
+        void net_LEARNEDMAGICLIST(const uint8_t *, size_t);
+        void net_CORECORD(const uint8_t *, size_t);
+        void net_HEALTH(const uint8_t *, size_t);
+        void net_NEXTSTRIKE(const uint8_t *, size_t);
+        void net_CASTMAGIC(const uint8_t *, size_t);
+        void net_NOTIFYDEAD(const uint8_t *, size_t);
+        void net_PLAYERNAME(const uint8_t *, size_t);
+        void net_STRIKEGRID(const uint8_t *, size_t);
+        void net_PICKUPERROR(const uint8_t *, size_t);
+        void net_PLAYERWLDESP(const uint8_t *, size_t);
+        void net_UPDATEITEM(const uint8_t *, size_t);
+        void net_BELT(const uint8_t *, size_t);
+        void net_INVENTORY(const uint8_t *, size_t);
+        void net_REMOVEITEM(const uint8_t *, size_t);
+        void net_REMOVESECUREDITEM(const uint8_t *, size_t);
+        void net_DEADFADEOUT(const uint8_t *, size_t);
+        void net_MONSTERGINFO(const uint8_t *, size_t);
+        void net_SELLITEMLIST(const uint8_t *, size_t);
+        void net_NPCXMLLAYOUT(const uint8_t *, size_t);
+        void net_BUYERROR(const uint8_t *, size_t);
+        void net_BUYSUCCEED(const uint8_t *, size_t);
+        void net_GROUNDITEMIDLIST(const uint8_t *, size_t);
+        void net_GROUNDFIREWALLLIST(const uint8_t *, size_t);
+        void net_EQUIPWEAR(const uint8_t *, size_t);
+        void net_EQUIPWEARERROR(const uint8_t *, size_t);
+        void net_GRABWEAR(const uint8_t *, size_t);
+        void net_GRABWEARERROR(const uint8_t *, size_t);
+        void net_EQUIPBELT(const uint8_t *, size_t);
+        void net_EQUIPBELTERROR(const uint8_t *, size_t);
+        void net_GRABBELT(const uint8_t *, size_t);
+        void net_GRABBELTERROR(const uint8_t *, size_t);
+        void net_STARTINVOP(const uint8_t *, size_t);
+        void net_STARTINPUT(const uint8_t *, size_t);
+        void net_SHOWSECUREDITEMLIST(const uint8_t *, size_t);
 
     public:
-        bool CanMove(bool, int, int, int);
-        bool CanMove(bool, int, int, int, int, int);
+        bool canMove(bool, int, int, int);
+        bool canMove(bool, int, int, int, int, int);
 
     public:
         double MoveCost(bool, int, int, int, int);
 
-    private:
-        uint64_t FocusUID(int);
+    public:
+        uint64_t getFocusUID(int) const;
+        void setFocusUID(int, uint64_t);
 
     public:
-        bool  LuaCommand(const char *);
-        bool UserCommand(const char *);
+        void updateMouseFocus()
+        {
+            m_focusUIDTable[FOCUS_MOUSE] = getFocusUID(FOCUS_MOUSE);
+        }
 
     public:
-        uint32_t GetFocusFaceKey();
+        bool  luaCommand(const char *);
+        bool userCommand(const char *);
 
     public:
         std::vector<int> GetPlayerList();
 
     public:
-        void AddOPLog(int, int, const char *, const char *, ...);
+        void addCBLog(int, const char8_t *, ...);
 
     public:
-        bool RegisterUserCommand();
+        void RegisterUserCommand();
 
     public:
-        bool RegisterLuaExport(ClientLuaModule *, int);
+        void RegisterLuaExport(ClientLuaModule *);
 
     public:
-        Creature *RetrieveUID(uint64_t);
-        bool LocateUID(uint64_t, int *, int *);
+        ClientCreature *findUID(uint64_t, bool checkVisible = true) const;
 
     private:
-        bool TrackAttack(bool, uint64_t);
+        bool trackAttack(bool, uint64_t);
 
     public:
-        void AddAscendStr(int, int, int, int);
+        void addAscendStr(int, int, int, int);
 
     public:
-        bool GetUIDLocation(uint64_t, bool, int *, int *);
+        void centerMyHero();
 
     public:
-        void CenterMyHero();
-
-    public:
-        MyHero *GetMyHero() const
+        uint64_t getMyHeroUID() const
         {
-            // GetMyHero() is read-only
-            // won't use RetrieveUID(), it may change m_CreatureList
+            return m_myHeroUID;
+        }
 
-            if(m_MyHeroUID){
-                if(auto p = m_CreatureList.find(m_MyHeroUID); p != m_CreatureList.end()){
-                    return dynamic_cast<MyHero *>(p->second.get());
-                }
+        MyHero *getMyHero() const
+        {
+            if(auto myHeroPtr = dynamic_cast<MyHero *>(findUID(getMyHeroUID()))){
+                return myHeroPtr;
             }
-            return nullptr;
+            throw fflerror("failed to get MyHero pointer: uid = %llu", to_llu(getMyHeroUID()));
         }
 
     public:
-        const auto &GetGroundItemListRef(int nX, int nY) const
+        const auto &getGroundItemIDList(int x, int y) const
         {
-            return m_GroundItemList[nX][nY];
-        }
-
-        int FindGroundItem(const CommonItem &rstCommonItem, int nX, int nY)
-        {
-            for(int nIndex = (int)(m_GroundItemList[nX][nY].size()) - 1; nIndex >= 0; --nIndex){
-                if(m_GroundItemList[nX][nY][nIndex] == rstCommonItem){
-                    return nIndex;
-                }
+            if(auto p = m_groundItemIDList.find({x, y}); p != m_groundItemIDList.end()){
+                return p->second;
             }
-            return -1;
+
+            const static std::vector<uint32_t> s_emptyList;
+            return s_emptyList;
         }
 
-        bool AddGroundItem(const CommonItem &rstCommonItem, int nX, int nY)
+        void clearGroundItemIDList(int x, int y)
         {
-            if(rstCommonItem && m_Mir2xMapData.ValidC(nX, nY)){
-                m_GroundItemList[nX][nY].push_back(rstCommonItem);
-                return true;
-            }
-            return false;
+            m_groundItemIDList.erase({x, y});
         }
 
-        void RemoveGroundItem(const CommonItem &rstCommonItem, int nX, int nY)
-        {
-            for(auto pCurr = m_GroundItemList[nX][nY].begin(); pCurr != m_GroundItemList[nX][nY].end(); ++pCurr){
-                if(*pCurr == rstCommonItem){
-                    m_GroundItemList[nX][nY].erase(pCurr);
-                    return;
-                }
-            }
-        }
-
-        void ClearGroundItem(int nX, int nY)
-        {
-            m_GroundItemList[nX][nY].clear();
-        }
+    public:
+        bool    hasGroundItemID(uint32_t, int, int) const;
+        bool    addGroundItemID(uint32_t, int, int);
+        bool removeGroundItemID(uint32_t, int, int);
 
     public:
         int CheckPathGrid(int, int) const;
         double OneStepCost(const ClientPathFinder *, bool, int, int, int, int, int) const;
 
-    public:
-        bool RequestSpaceMove(uint32_t, int, int);
+    private:
+        std::tuple<int, int> getRandLoc(uint32_t);
 
     public:
-        void ClearCreature();
+        void RequestKillPets();
+        void requestAddExp(uint64_t);
+        bool requestSpaceMove(uint32_t, int, int);
 
     public:
-        void QueryCORecord(uint64_t) const;
-        void OnActionSpawn(uint64_t, const ActionNode &);
+        void queryCORecord(uint64_t) const;
+        void onActionSpawn(uint64_t, const ActionNode &);
 
     public:
-        Widget *GetWidget(const char *);
+        void queryPlayerWLDesp(uint64_t) const;
+        void queryInvOp(int, uint32_t, uint32_t) const;
+
+    public:
+        Widget *getWidget(const std::string &widgetName)
+        {
+            return getGUIManager()->getWidget(widgetName);
+        }
+
+        const Widget *getWidget(const std::string &widgetName) const
+        {
+            return const_cast<ProcessRun *>(this)->getWidget(widgetName);
+        }
+
+    public:
+        void sendNPCEvent(uint64_t, std::string, std::optional<std::string> = {});
+
+    private:
+        void drawFPS() const;
+        void drawMouseLocation() const;
+
+    private:
+        void drawTile(int, int, int, int) const;
+        void drawGroundItem(int, int, int, int) const;
+        void drawRotateStar(int, int, int, int) const;
+
+    private:
+        void drawObject(int, int, int, bool) const;
+
+    private:
+        void checkMagicSpell(const SDL_Event &);
+
+    public:
+        std::tuple<int, int> getACNum(const std::string &) const;
+
+    public:
+        GUIManager *getGUIManager()
+        {
+            return &m_GUIManager;
+        }
+
+    public:
+        void flipDrawMagicKey()
+        {
+            m_drawMagicKey = !m_drawMagicKey;
+        }
+
+    public:
+        struct uidPixelLocation
+        {
+            int x = -1;
+            int y = -1;
+
+            operator bool () const
+            {
+                return x >= 0 && y >= 0;
+            }
+        };
+        std::tuple<int, int> getUIDLoc(bool);
+
+    public:
+        FixedLocMagic *addFixedLocMagic(std::unique_ptr<FixedLocMagic> magicPtr)
+        {
+            m_fixedLocMagicList.emplace_back(std::move(magicPtr));
+            return m_fixedLocMagicList.back().get();
+        }
+
+        FollowUIDMagic *addFollowUIDMagic(std::unique_ptr<FollowUIDMagic> magicPtr)
+        {
+            m_followUIDMagicList.emplace_back(std::move(magicPtr));
+            return m_followUIDMagicList.back().get();
+        }
+
+    public:
+        void requestPickUp();
+        void requestMagicDamage(int, uint64_t);
+        void requestBuy(uint64_t, uint32_t, uint32_t, size_t count);
+        void requestConsumeItem(uint32_t, uint32_t, size_t);
+        void requestEquipWear(uint32_t, uint32_t, int);
+        void requestGrabWear(int);
+        void requestEquipBelt(uint32_t, uint32_t, int);
+        void requestGrabBelt(int);
+        void requestDropItem(uint32_t, uint32_t, size_t);
+        void requestSetMagicKey(uint32_t, char);
+        void requestRemoveSecuredItem(uint32_t, uint32_t);
+
+    public:
+        std::tuple<uint32_t, int, int> getMap() const
+        {
+            return {m_mapID, m_mir2xMapData.w(), m_mir2xMapData.h()};
+        }
+
+        const auto &getCOList() const
+        {
+            return m_coList;
+        }
+
+    public:
+        int getAimDirection(const ActionNode &, int defDir = DIR_NONE) const;
+
+    public:
+        void addDelay(uint32_t delayTick, std::function<void()> cmd)
+        {
+            m_delayCmdQ.addDelay(delayTick, std::move(cmd));
+        }
 };

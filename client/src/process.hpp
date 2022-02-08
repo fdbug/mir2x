@@ -22,14 +22,17 @@
 enum ProcessID: int
 {
     PROCESSID_NONE  = 0,
+    PROCESSID_BEGIN = 1,
     PROCESSID_LOGO  = 1,
-    PROCESSID_SYRC  = 2,
-    PROCESSID_LOGIN = 3,
-    PROCESSID_NEW   = 4,
-    PROCESSID_PWD   = 5,
-    PROCESSID_RUN   = 6,
-    PROCESSID_EXIT  = 7,
-    PROCESSID_MAX   = 8,
+    PROCESSID_SYRC,
+    PROCESSID_LOGIN,
+    PROCESSID_CREATEACCOUNT,
+    PROCESSID_SELECTCHAR,
+    PROCESSID_CREATECHAR,
+    PROCESSID_CHANGEPASSWORD,
+    PROCESSID_RUN,
+    PROCESSID_EXIT,
+    PROCESSID_END,
 };
 
 class Process
@@ -41,10 +44,10 @@ class Process
         virtual ~Process() = default;
 
     public:
-        virtual int ID() const = 0;
+        virtual int id() const = 0;
 
     public:
-        virtual void Draw() = 0;
-        virtual void Update(double) = 0;
-        virtual void ProcessEvent(const SDL_Event &) = 0;
+        virtual void draw() const = 0;
+        virtual void update(double) = 0;
+        virtual void processEvent(const SDL_Event &) = 0;
 };

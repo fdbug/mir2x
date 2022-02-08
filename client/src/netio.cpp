@@ -1,593 +1,233 @@
-/*
- * =====================================================================================
- *
- *       Filename: netio.cpp
- *        Created: 06/29/2015 07:18:27 PM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
-#include "log.hpp"
 #include "netio.hpp"
+#include "totype.hpp"
+#include "zcompf.hpp"
 #include "message.hpp"
-#include "compress.hpp"
-#include "condcheck.hpp"
+#include "fflerror.hpp"
 
-NetIO::SendPack::SendPack(uint8_t nHC, const uint8_t *pData, size_t nDataLen, std::function<void()> &&fnOnDone)
-    : HC(nHC)
-    , Data(pData)
-    , DataLen(nDataLen)
-    , OnDone(std::move(fnOnDone))
+void NetIO::doReadHeadCode()
 {
-    auto fnReportAndExit = [this](){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_FATAL, "Invalid client message: (%d, %p, %d)", (int)(HC), Data, (int)(DataLen));
-        std::abort();
-    };
-
-    CMSGParam stCMSG(HC);
-    switch(stCMSG.Type()){
-        case 0:
-            {
-                // empty message, shouldn't contain anything
-                if(Data || DataLen){ fnReportAndExit(); return; }
-                break;
-            }
-        case 1:
-            {
-                // not empty, fixed size and compressed
-                // data stream structure: [DataLen, Mask, Data]
-                int nSizeLen = 0;
-                int nCompLen = 0;
-                int nMaskCnt = 0;
-
-                if(Data[0] == 255){
-                    nSizeLen = 2;
-                    nCompLen = 255 + (int)(Data[1]);
-                    nMaskCnt = Compress::CountMask(Data + 2, stCMSG.MaskLen());
-                }else{
-                    nSizeLen = 1;
-                    nCompLen = (int)(Data[0]);
-                    nMaskCnt = Compress::CountMask(Data + 1, stCMSG.MaskLen());
-                }
-
-                if(false
-                        || (nMaskCnt < 0)
-                        || (nCompLen != nMaskCnt)
-                        || (DataLen != ((size_t)(nSizeLen) + stCMSG.MaskLen() + (size_t)(nCompLen)))){
-                    fnReportAndExit();
-                    return;
-                }
-                break;
-            }
-        case 2:
-            {
-                // not empty, fixed size and not compressed
-                if(!(Data && (DataLen == stCMSG.DataLen()))){ fnReportAndExit(); return; }
-                break;
-            }
-        case 3:
-            {
-                // not empty, not fixed size and not compressed
-                if(!(Data && (DataLen >= 4))){
-                    fnReportAndExit();
-                    return;
-                }else{
-                    uint32_t nDataLenU32 = 0;
-                    std::memcpy(&nDataLenU32, Data, 4);
-                    if(((size_t)(nDataLenU32) + 4) != DataLen){
-                        fnReportAndExit();
-                        return;
-                    }
-                }
-                break;
-            }
-        default:
-            {
-                fnReportAndExit();
-                break;
-            }
-    }
-}
-
-NetIO::NetIO()
-    : m_IO()
-    , m_Resolver(m_IO)
-    , m_Socket(m_IO)
-    , m_ReadHC(0)
-    , m_ReadLen {0, 0, 0, 0}
-    , m_ReadBuf(1024)
-    , m_OnReadDone()
-    , m_SendQueue()
-    , m_MemoryPN()
-{}
-
-NetIO::~NetIO()
-{
-    m_IO.stop();
-}
-
-void NetIO::Shutdown()
-{
-    m_Socket.close();
-}
-
-void NetIO::DoReadHC()
-{
-    auto fnReportCurrentMessage = [this](){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_WARNING, "Current SMSGParam::HC      = %d", (int)(m_ReadHC));
-        g_Log->AddLog(LOGTYPE_WARNING, "                 ::Type    = %d", (int)(SMSGParam(m_ReadHC).Type()));
-        g_Log->AddLog(LOGTYPE_WARNING, "                 ::MaskLen = %d", (int)(SMSGParam(m_ReadHC).MaskLen()));
-        g_Log->AddLog(LOGTYPE_WARNING, "                 ::DataLen = %d", (int)(SMSGParam(m_ReadHC).DataLen()));
-    };
-
-    auto fnOnNetError = [this, fnReportCurrentMessage](std::error_code stEC){
-        if(stEC){
-            // 1. close the asio socket
-            Shutdown();
-
-            // 2. record the error code to log
-            extern Log *g_Log;
-            g_Log->AddLog(LOGTYPE_WARNING, "Network error: %s", stEC.message().c_str());
-            fnReportCurrentMessage();
-        }
-    };
-
-    auto fnOnReadHC = [this, fnOnNetError, fnReportCurrentMessage](std::error_code stEC, size_t){
-        if(stEC){ fnOnNetError(stEC); }
-        else{
-            SMSGParam stSMSG(m_ReadHC);
-            switch(stSMSG.Type()){
-                case 0:
-                    {
-                        if(m_OnReadDone){ m_OnReadDone(m_ReadHC, nullptr, 0); }
-                        DoReadHC();
-                        return;
-                    }
-                case 1:
-                    {
-                        auto fnOnReadLen0 = [this, stSMSG, fnOnNetError, fnReportCurrentMessage](std::error_code stEC, size_t){
-                            if(stEC){ fnOnNetError(stEC); }
-                            else{
-                                if(m_ReadLen[0] != 255){
-                                    if((size_t)(m_ReadLen[0]) > stSMSG.DataLen()){
-                                        // 1. close the asio socket
-                                        Shutdown();
-
-                                        // 2. record the error code but not exit?
-                                        extern Log *g_Log;
-                                        g_Log->AddLog(LOGTYPE_WARNING, "Invalid package: CompLen = %d", (int)(m_ReadLen[0]));
-                                        fnReportCurrentMessage();
-
-                                        // 3. we stop here
-                                        //    should we have some method to save it?
-                                        return;
-                                    }else{ DoReadBody(stSMSG.MaskLen(), m_ReadLen[0]); }
-                                }else{
-                                    auto fnOnReadLen1 = [this, stSMSG, fnReportCurrentMessage, fnOnNetError](std::error_code stEC, size_t){
-                                        if(stEC){ fnOnNetError(stEC); }
-                                        else{
-                                            condcheck(m_ReadLen[0] == 255);
-                                            auto nCompLen = (size_t)(m_ReadLen[1]) + 255;
-
-                                            if(nCompLen > stSMSG.DataLen()){
-                                                // 1. close the asio socket
-                                                Shutdown();
-
-                                                // 2. record the error code but not exit?
-                                                extern Log *g_Log;
-                                                g_Log->AddLog(LOGTYPE_WARNING, "Invalid package: CompLen = %d", (int)(nCompLen));
-                                                fnReportCurrentMessage();
-
-                                                // 3. we stop here
-                                                //    should we have some method to save it?
-                                                return;
-                                            }else{ DoReadBody(stSMSG.MaskLen(), nCompLen); }
-                                        }
-                                    };
-                                    asio::async_read(m_Socket, asio::buffer(m_ReadLen + 1, 1), fnOnReadLen1);
-                                }
-                            }
-                        };
-                        asio::async_read(m_Socket, asio::buffer(m_ReadLen, 1), fnOnReadLen0);
-                        return;
-                    }
-                case 2:
-                    {
-                        DoReadBody(0, stSMSG.DataLen());
-                        return;
-                    }
-                case 3:
-                    {
-                        auto fnOnReadLen = [this, fnOnNetError](std::error_code stEC, size_t){
-                            if(stEC){ fnOnNetError(stEC); }
-                            else{
-                                uint32_t nDataLenU32 = 0;
-                                std::memcpy(&nDataLenU32, m_ReadLen, 4);
-                                DoReadBody(0, nDataLenU32);
-                            }
-                        };
-                        asio::async_read(m_Socket, asio::buffer(m_ReadLen, 4), fnOnReadLen);
-                        return;
-                    }
-                default:
-                    {
-                        Shutdown();
-                        fnReportCurrentMessage();
-                        return;
-                    }
-            }
-        }
-    };
-    asio::async_read(m_Socket, asio::buffer(&m_ReadHC, 1), fnOnReadHC);
-}
-
-bool NetIO::DoReadBody(size_t nMaskLen, size_t nBodyLen)
-{
-    auto fnReportCurrentMessage = [this](){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_WARNING, "Current SMSGParam::HC      = %d", (int)(m_ReadHC));
-        g_Log->AddLog(LOGTYPE_WARNING, "                 ::Type    = %d", (int)(SMSGParam(m_ReadHC).Type()));
-        g_Log->AddLog(LOGTYPE_WARNING, "                 ::MaskLen = %d", (int)(SMSGParam(m_ReadHC).MaskLen()));
-        g_Log->AddLog(LOGTYPE_WARNING, "                 ::DataLen = %d", (int)(SMSGParam(m_ReadHC).DataLen()));
-    };
-
-    auto fnOnNetError = [this, fnReportCurrentMessage](std::error_code stEC){
-        if(stEC){
-            // 1. close the asio socket
-            Shutdown();
-
-            // 2. record the error code to log
-            extern Log *g_Log;
-            g_Log->AddLog(LOGTYPE_WARNING, "Network error: %s", stEC.message().c_str());
-            fnReportCurrentMessage();
-        }
-    };
-
-    auto fnReportInvalidArg = [nMaskLen, nBodyLen, fnReportCurrentMessage]()
+    asio::async_read(m_socket, asio::buffer(&m_readHeadCode, 1), [this](std::error_code errCode, size_t)
     {
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_WARNING, "Invalid argument to DoReadBody(MaskLen = %d, BodyLen = %d)", (int)(nMaskLen), (int)(nBodyLen));
-        fnReportCurrentMessage();
-    };
-
-    SMSGParam stSMSG(m_ReadHC);
-    switch(stSMSG.Type()){
-        case 0:
-            {
-                fnReportInvalidArg();
-                return false;
-            }
-        case 1:
-            {
-                if(!((nMaskLen == stSMSG.MaskLen()) && (nBodyLen <= stSMSG.DataLen()))){
-                    fnReportInvalidArg();
-                    return false;
-                }
-                m_ReadBuf.resize(nMaskLen + nBodyLen + 8 + stSMSG.DataLen());
-                break;
-            }
-        case 2:
-            {
-                if(nMaskLen || (nBodyLen != stSMSG.DataLen())){
-                    fnReportInvalidArg();
-                    return false;
-                }
-                m_ReadBuf.resize(stSMSG.DataLen());
-                break;
-            }
-        case 3:
-            {
-                if(nMaskLen || (nBodyLen > 0XFFFFFFFF)){
-                    fnReportInvalidArg();
-                    return false;
-                }
-                m_ReadBuf.resize(stSMSG.DataLen());
-                break;
-            }
-        default:
-            {
-                fnReportInvalidArg();
-                return false;
-            }
-    }
-
-    if(auto nDataLen = nMaskLen + nBodyLen){
-        auto fnDoneReadData = [this, nMaskLen, nBodyLen, stSMSG, fnReportCurrentMessage, fnOnNetError](std::error_code stEC, size_t){
-            if(stEC){ fnOnNetError(stEC); }
-            else{
-                if(nMaskLen){
-                    auto nMaskCount = Compress::CountMask(&(m_ReadBuf[0]), nMaskLen);
-                    if(nMaskCount != (int)(nBodyLen)){
-                        // we get corrupted data
-                        // should we ignore current package or kill the process?
-
-                        // 1. keep a log for the corrupted message
-                        extern Log *g_Log;
-                        g_Log->AddLog(LOGTYPE_WARNING, "Corrupted data: MaskCount = %d, CompLen = %d", nMaskCount, (int)(nBodyLen));
-                        fnReportCurrentMessage();
-
-                        // 2. we ignore this message
-                        //    won't shutdown current session, just return?
-                        return;
-                    }
-
-                    if(nBodyLen <= stSMSG.DataLen()){
-                        auto pMaskData = &(m_ReadBuf[0]);
-                        auto pCompData = &(m_ReadBuf[nMaskLen]);
-                        auto pOrigData = &(m_ReadBuf[((nMaskLen + nBodyLen + 7) / 8) * 8]);
-                        if(Compress::Decode(pOrigData, stSMSG.DataLen(), pMaskData, pCompData) != (int)(nBodyLen)){
-                            extern Log *g_Log;
-                            g_Log->AddLog(LOGTYPE_WARNING, "Decode failed: MaskCount = %d, CompLen = %d", nMaskCount, (int)(nBodyLen));
-                            fnReportCurrentMessage();
-                            return;
-                        }
-                    }else{
-                        extern Log *g_Log;
-                        g_Log->AddLog(LOGTYPE_WARNING, "Corrupted data: DataLen = %d, CompLen = %d", (int)(stSMSG.DataLen()), (int)(nBodyLen));
-                        fnReportCurrentMessage();
-                        return;
-                    }
-                }
-
-                // no matter decoding is needed or not
-                // we should call the completion handler here
-
-                // 1. call completion on decompressed data
-                if(m_OnReadDone){
-                    m_OnReadDone(m_ReadHC, &(m_ReadBuf[nMaskLen ? ((nMaskLen + nBodyLen + 7) / 8 * 8) : 0]), nMaskLen ? stSMSG.DataLen() : nBodyLen);
-                }
-
-                // 2. read next DoReadHC()
-                DoReadHC();
-            }
-        };
-        asio::async_read(m_Socket, asio::buffer(&(m_ReadBuf[0]), nDataLen), fnDoneReadData);
-        return true;
-    }
-
-    // I report error when read boyd at mode-0 
-    // but still if in mode3 and we're transfering empty message we can reach here
-    if(m_OnReadDone){ m_OnReadDone(m_ReadHC, nullptr, 0); }
-    DoReadHC();
-    return true;
-}
-
-void NetIO::DoSendNext()
-{
-    condcheck(!m_SendQueue.empty());
-
-    if(m_SendQueue.front().OnDone){
-        m_SendQueue.front().OnDone();
-    }
-
-    if(m_SendQueue.front().Data){
-        m_MemoryPN.Free(const_cast<uint8_t *>(m_SendQueue.front().Data));
-    }
-
-    m_SendQueue.pop();
-    if(!m_SendQueue.empty()){ DoSendHC(); }
-}
-
-void NetIO::DoSendBuf()
-{
-    condcheck(!m_SendQueue.empty());
-    if(m_SendQueue.front().Data && m_SendQueue.front().DataLen){
-        auto fnDoSendValidBuf = [this](std::error_code stEC, size_t){
-            if(stEC){
-                // 1. close the asio socket
-                Shutdown();
-
-                // 2. record the error code and exit
-                extern Log *g_Log;
-                g_Log->AddLog(LOGTYPE_WARNING, "Network error: %s", stEC.message().c_str());
-            }else{ DoSendNext(); }
-        };
-        asio::async_write(m_Socket, asio::buffer(m_SendQueue.front().Data, m_SendQueue.front().DataLen), fnDoSendValidBuf);
-    }else{ DoSendNext(); }
-}
-
-void NetIO::DoSendHC()
-{
-    asio::async_write(m_Socket, asio::buffer(&(m_SendQueue.front().HC), 1),
-        [this](std::error_code stEC, size_t){
-            if(stEC){
-                // 1. close the asio socket
-                Shutdown();
-
-                // 2. record the error code and exit
-                extern Log *g_Log;
-                g_Log->AddLog(LOGTYPE_WARNING, "Network error: %s", stEC.message().c_str());
-            }else{ DoSendBuf(); }
+        if(errCode){
+            throw fflerror("network error: %s", errCode.message().c_str());
         }
-    );
-}
 
-bool NetIO::Send(uint8_t nHC, const uint8_t *pData, size_t nDataLen, std::function<void()> &&fnDone)
-{
-    uint8_t *pEncodeData = nullptr;
-    size_t   nEncodeSize = 0;
-
-    auto fnReportError = [nHC, pData, nDataLen](){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_WARNING, "Invalid message to send: HC = %d, Data = %p, DataLen = %d", (int)(nHC), pData, (int)(nDataLen));
-    };
-
-    CMSGParam stCMSG(nHC);
-    switch(stCMSG.Type()){
-        case 0:
-            {
-                if(pData || nDataLen){
-                    fnReportError();
-                    return false;
-                }
-                break;
-            }
-        case 1:
-            {
-                if(!(pData && (stCMSG.DataLen() == nDataLen))){
-                    fnReportError();
-                    return false;
-                }
-
-                auto nCountData = Compress::CountData(pData, nDataLen);
-                if((nCountData < 0) || (nCountData > (int)(stCMSG.DataLen()))){
-                    extern Log *g_Log;
-                    g_Log->AddLog(LOGTYPE_WARNING, "Count failed: HC = %d, DataLen = %d, CountData = %d", (int)(nHC), (int)(nDataLen), nCountData);
-                    return false;
-                }else if(nCountData <= 254){
-                    pEncodeData = (uint8_t *)(m_MemoryPN.Get(stCMSG.MaskLen() + (size_t)(nCountData) + 1));
-                    if(Compress::Encode(pEncodeData + 1, pData, nDataLen) != nCountData){
-                        extern Log *g_Log;
-                        g_Log->AddLog(LOGTYPE_WARNING, "Count failed: HC = %d, DataLen = %d, CountData = %d", (int)(nHC), (int)(nDataLen), nCountData);
-
-                        m_MemoryPN.Free(pEncodeData);
-                        return false;
-                    }
-
-                    pEncodeData[0] = (uint8_t)(nCountData);
-                    nEncodeSize    = 1 + stCMSG.MaskLen() + (size_t)(nCountData);
-                }else if(nCountData <= (255 + 255)){
-                    pEncodeData = (uint8_t *)(m_MemoryPN.Get(stCMSG.MaskLen() + (size_t)(nCountData) + 2));
-                    if(Compress::Encode(pEncodeData + 2, pData, nDataLen) != nCountData){
-                        extern Log *g_Log;
-                        g_Log->AddLog(LOGTYPE_WARNING, "Count failed: HC = %d, DataLen = %d, CountData = %d", (int)(nHC), (int)(nDataLen), nCountData);
-
-                        m_MemoryPN.Free(pEncodeData);
-                        return false;
-                    }
-
-                    pEncodeData[0] = 255;
-                    pEncodeData[1] = (uint8_t)(nCountData - 255);
-                    nEncodeSize    = 2 + stCMSG.MaskLen() + (size_t)(nCountData);
-                }else{
-                    extern Log *g_Log;
-                    g_Log->AddLog(LOGTYPE_WARNING, "Count overflows: HC = %d, DataLen = %d, CountData = %d", (int)(nHC), (int)(nDataLen), nCountData);
-
-                    m_MemoryPN.Free(pEncodeData);
-                    return false;
-                }
-                break;
-            }
-        case 2:
-            {
-                if(!(pData && (nDataLen == stCMSG.DataLen()))){
-                    fnReportError();
-                    return false;
-                }
-
-                pEncodeData = (uint8_t *)(m_MemoryPN.Get(nDataLen));
-                nEncodeSize = nDataLen;
-                std::memcpy(pEncodeData, pData, nDataLen);
-                break;
-            }
-        case 3:
-            {
-                if(pData){
-                    if((nDataLen == 0) || (nDataLen > 0XFFFFFFFF)){
-                        fnReportError();
-                        return false;
-                    }
-                }else{
-                    if(nDataLen){
-                        fnReportError();
-                        return false;
-                    }
-                }
-
-                pEncodeData = (uint8_t *)(m_MemoryPN.Get(nDataLen + 4));
-                nEncodeSize = nDataLen + 4;
-
-                // 1. setup the message length encoding
+        const ServerMsg smsg(m_readHeadCode);
+        switch(smsg.type()){
+            case 0:
                 {
-                    auto nDataLenU32 = (uint32_t)(nDataLen);
-                    std::memcpy(pEncodeData, &nDataLenU32, sizeof(nDataLenU32));
+                    m_msgHandler(m_readHeadCode, nullptr, 0);
+                    doReadHeadCode();
+                    return;
                 }
+            case 1:
+                {
+                    asio::async_read(m_socket, asio::buffer(m_readLen, 1), [this, smsg](std::error_code errCode, size_t)
+                    {
+                        if(errCode){
+                            throw fflerror("network error: %s", errCode.message().c_str());
+                        }
 
-                // 2. copy data if there is
-                if(pData){ std::memcpy(pEncodeData + 4, pData, nDataLen); }
+                        if(m_readLen[0] != 255){
+                            fflassert(to_uz(m_readLen[0]) <= smsg.dataLen());
+                            doReadBody(smsg.maskLen(), m_readLen[0]);
+                        }
+                        else{
+                            asio::async_read(m_socket, asio::buffer(m_readLen + 1, 1), [this, smsg](std::error_code errCode, size_t)
+                            {
+                                if(errCode){
+                                    throw fflerror("network error: %s", errCode.message().c_str());
+                                }
+
+                                fflassert(m_readLen[0] == 255);
+                                const auto compSize = to_uz(m_readLen[1]) + 255;
+
+                                fflassert(compSize <= smsg.dataLen());
+                                doReadBody(smsg.maskLen(), compSize);
+                            });
+                        }
+                    });
+                    return;
+                }
+            case 2:
+                {
+                    doReadBody(0, smsg.dataLen());
+                    return;
+                }
+            case 3:
+                {
+                    asio::async_read(m_socket, asio::buffer(m_readLen, 4), [this](std::error_code errCode, size_t)
+                    {
+                        if(errCode){
+                            throw fflerror("network error: %s", errCode.message().c_str());
+                        }
+                        doReadBody(0, as_u32(m_readLen));
+                    });
+                    return;
+                }
+            default:
+                {
+                    throw fflreach();
+                }
+        }
+    });
+}
+
+void NetIO::doReadBody(size_t maskSize, size_t bodySize)
+{
+    const ServerMsg smsg(m_readHeadCode);
+    fflassert(smsg.checkDataSize(maskSize, bodySize));
+
+    switch(smsg.type()){
+        case 1:
+            {
+                m_readBuf.resize(maskSize + bodySize + 64 + smsg.dataLen());
+                break;
+            }
+        case 2:
+            {
+                m_readBuf.resize(smsg.dataLen());
+                break;
+            }
+        case 3:
+            {
+                m_readBuf.resize(bodySize);
+                break;
+            }
+        case 0:
+        default:
+            {
+                throw fflreach();
+            }
+    }
+
+    if(const auto totalSize = maskSize + bodySize){
+        asio::async_read(m_socket, asio::buffer(m_readBuf.data(), totalSize), [this, maskSize, bodySize, smsg](std::error_code errCode, size_t)
+        {
+            if(errCode){
+                throw fflerror("network error: %s", errCode.message().c_str());
+            }
+
+            if(maskSize){
+                const auto bitCount = zcompf::countMask(m_readBuf.data(), maskSize);
+                fflassert(bitCount == bodySize);
+                fflassert(bodySize <= smsg.dataLen());
+
+                const auto maskDataPtr = m_readBuf.data();
+                const auto compDataPtr = m_readBuf.data() + maskSize;
+                /* */ auto origDataPtr = m_readBuf.data() + ((maskSize + bodySize + 7) / 8) * 8;
+
+                const auto decodeSize = zcompf::xorDecode(origDataPtr, smsg.dataLen(), maskDataPtr, compDataPtr);
+                fflassert(decodeSize == bodySize);
+            }
+
+            m_msgHandler(m_readHeadCode, m_readBuf.data() + (maskSize ? ((maskSize + bodySize + 7) / 8 * 8) : 0), maskSize ? smsg.dataLen() : bodySize);
+            doReadHeadCode();
+        });
+    }
+    else{
+        m_msgHandler(m_readHeadCode, nullptr, 0);
+        doReadHeadCode();
+    }
+}
+
+void NetIO::doSendBuf()
+{
+    if(m_currSendBuf.empty()){
+        return;
+    }
+
+    asio::async_write(m_socket, asio::buffer(m_currSendBuf.data(), m_currSendBuf.size()), [this](std::error_code errCode, size_t)
+    {
+        if(errCode){
+            throw fflerror("network error: %s", errCode.message().c_str());
+        }
+
+        m_currSendBuf.clear();
+        if(m_nextSendBuf.empty()){
+            return;
+        }
+
+        std::swap(m_currSendBuf, m_nextSendBuf);
+        doSendBuf();
+    });
+}
+
+void NetIO::send(uint8_t headCode, const uint8_t *buf, size_t bufSize)
+{
+    const ClientMsg cmsg(headCode);
+    fflassert(cmsg.checkData(buf, bufSize));
+
+    const auto bodyStartOff = m_nextSendBuf.size() + 1; // after headCode
+    m_nextSendBuf.push_back(headCode);
+    switch(cmsg.type()){
+        case 0:
+            {
+                break;
+            }
+        case 1:
+            {
+                const auto bitCount = zcompf::countData(buf, bufSize);
+                fflassert(bitCount <= cmsg.dataLen());
+
+                if(bitCount <= 254){
+                    m_nextSendBuf.resize(m_nextSendBuf.size() + cmsg.maskLen() + to_uz(bitCount) + 1);
+                    const auto encodeSize = zcompf::xorEncode(m_nextSendBuf.data() + bodyStartOff + 1, buf, bufSize);
+                    fflassert(encodeSize == bitCount);
+                    m_nextSendBuf[bodyStartOff] = bitCount;
+                }
+                else if(bitCount <= 255 + 255){
+                    m_nextSendBuf.resize(m_nextSendBuf.size() + cmsg.maskLen() + to_uz(bitCount) + 2);
+                    const auto encodeSize = zcompf::xorEncode(m_nextSendBuf.data() + bodyStartOff + 2, buf, bufSize);
+                    fflassert(encodeSize == bitCount);
+                    m_nextSendBuf[bodyStartOff] = 255;
+                    m_nextSendBuf[bodyStartOff + 1] = to_u8(bitCount - 255);
+                }
+                else{
+                    throw fflerror("message length after compression is too long: %zu", bitCount);
+                }
+                break;
+            }
+        case 2:
+            {
+                m_nextSendBuf.insert(m_nextSendBuf.end(), buf, buf + bufSize);
+                break;
+            }
+        case 3:
+            {
+                m_nextSendBuf.resize(m_nextSendBuf.size() + bufSize + 4);
+                const uint32_t bufSizeU32 = bufSize;
+                std::memcpy(m_nextSendBuf.data() + bodyStartOff, &bufSizeU32, 4);
+                std::memcpy(m_nextSendBuf.data() + bodyStartOff + 4, buf, bufSize);
                 break;
             }
         default:
             {
-                fnReportError();
-                return false;
+                throw fflreach();
             }
     }
 
-    // post the handler to the main loop
-    // we'll change fnDone in lambda so have to make it mutable
-    m_IO.post([this, nHC, pEncodeData, nEncodeSize, fnDone = std::move(fnDone)]() mutable {
-        bool bEmpty = m_SendQueue.empty();
-        m_SendQueue.emplace(nHC, pEncodeData, nEncodeSize, std::move(fnDone));
-
-        //  if this is the only task
-        //  we should start the flush procedure
-        if(bEmpty){ DoSendHC(); }
-    });
-    return true;
+    if(m_currSendBuf.empty()){
+        std::swap(m_currSendBuf, m_nextSendBuf);
+        doSendBuf();
+    }
 }
 
-bool NetIO::InitIO(const char *szIP, const char * szPort, const std::function<void(uint8_t, const uint8_t *, size_t)> &fnOnDone)
+void NetIO::start(const char *ipStr, const char *portStr, std::function<void(uint8_t, const uint8_t *, size_t)> msgHandler)
 {
-    // check arguments, should do further check
-    // like IP address is valid and Port > 1024 etc.
-    if(!(szIP && szPort)){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_WARNING, "Invalid endpoint providen: (%s:%s)", szIP ? szIP : "", szPort ? szPort : "");
-        return false;
-    }
+    fflassert(str_haschar(  ipStr));
+    fflassert(str_haschar(portStr));
 
-    // 1. register the completion handler
-    m_OnReadDone = fnOnDone;
-    if(!m_OnReadDone){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_WARNING, "Register completion handler not executable");
-        return false;
-    }
+    fflassert(msgHandler);
+    m_msgHandler = std::move(msgHandler);
 
-    // 2. try to connect to server
-    //    this just put an handler in the event pool, should pool to drive it
-    asio::async_connect(m_Socket, m_Resolver.resolve({szIP, szPort}),
-        [this](std::error_code stEC, asio::ip::tcp::resolver::iterator){
-            if(stEC){
-                // 1. close the asio socket
-                Shutdown();
-
-                // 2. record the error code and exit
-                extern Log *g_Log;
-                g_Log->AddLog(LOGTYPE_WARNING, "Network error: %s", stEC.message().c_str());
-
-                // 3. the main loop can check socket::is_open()
-                //    to inform the user that current socket is working or run into errors
-
-                // 4. else call DoReadHC() to get the first HC
-                //    all DoReadHC() should be called after the invocation of completion handler
-            }else{ DoReadHC(); }
+    asio::async_connect(m_socket, m_resolver.resolve({ipStr, portStr}), [this](std::error_code errCode, asio::ip::tcp::resolver::iterator)
+    {
+        if(errCode){
+            throw fflerror("network error: %s", errCode.message().c_str());
         }
-    );
-
-    // 3. we won't call asio::io_service::run() here
-    //    instead we'll explicitly call asio::io_service::poll() in Client::MainLoop()
-    return true;
-}
-
-void NetIO::PollIO()
-{
-    m_IO.poll();
-}
-
-void NetIO::StopIO()
-{
-    m_IO.post([this](){ Shutdown(); });
+        else{
+            doReadHeadCode();
+        }
+    });
 }

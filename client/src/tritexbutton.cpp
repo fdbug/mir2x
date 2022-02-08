@@ -3,7 +3,7 @@
  *
  *       Filename: tritexbutton.cpp
  *        Created: 03/16/2017 15:04:17
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -16,16 +16,54 @@
  * =====================================================================================
  */
 
+#include "colorf.hpp"
+#include "sysconst.hpp"
+#include "pngtexdb.hpp"
 #include "sdldevice.hpp"
-#include "pngtexdbn.hpp"
 #include "tritexbutton.hpp"
 
-void TritexButton::DrawEx(int nDstX, int nDstY, int nSrcX, int nSrcY, int nW, int nH)
-{
-    extern PNGTexDBN *g_ProgUseDBN;
-    extern SDLDevice *g_SDLDevice;
+extern PNGTexDB *g_progUseDB;
+extern SDLDevice *g_sdlDevice;
 
-    if(auto pTexture = g_ProgUseDBN->Retrieve(m_TexID[m_State])){
-        g_SDLDevice->DrawTexture(pTexture, nDstX + m_Offset[m_State][0], nDstY + m_Offset[m_State][1], nSrcX, nSrcY, nW, nH);
+void TritexButton::drawEx(int dstX, int dstY, int srcX, int srcY, int srcW, int srcH) const
+{
+    if(auto texPtr = g_progUseDB->retrieve(m_texID[getState()])){
+        const int offX = m_offset[getState()][0];
+        const int offY = m_offset[getState()][1];
+        const auto modColor= [this]() -> uint32_t
+        {
+            if(!m_active){
+                return colorf::RGBA(128, 128, 128, 255);
+            }
+            else if(m_alterColor && (getState() != BEVENT_OFF)){
+                return colorf::RGBA(255, 200, 255, 255);
+            }
+            else{
+                return colorf::RGBA(255, 255, 255, 255);
+            }
+        }();
+
+        SDLDeviceHelper::EnableTextureModColor enableColor(texPtr, modColor);
+        g_sdlDevice->drawTexture(texPtr, dstX + offX, dstY + offY, srcX, srcY, srcW, srcH); // TODO: need to crop src region for offset
     }
+}
+
+void TritexButton::initButtonSize()
+{
+    int maxW = 0;
+    int maxH = 0;
+    for(const int state: {0, 1, 2}){
+        if(m_texID[state] != SYS_TEXNIL){
+            if(auto texPtr = g_progUseDB->retrieve(m_texID[state])){
+                const auto [texCurrW, texCurrH] = SDLDeviceHelper::getTextureSize(texPtr);
+                maxW = std::max<int>(texCurrW, maxW);
+                maxH = std::max<int>(texCurrH, maxH);
+            }
+        }
+    }
+
+    // we allow buttons without any valid texture, in that case some extra work
+    // can be done for special drawing
+    m_w = maxW;
+    m_h = maxH;
 }

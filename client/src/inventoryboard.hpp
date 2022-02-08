@@ -22,31 +22,92 @@
  */
 
 #pragma once
+#include <string>
 #include "widget.hpp"
 #include "labelboard.hpp"
+#include "texvslider.hpp"
 #include "tritexbutton.hpp"
 
 class ProcessRun;
 class InventoryBoard: public Widget
 {
     private:
-        LabelBoard m_GoldBoard;
+        const int m_invGridX0 = 18;
+        const int m_invGridY0 = 59;
 
     private:
-        TritexButton m_CloseButton;
+        const int m_invOpButtonX = 295;
+        const int m_invOpButtonY = 475;
 
     private:
-        ProcessRun *m_ProcessRun;
+        int m_invOpCost = -1;
+        int m_selectedIndex = -1;
+
+    private:
+        SDStartInvOp m_sdInvOp;
+
+    private:
+        WMDAniBoard m_wmdAniBoard;
+
+    private:
+        TexVSlider m_slider;
+
+    private:
+        TritexButton m_sortButton;
+        TritexButton m_closeButton;
+
+    private:
+        TritexButton m_invOpButton;
+
+    private:
+        ProcessRun *m_processRun;
 
     public:
         InventoryBoard(int, int, ProcessRun *, Widget * = nullptr, bool = false);
 
     private:
-        void DrawItem(int, int, const PackBin &);
+        void drawGold() const;
+        void drawInvOpCost() const;
+        void drawInvOpTitle() const;
+        void drawItem(int, int, size_t, const PackBin &, uint32_t) const;
 
     public:
-        void DrawEx(int, int, int, int, int, int);
+        void update(double) override;
 
     public:
-        bool ProcessEvent(const SDL_Event &, bool *);
+        void drawEx(int, int, int, int, int, int) const override;
+
+    public:
+        bool processEvent(const SDL_Event &, bool) override;
+
+    private:
+        std::string getGoldStr() const;
+
+    private:
+        size_t getStartRow() const;
+        size_t getRowCount() const;
+
+    private:
+        int getPackBinIndex(int, int) const;
+        std::tuple<int, int> getInvGrid(int, int) const;
+
+    private:
+        void drawItemHoverText(const PackBin &) const;
+
+    private:
+        void packBinConsume(const PackBin &);
+
+    public:
+        void clearInvOp();
+        void startInvOp(SDStartInvOp);
+        void setInvOpCost(int, uint32_t, uint32_t, size_t);
+
+    private:
+        void commitInvOp();
+
+    public:
+        void removeItem(uint32_t, uint32_t, size_t);
+
+    private:
+        static std::u8string typeListString(const std::vector<std::u8string> &typeList);
 };

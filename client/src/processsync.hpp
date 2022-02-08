@@ -3,7 +3,7 @@
  *
  *       Filename: processsync.hpp
  *        Created: 08/14/2015 02:47:30
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -19,13 +19,12 @@
 #include <SDL2/SDL.h>
 #include "process.hpp"
 #include "labelboard.hpp"
-#include "tokenboard.hpp"
 
 class ProcessSync: public Process
 {
     private:
-        int        m_Ratio;
-        LabelBoard m_ProcessBarInfo;
+        int        m_ratio;
+        LabelBoard m_processBarInfo;
 
     public:
         ProcessSync();
@@ -34,13 +33,13 @@ class ProcessSync: public Process
         ~ProcessSync() = default;
 
     public:
-        int ID() const
+        int id() const override
         {
             return PROCESSID_SYRC;
         }
 
     public:
-        void Update(double);
-        void Draw();
-        void ProcessEvent(const SDL_Event &);
+        void draw() const override;
+        void update(double) override;
+        void processEvent(const SDL_Event &) override;
 };

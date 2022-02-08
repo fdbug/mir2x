@@ -4,7 +4,7 @@
  *       Filename: buttonbase.hpp
  *        Created: 08/25/2016 04:12:57
  *    Description:
- *              
+ *
  *              basic button class to handle event logic only
  *              1. no draw
  *              2. no texture id field
@@ -29,85 +29,137 @@
 #include <functional>
 
 #include "widget.hpp"
-#include "pngtexdbn.hpp"
+#include "pngtexdb.hpp"
 #include "sdldevice.hpp"
 
 class ButtonBase: public Widget
 {
-    public:
-        enum ButtonState: int
+    private:
+        class InnButtonState final
         {
-            BUTTON_OFF     = 0,
-            BUTTON_OVER    = 1,
-            BUTTON_PRESSED = 2,
+            // encapsulate it as a class
+            // don't let button class to manipulate m_state directly
+            private:
+                int m_state[2]
+                {
+                    BEVENT_OFF,
+                    BEVENT_OFF,
+                };
+
+            public:
+                void setState(int state)
+                {
+                    m_state[0] = m_state[1];
+                    m_state[1] = state;
+                }
+
+            public:
+                int getState() const
+                {
+                    return m_state[1];
+                }
+
+                int getLastState() const
+                {
+                    return m_state[0];
+                }
         };
 
-    protected:
-        int m_State;
+    private:
+        InnButtonState m_state;
 
     protected:
-        bool m_OnClickDone;
+        const bool m_onClickDone;
 
     protected:
-        int m_Offset[3][2];
+        const int m_offset[3][2];
 
     protected:
-        std::function<void()> m_OnOver;
-        std::function<void()> m_OnClick;
-        
+        std::function<void()> m_onOverIn;
+        std::function<void()> m_onOverOut;
+        std::function<void()> m_onClick;
+
     public:
         ButtonBase(
-                int nX,
-                int nY,
-                int nW,
-                int nH,
+                dir8_t argDir,
+                int argX,
+                int argY,
+                int argW,
+                int argH,
 
-                const std::function<void()> &fnOnOver  = [](){},
-                const std::function<void()> &fnOnClick = [](){},
+                std::function<void()> fnOnOverIn  = nullptr,
+                std::function<void()> fnOnOverOut = nullptr,
+                std::function<void()> fnOnClick   = nullptr,
 
-                int nOffXOnOver  = 0,
-                int nOffYOnOver  = 0,
-                int nOffXOnClick = 0,
-                int nOffYOnClick = 0,
+                int offXOnOver  = 0,
+                int offYOnOver  = 0,
+                int offXOnClick = 0,
+                int offYOnClick = 0,
 
-                bool    bOnClickDone = true,
-                Widget *pWidget      = nullptr,
-                bool    bFreeWidget  = false)
-            : Widget(nX, nY, nW, nH, pWidget, bFreeWidget)
-            , m_State(BUTTON_OFF)
-            , m_OnClickDone(bOnClickDone)
-            , m_Offset
+                bool    onClickDone = true,
+                Widget *widgetPtr   = nullptr,
+                bool    autoFree    = false)
+            : Widget(argDir, argX, argY, argW, argH, widgetPtr, autoFree)
+            , m_onClickDone(onClickDone)
+            , m_offset
               {
-                  {0            , 0           },
-                  {nOffXOnOver  , nOffYOnOver },
-                  {nOffXOnClick , nOffYOnClick},
+                  {0            , 0          },
+                  {offXOnOver   , offYOnOver },
+                  {offXOnClick  , offYOnClick},
               }
-            , m_OnOver (fnOnOver)
-            , m_OnClick(fnOnClick)
+            , m_onOverIn (std::move(fnOnOverIn))
+            , m_onOverOut(std::move(fnOnOverOut))
+            , m_onClick  (std::move(fnOnClick))
         {
             // we don't fail even if x, y, w, h are invalid
-            // because derived class could reset it in its constructor
+            // because derived class could do reset in its constructor
         }
 
     public:
         virtual ~ButtonBase() = default;
 
     public:
-        bool ProcessEvent(const SDL_Event &, bool *);
+        bool processEvent(const SDL_Event &, bool) override;
 
     protected:
-        int OffX() const
+        int offX() const
         {
-            return m_Offset[State()][0];
+            return m_offset[getState()][0];
         }
 
-        int OffY() const
+        int offY() const
         {
-            return m_Offset[State()][1];
+            return m_offset[getState()][1];
         }
 
-        int State() const
+    public:
+        int getState() const
         {
-            return m_State;
+            return m_state.getState();
         }
+
+        int getLastState() const
+        {
+            return m_state.getLastState();
+        }
+
+    public:
+        void setState(int state)
+        {
+            m_state.setState(state);
+        }
+
+    public:
+        // we can automatically do this or call this function
+        // sometimes when we invoke the callback it changes the button location
+        void setOff()
+        {
+            setState(BEVENT_OFF);
+        }
+
+    private:
+        void onClick();
+        void onOverIn();
+        void onOverOut();
+        void onBadEvent();
 };

@@ -1,191 +1,76 @@
-/*
- * =====================================================================================
- *
- *       Filename: attachmagic.cpp
- *        Created: 08/10/2017 12:46:45
- *    Description: 
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-#include "log.hpp"
+#include "colorf.hpp"
 #include "dbcomid.hpp"
 #include "sdldevice.hpp"
 #include "dbcomrecord.hpp"
 #include "attachmagic.hpp"
-#include "pngtexoffdbn.hpp"
+#include "pngtexoffdb.hpp"
 
-AttachMagic::AttachMagic(int nMagicID, int nMagicParam, int nMagicStage, double fLastTime)
-    : MagicBase(nMagicID, nMagicParam, nMagicStage, fLastTime)
+extern SDLDevice *g_sdlDevice;
+extern PNGTexOffDB *g_magicDB;
+
+void AttachMagic::drawShift(int shiftX, int shiftY, uint32_t modColor) const
 {
-    if(RefreshCache()){
-        switch(m_CacheEntry->Type){
-            case EGT_BOUND:
-                {
-                    break;
-                }
-            default:
-                {
-                    extern Log *g_Log;
-                    g_Log->AddLog(LOGTYPE_FATAL, "Invalid GfxEntry::Type to AttachMagic");
-                    m_CacheEntry->Print();
-                    break;
-                }
+    if(m_gfxEntry.gfxID == SYS_TEXNIL){
+        return;
+    }
+
+    const auto texID = [this]() -> uint32_t
+    {
+        switch(m_gfxEntry.gfxDirType){
+            case  1: return m_gfxEntry.gfxID + frame();
+            case  4:
+            case  8:
+            case 16: return m_gfxEntry.gfxID + frame() + m_gfxDirIndex * m_gfxEntry.gfxIDCount;
+            default: throw fflerror("invalid gfxDirType: %d", m_gfxEntry.gfxDirType);
+        }
+    }();
+
+    if(auto [texPtr, offX, offY] = g_magicDB->retrieve(texID); texPtr){
+        SDLDeviceHelper::EnableTextureModColor enableModColor(texPtr, colorf::modRGBA(m_gfxEntryRef ? m_gfxEntryRef.modColor : m_gfxEntry.modColor, modColor));
+        SDLDeviceHelper::EnableTextureBlendMode enableBlendMode(texPtr, SDL_BLENDMODE_BLEND);
+        g_sdlDevice->drawTexture(texPtr, shiftX + offX, shiftY + offY);
+    }
+}
+
+void Thunderbolt::drawShift(int shiftX, int shiftY, uint32_t modColor) const
+{
+    if(m_gfxEntry.gfxID == SYS_TEXNIL){
+        return;
+    }
+
+    const auto texID = [this]() -> uint32_t
+    {
+        switch(m_gfxEntry.gfxDirType){
+            case  1: return m_gfxEntry.gfxID + frame();
+            case  4:
+            case  8:
+            case 16: return m_gfxEntry.gfxID + frame() + m_gfxDirIndex * m_gfxEntry.gfxIDCount;
+            default: throw fflerror("invalid gfxDirType: %d", m_gfxEntry.gfxDirType);
+        }
+    }();
+
+    if(auto [texPtr, offX, offY] = g_magicDB->retrieve(texID); texPtr){
+        const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
+        SDLDeviceHelper::EnableTextureModColor enableModColor(texPtr, colorf::modRGBA(m_gfxEntryRef ? m_gfxEntryRef.modColor : m_gfxEntry.modColor, modColor));
+        SDLDeviceHelper::EnableTextureBlendMode enableBlendMode(texPtr, SDL_BLENDMODE_BLEND);
+
+        // thunder bolt has 5 frames
+        // frame 0 ~ 3 are long, last frame is short
+        g_sdlDevice->drawTexture(texPtr, shiftX + offX, shiftY + offY);
+        if(frame() <= 3){
+            g_sdlDevice->drawTextureExt(texPtr, 0, 0, texW, texH, shiftX + offX, shiftY + offY - texH, texW, texH, 0, 0, 0, SDL_FLIP_VERTICAL);
         }
     }
 }
 
-AttachMagic::AttachMagic(int nMagicID, int nMagicParam, int nMagicStage)
-    : AttachMagic(nMagicID, nMagicParam, nMagicStage, -1.0)
-{}
-
-void AttachMagic::Update(double fTime)
+void TaoYellowBlueRing::drawShift(int shiftX, int shiftY, uint32_t modColor) const
 {
-    if(!Done()){
-        m_AccuTime += fTime;
-
-        if(StageDone()){
-            auto fnCheckStageValid = [this](int nNewStage) -> bool
-            {
-                if(auto &rstMR = DBCOM_MAGICRECORD(ID())){
-                    for(int nGfxEntryIndex = 0;; ++nGfxEntryIndex){
-                        if(auto &rstGfxEntry = rstMR.GetGfxEntry(nGfxEntryIndex)){
-                            if(rstGfxEntry.Stage == nNewStage){
-                                return true;
-                            }
-                        }else{ break; }
-                    }
-                }
-                return false;
-            };
-
-            // find next valid stage
-            // if no stage valid set EGS_NONE
-            // MagicBase::Done() returns true for EGS_NONE
-
-            switch(Stage()){
-                case EGS_INIT:
-                    {
-                        switch(ID()){
-                            case DBCOM_MAGICID(u8"雷电术"):
-                            case DBCOM_MAGICID(u8"魔法盾"):
-                                {
-                                    m_Stage = EGS_DONE;
-                                    break;
-                                }
-                            default:
-                                {
-                                    if(fnCheckStageValid(EGS_RUN)){
-                                        m_Stage = EGS_RUN;
-                                    }else if(fnCheckStageValid(EGS_DONE)){
-                                        m_Stage = EGS_DONE;
-                                    }else{
-                                        m_Stage = EGS_NONE;
-                                    }
-                                    break;
-                                }
-                        }
-                        break;
-                    }
-                case EGS_START:
-                    {
-                        if(fnCheckStageValid(EGS_RUN)){
-                            m_Stage = EGS_RUN;
-                        }else if(fnCheckStageValid(EGS_DONE)){
-                            m_Stage = EGS_DONE;
-                        }else{
-                            m_Stage = EGS_NONE;
-                        }
-                        break;
-                    }
-                case EGS_RUN:
-                    {
-                        if(fnCheckStageValid(EGS_DONE)){
-                            m_Stage = EGS_DONE;
-                        }else{
-                            m_Stage = EGS_NONE;
-                        }
-                        break;
-                    }
-                case EGS_DONE:
-                    {
-                        m_Stage = EGS_NONE;
-                        break;
-                    }
-                default:
-                    {
-                        break;
-                    }
-            }
-
-            // clear the accumulated time
-            // should I record the duration in total?
-            m_AccuTime = 0.0;
-        }
-    }
+    const auto r = std::fabs(std::cos(m_accuTime / 800.0));
+    const auto timedModColor = colorf::RGBA(0XFF, 0XFF, 0XFF, std::max<uint8_t>(colorf::round255(r * 255), 32));
+    AttachMagic::drawShift(shiftX, shiftY, colorf::modRGBA(timedModColor, modColor));
 }
 
-void AttachMagic::Draw(int nDrawOffX, int nDrawOffY)
+void AntHealing::drawShift(int shiftX, int shiftY, uint32_t modColor) const
 {
-    if(RefreshCache()){
-        if(m_CacheEntry->GfxID >= 0){
-            extern SDLDevice *g_SDLDevice;
-            extern PNGTexOffDBN *g_MagicDBN;
-
-            int nOffX = 0;
-            int nOffY = 0;
-            if(auto pEffectTexture = g_MagicDBN->Retrieve(m_CacheEntry->GfxID + Frame(), &nOffX, &nOffY)){
-                SDL_SetTextureBlendMode(pEffectTexture, SDL_BLENDMODE_BLEND);
-                g_SDLDevice->DrawTexture(pEffectTexture, nDrawOffX + nOffX, nDrawOffY + nOffY);
-            }
-        }
-    }
-}
-
-bool AttachMagic::Done() const
-{
-    if(StageDone()){
-        if(RefreshCache()){
-            switch(m_CacheEntry->Stage){
-                case EGS_INIT:
-                    {
-                        switch(ID()){
-                            case DBCOM_MAGICID(u8"雷电术"):
-                            case DBCOM_MAGICID(u8"召唤骷髅"):
-                                {
-                                    return true;
-                                }
-                            default:
-                                {
-                                    break;
-                                }
-                        }
-                        break;
-                    }
-                case EGS_DONE:
-                    {
-                        return true;
-                    }
-                default:
-                    {
-                        break;
-                    }
-            }
-        }else{
-            // when we deref m_CacheEntry
-            // we should call RefreshCache() first
-
-            // when really done Update() will make current stage as EGS_NONE
-            // then RefreshCache() makes m_CacheEntry as nullptr
-            return true;
-        }
-    }
-    return false;
+    AttachMagic::drawShift(shiftX, shiftY - frame() * 3, modColor);
 }

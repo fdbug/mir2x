@@ -3,7 +3,7 @@
  *
  *       Filename: clientluamodule.hpp
  *        Created: 06/25/2017 18:57:17
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -22,10 +22,12 @@
 class ProcessRun;
 class ClientLuaModule: public LuaModule
 {
+    private:
+        ProcessRun *m_proc;
+
     public:
-        ClientLuaModule(ProcessRun *, int);
-       ~ClientLuaModule() = default;
+        ClientLuaModule(ProcessRun *);
 
     protected:
-       void addLog(int, const char *);
+        void addLogString(int, const char8_t *) override;
 };

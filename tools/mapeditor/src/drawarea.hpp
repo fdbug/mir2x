@@ -19,34 +19,24 @@
 #pragma once
 #include <vector>
 #include <cstdint>
+#include <utility>
 #include <functional>
 #include "basearea.hpp"
 
 class DrawArea: public BaseArea
 {
     private:
-        enum FloatObjectType: int
+        enum
         {
-            FOTYPE_NONE = 0,
-            FOTYPE_TILE,
-            FOTYPE_OBJ0,
-            FOTYPE_OBJ1,
-            FOTYPE_MAX,
+            FOBJ_TILE,
+            FOBJ_OBJ0,
+            FOBJ_OBJ1,
         };
 
-    private:
-        int m_MouseX;
-        int m_MouseY;
-
-    private:
-        int m_OffsetX;
-        int m_OffsetY;
-
-    private:
-        std::shared_ptr<Fl_Image> m_LightImge;
-
     public:
-        DrawArea(int, int, int, int);
+        DrawArea(int argX, int argY, int argW, int argH)
+            : BaseArea(argX, argY, argW, argH)
+        {}
 
     public:
         ~DrawArea() = default;
@@ -56,78 +46,41 @@ class DrawArea: public BaseArea
         int  handle(int);
 
     public:
-        void SetOffset(int, bool, int, bool);
-
-    public:
-        int OffsetX() const
-        {
-            return m_OffsetX;
-        }
-
-        int OffsetY() const
-        {
-            return m_OffsetY;
-        }
+        std::tuple<int, int> offset() const override;
 
     private:
-        void DrawGrid();
-        void DrawTile();
-        void DrawLight();
-        void DrawGround();
-        void DrawObject(bool);
-        void DrawAttributeGrid();
+        void drawGrid();
+        void drawTile();
+        void drawLight();
+        void drawGround();
+        void drawObject(int);
+        void drawAttributeGrid();
 
     private:
-        void DrawTextBox();
-        void DrawTrySelect();
-        void DrawDoneSelect();
+        void drawTextBox();
+        void drawTrySelect();
+        void drawDoneSelect();
 
     private:
-        void RhombusCoverOperation  (int, int, int, std::function<void(int, int)>);
-        void RectangleCoverOperation(int, int, int, std::function<void(int, int)>);
-        void AttributeCoverOperation(int, int, int, std::function<void(int, int)>);
+        void drawTrySelectByTile();
+        void drawTrySelectByObject();
+        void drawTrySelectByAttribute();
 
     private:
-        void DrawTrySelectByTile();
-        void DrawSelectByObjectIndex(int);
-        void DrawSelectByObjectGround(bool);
-
-    private:
-        void DrawTrySelectBySingle();
-        void DrawTrySelectByRhombus();
-        void DrawTrySelectByRectangle();
-        void DrawTrySelectByAttribute();
-
-    private:
-        void AddSelect();
-        void ClearGroundSelect();
-
-    private:
-        void AddSelectByTile();
-        void AddSelectBySingle();
-        void AddSelectByRhombus();
-        void AddSelectByRectangle();
-        void AddSelectByAttribute();
-        void AddSelectByObject(bool);
+        void addSelect();
+        void clearSelect();
 
     private:
         bool LocateAnimation(int, int);
 
     public:
-        void SetScrollBar();
-
-    public:
-        void DrawFloatObject(int, int, int, int, int);
-
-    public:
-        Fl_Image *RetrievePNG(uint8_t, uint16_t);
-        Fl_Image *CreateRoundImage(int, uint32_t);
+        void drawFloatObject(int, int, int, int, int);
 
     protected:
-        void DrawDoneSelectByTile();
-        void DrawDoneSelectByObject(bool);
-        void DrawDoneSelectByAttribute();
+        void drawDoneSelectByTile();
+        void drawDoneSelectByObject();
+        void drawDoneSelectByAttribute();
 
-    protected:
-        void FillMapGrid(int, int, int, int, uint32_t);
+    public:
+        std::optional<std::tuple<size_t, size_t>> getROISize() const override;
 };

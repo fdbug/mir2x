@@ -2,8 +2,8 @@
  * =====================================================================================
  *
  *       Filename: notifyboard.cpp
- *        Created: 02/13/2018 19:29:05
- *    Description: 
+ *        Created: 03/22/2020 16:45:16
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -16,111 +16,97 @@
  * =====================================================================================
  */
 
-#include "log.hpp"
-#include "condcheck.hpp"
-#include "sdldevice.hpp"
+#include "strf.hpp"
+#include "totype.hpp"
+#include "xmltypeset.hpp"
+#include "mathf.hpp"
 #include "notifyboard.hpp"
 
-extern Log *g_Log;
-
-void NotifyBoard::Pop()
+void NotifyBoard::addLog(const char8_t * format, ...)
 {
-    // remove the first log line
-    if(!m_LogQueue.empty()){
-        auto stHead = m_LogQueue.front();
-        if(stHead.LineCount > 0){
-            m_LogBoard.RemoveLine(0, stHead.LineCount);
+    std::u8string text;
+    str_format(format, text);
+
+    while((m_maxEntryCount > 0) && (m_boardList.size() >= m_maxEntryCount)){
+        m_boardList.pop_front();
+    }
+
+    m_boardList.emplace_back();
+    m_boardList.back().typeset =std::make_unique<XMLTypeset>(m_lineW, LALIGN_LEFT, false, m_font, m_fontSize, m_fontStyle, m_fontColor);
+
+    const auto xmlString = str_printf("<par>%s</par>", to_cstr(text));
+    m_boardList.back().typeset->loadXML(xmlString.c_str());
+    updateSize();
+}
+
+void NotifyBoard::update(double)
+{
+    if(m_showTime > 0){
+        while(!m_boardList.empty()){
+            if(m_boardList.front().timer.diff_msec() >= m_showTime){
+                m_boardList.pop_front();
+            }
+            else{
+                break;
+            }
         }
-        m_LogQueue.pop();
+        updateSize();
     }
 }
 
-void NotifyBoard::Update(double)
+void NotifyBoard::drawEx(int dstX, int dstY, int srcX, int srcY, int srcW, int srcH) const
 {
-    int nLineCount = 0;
-    auto nCurrTick = (uint32_t)(SDL_GetTicks());
-    while(!m_LogQueue.empty()){
-        if(m_LogQueue.front().ExpireTime >= nCurrTick){
-            nLineCount += (int)(m_LogQueue.front().LineCount);
-            m_LogQueue.pop();
-        }
-    }
+    int startX = 0;
+    int startY = 0;
 
-    if(nLineCount){
-        m_LogBoard.RemoveLine(0, nLineCount);
-    }
-}
+    for(const auto &tp: m_boardList){
+        const auto p = tp.typeset.get();
 
-void NotifyBoard::AddXML(const char *szXML, const std::map<std::string, std::function<void()>> &rstMap)
-{
-    bool bRes = true;
-    if(!m_LogBoard.Empty(false)){
-        bRes = m_LogBoard.AppendXML("<ROOT><OBJECT TYPE=\"RETURN\"></OBJECT></ROOT>", {});
-    }
+        int srcXCrop = srcX;
+        int srcYCrop = srcY;
+        int dstXCrop = dstX;
+        int dstYCrop = dstY;
+        int srcWCrop = srcW;
+        int srcHCrop = srcH;
 
-    auto nLineCount0 = m_LogBoard.GetLineCount();
-    if(bRes){
-        bRes = m_LogBoard.AppendXML(szXML, rstMap);
-    }
+        if(!mathf::ROICrop(
+                    &srcXCrop, &srcYCrop,
+                    &srcWCrop, &srcHCrop,
+                    &dstXCrop, &dstYCrop,
 
-    auto nLineCount1 = m_LogBoard.GetLineCount();
-    condcheck(nLineCount1 > nLineCount0);
+                    w(),
+                    h(),
 
-    if(bRes){
-        m_LogQueue.push({(uint32_t)(nLineCount1 - nLineCount0), (uint32_t)(SDL_GetTicks()) + 5000});
-    }
-}
-
-void NotifyBoard::AddLog(std::array<std::string, 4> stLogType, const char *szLogFormat, ...)
-{
-    std::string szLog;
-    bool bError = false;
-    {
-        va_list ap;
-        va_start(ap, szLogFormat);
-
-        try{
-            szLog = str_vprintf(szLogFormat, ap);
-        }catch(const std::exception &e){
-            bError = true;
-            szLog = str_printf("Exception caught in NotifyBoard::AddLog(\"%s\", ...): %s", szLogFormat, e.what());
+                    0, startY, p->pw(), p->ph(), 0, 0, -1, -1)){
+            break;
         }
 
-        va_end(ap);
-    }
-
-    int nLogType = bError ? Log::LOGTYPEV_WARNING : std::atoi(stLogType[0].c_str());
-    switch(nLogType){
-        case Log::LOGTYPEV_INFO:
-            {
-                AddXML(str_printf("<ROOT><OBJECT TYPE=\"PLAINTEXT\" COLOR=\"WHITE\">%s</OBJECT></ROOT>", szLog.c_str()).c_str(), {});
-                return;
-            }
-        case Log::LOGTYPEV_WARNING:
-            {
-                AddXML(str_printf("<ROOT><OBJECT TYPE=\"PLAINTEXT\" COLOR=\"BROWN\">%s</OBJECT></ROOT>", szLog.c_str()).c_str(), {});
-                return;
-            }
-        case Log::LOGTYPEV_FATAL:
-            {
-                AddXML(str_printf("<ROOT><OBJECT TYPE=\"PLAINTEXT\" COLOR=\"RED\">%s</OBJECT></ROOT>", szLog.c_str()).c_str(), {});
-                return;
-            }
-        case Log::LOGTYPEV_DEBUG:
-            {
-                AddXML(str_printf("<ROOT><OBJECT TYPE=\"PLAINTEXT\" COLOR=\"GREEN\">%s</OBJECT></ROOT>", szLog.c_str()).c_str(), {});
-                return;
-            }
-        default:
-            {
-                g_Log->AddLog(LOGTYPE_WARNING, "Invalid LogType %d: %s", nLogType, szLog.c_str());
-                AddXML(str_printf("<ROOT><OBJECT TYPE=\"PLAINTEXT\" COLOR=\"RED\">Invalid LogType %d: %s</OBJECT></ROOT>", nLogType, szLog.c_str()).c_str(), {});
-                return;
-            }
+        p->drawEx(dstXCrop, dstYCrop, srcXCrop - startX, srcYCrop - startY, srcWCrop, srcHCrop);
+        startY += p->ph();
     }
 }
 
-void NotifyBoard::DrawEx(int nDstX, int nDstY, int nSrcX, int nSrcY, int nW, int nH)
+int NotifyBoard::pw() const
 {
-    m_LogBoard.DrawEx(nDstX, nDstY, nSrcX, nSrcY, nW, nH);
+    int maxW = 0;
+    for(const auto &tp: m_boardList){
+        maxW = std::max<int>(maxW, tp.typeset->pw());
+    }
+    return maxW;
+}
+
+void NotifyBoard::updateSize()
+{
+    m_w = 0;
+    m_h = 0;
+
+    for(const auto &tp: m_boardList){
+        m_h += tp.typeset->ph();
+        if(m_lineW > 0){
+            m_w = m_lineW;
+        }
+        else{
+            m_w = std::max<int>(m_w, tp.typeset->pw());
+        }
+    }
 }

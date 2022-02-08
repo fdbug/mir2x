@@ -6,9 +6,6 @@
  *    Description: class to record data for mir2x map
  *                 this class won't define operation over the data
  *
- *                 previously I was using grid compression
- *                 but I decide to disable it since I found I can use zip to compress
- *
  *        Version: 1.0
  *       Revision: none
  *       Compiler: gcc
@@ -23,267 +20,318 @@
 #pragma once
 #include <array>
 #include <vector>
+#include <fstream>
 #include <cstdint>
 #include <functional>
-#include "strfunc.hpp"
+#include "strf.hpp"
+#include "totype.hpp"
+#include "cerealf.hpp"
 #include "landtype.hpp"
 #include "sysconst.hpp"
-#include "condcheck.hpp"
+#include "fflerror.hpp"
+
+enum ObjDepthType: uint32_t
+{
+    OBJD_GROUND      = 0,
+    OBJD_OVERGROUND0 = 1,    // over ground but lower  than player
+    OBJD_OVERGROUND1 = 2,    // over ground but higher than player
+    OBJD_SKY         = 3,
+};
 
 class Mir2xMapData final
 {
     public:
-        // pod types
-        // can be initialized by { xx, xx, xxx }
 #pragma pack(push, 1)
-        typedef struct
+        struct TILE
         {
-            uint32_t Param;     // bit field definition:
-            //      31 : valid
-            // 30 - 28 :
-            // 27 - 24 : index
-            // 23 - 16 : index for file
-            // 15 -  0 : index for image
-            bool Valid() const
-            {
-                return (Param & 0X80000000) ? true : false;
-            }
+            uint32_t valid :  1 {0};
+            uint32_t texID : 24 {0};
 
-            uint32_t Image() const
+            template<typename Archive> void serialize(Archive &ar)
             {
-                return Param & 0X00FFFFFF;
-            }
-        }TILE;
+                uint32_t sd_valid = valid;
+                uint32_t sd_texID = texID;
 
-        // define OBJ as ``one frame of OBJ"
-        // then move the animation information out
-        // since we can define a sequence of animated obj as an animation
-        typedef struct
+                ar(sd_valid, sd_texID);
+
+                valid = sd_valid;
+                texID = sd_texID;
+            }
+        };
+
+        struct OBJECT
         {
-            uint32_t Param;     // bit field definition:
-                                //      31 : valid
-                                // 30 - 28 :
-                                // 27 - 24 : index
-                                // 23 - 16 : index for file
-                                // 15 -  0 : index for image
-            bool Valid() const
-            {
-                return (Param & 0X80000000) ? true : false;
-            }
+            uint32_t valid :  1 {0};
+            uint32_t texID : 24 {0};
+            uint32_t depth :  2 {2};
 
-            uint32_t Image() const
-            {
-                return Param & 0X00FFFFFF;
-            }
-        }OBJ;
+            uint32_t animated   : 1 {0};
+            uint32_t alpha      : 1 {0};
+            uint32_t tickType   : 3 {0};
+            uint32_t frameCount : 4 {0};
 
-        typedef struct
+            template<typename Archive> void serialize(Archive &ar)
+            {
+                uint32_t sd_valid      = valid;
+                uint32_t sd_texID      = texID;
+                uint32_t sd_depth      = depth;
+                uint32_t sd_animated   = animated;
+                uint32_t sd_alpha      = alpha;
+                uint32_t sd_tickType   = tickType;
+                uint32_t sd_frameCount = frameCount;
+
+                ar(sd_valid, sd_texID, sd_depth, sd_animated, sd_alpha, sd_tickType, sd_frameCount);
+
+                valid      = sd_valid;
+                texID      = sd_texID;
+                depth      = sd_depth;
+                animated   = sd_animated;
+                alpha      = sd_alpha;
+                tickType   = sd_tickType;
+                frameCount = sd_frameCount;
+            }
+        };
+
+        struct LIGHT
         {
-            // removed the ``valid" field for cell
-            // one cell should always be there and ``valid"
-            // but its objects, light, etc could be ``invalid" and specify independently
+            uint8_t valid  : 1 {0};
+            uint8_t radius : 2 {0};
+            uint8_t alpha  : 2 {0};
+            uint8_t color  : 3 {0};
 
-            uint32_t Param;     // bit field definition
-                                // 31 - 24 :
-                                //
-                                //      23 : can walk
-                                //      22 : can fly
-                                // 21 - 16 : land type
-                                //
-                                //      15 : light valid
-                                // 14 - 13 : light radius
-                                // 12 - 11 : light alpha
-                                // 10 - 08 : light color
-                                //
-                                // 07 - 00 :
-
-            uint32_t ObjParam;  // define how to use the Obj in current cell
-                                // bit field definition:
-                                //      31 : obj-1 : animated
-                                // 30 - 28 :       : tick type of animation
-                                // 27 - 24 :       : frame count, max = 16
-                                //      23 :       : alpha
-                                //      22 :       : ground
-                                // 21 - 16 :       :
-                                //
-                                //      15 : obj-0 : animated
-                                // 14 - 12 :       : tick type of animation
-                                // 11 - 08 :       : frame count, max = 16
-                                //      07 :       : alpha
-                                //      06 :       : ground
-                                // 05 - 00 :       :
-
-            // information of ``one frame" of object
-            // animation infomation and blending infomation are in ObjParam
-            OBJ Obj[2];
-
-            uint8_t LandByte() const
+            template<typename Archive> void serialize(Archive &ar)
             {
-                return (Param & 0X00FF0000) >> 16;
+                uint8_t sd_valid  = valid;
+                uint8_t sd_radius = radius;
+                uint8_t sd_alpha  = alpha;
+                uint8_t sd_color  = color;
+
+                ar(sd_valid, sd_radius, sd_alpha, sd_color);
+
+                valid  = sd_valid;
+                radius = sd_radius;
+                alpha  = sd_alpha;
+                color  = sd_color;
             }
+        };
 
-            uint8_t LightByte() const
-            {
-                return (Param & 0X0000FF00) >> 8;
-            }
-
-            bool CanWalk() const
-            {
-                return (LandByte() & 0X80) ? true : false;
-            }
-
-            bool CanFly() const
-            {
-                return (LandByte() & 0X40) ? true : false;
-            }
-
-            bool CanThrough() const
-            {
-                return CanWalk() || CanFly();
-            }
-
-            uint8_t LandType() const
-            {
-                return LandByte() & 0X3F;
-            }
-
-            std::array<uint8_t, 5> ObjectArray(int nIndex) const
-            {
-                if(true
-                        && (nIndex == 0)
-                        && (Obj[0].Param & 0X80000000)){
-
-                    uint8_t nByte4 = 0
-                        | (((uint8_t)((Obj[0].Param & 0X80000000) ? 1 : 0)) << 7)   // valid
-                        | (((uint8_t)((ObjParam     & 0X00000080) ? 1 : 0)) << 1)   // alpha
-                        | (((uint8_t)((ObjParam     & 0X00000040) ? 1 : 0)) << 0);  // ground
-
-                    uint8_t nByte3 = (uint8_t)((ObjParam     & 0X0000FF00) >>  8);
-                    uint8_t nByte2 = (uint8_t)((Obj[0].Param & 0X00FF0000) >> 16);
-                    uint8_t nByte1 = (uint8_t)((Obj[0].Param & 0X0000FF00) >>  8);
-                    uint8_t nByte0 = (uint8_t)((Obj[0].Param & 0X000000FF) >>  0);
-                    return {{nByte0, nByte1, nByte2, nByte3, nByte4}};
-                }
-
-                if(true
-                        && (nIndex == 1)
-                        && (Obj[1].Param & 0X80000000)){
-
-                    uint8_t nByte4 = 0
-                        | (((uint8_t)((Obj[1].Param & 0X80000000) ? 1 : 0)) << 7)   // valid
-                        | (((uint8_t)((ObjParam     & 0X00800000) ? 1 : 0)) << 1)   // alpha
-                        | (((uint8_t)((ObjParam     & 0X00400000) ? 1 : 0)) << 0);  // ground
-
-                    uint8_t nByte3 = (uint8_t)((ObjParam     & 0XFF000000) >> 24);
-                    uint8_t nByte2 = (uint8_t)((Obj[1].Param & 0X00FF0000) >> 16);
-                    uint8_t nByte1 = (uint8_t)((Obj[1].Param & 0X0000FF00) >>  8);
-                    uint8_t nByte0 = (uint8_t)((Obj[1].Param & 0X000000FF) >>  0);
-                    return {{nByte0, nByte1, nByte2, nByte3, nByte4}};
-                }
-
-                return {{0, 0, 0, 0, 0}};
-            }
-        }CELL;
-
-        typedef struct
+        struct LAND
         {
-            TILE   Tile[1];
-            CELL   Cell[4];
-        }BLOCK;
+            uint8_t type    : 6 {0};
+            uint8_t canFly  : 1 {0};
+            uint8_t canWalk : 1 {0};
+
+            template<typename Archive> void serialize(Archive &ar)
+            {
+                uint8_t sd_type    = type;
+                uint8_t sd_canFly  = canFly;
+                uint8_t sd_canWalk = canWalk;
+
+                ar(sd_type, sd_canFly, sd_canWalk);
+
+                type    = sd_type;
+                canFly  = sd_canFly;
+                canWalk = sd_canWalk;
+            }
+
+            bool canThrough() const
+            {
+                return canWalk || canFly;
+            }
+        };
+
+        // every obj can have 4 types
+        // but every cell only contains 2 cells
+
+        struct CELL
+        {
+            LAND land;
+            LIGHT light;
+            OBJECT obj[2];
+
+            template<typename Archive> void serialize(Archive &ar)
+            {
+                ar(land, light, obj[0], obj[1]);
+            }
+        };
+
+        struct BLOCK
+        {
+            TILE tile;
+            CELL cell[4];
+
+            template<typename Archive> void serialize(Archive &ar)
+            {
+                ar(tile, cell[0], cell[1], cell[2], cell[3]);
+            }
+        };
 #pragma pack(pop)
 
     private:
-        uint16_t m_W;
-        uint16_t m_H;
+        struct InnMapData
+        {
+            size_t w = 0;
+            size_t h = 0;
+            std::vector<BLOCK> blockList;
+
+            template<typename Archive> void serialize(Archive &ar)
+            {
+                ar(w, h, blockList);
+            }
+
+            void clear()
+            {
+                w = 0;
+                h = 0;
+                blockList.clear();
+            }
+
+            void allocate(size_t argW, size_t argH)
+            {
+                fflassert((argW > 0) && (argW % 2 == 0));
+                fflassert((argH > 0) && (argH % 2 == 0));
+
+                w = argW;
+                h = argH;
+                blockList.resize(argW * argH / 4);
+            }
+        };
 
     private:
-        std::vector<BLOCK> m_Data;
+        InnMapData m_data;
 
     public:
-        Mir2xMapData()
-            : m_W(0)
-            , m_H(0)
-            , m_Data()
-        {}
+        Mir2xMapData() = default;
 
-        Mir2xMapData(const char *pName)
+    public:
+        Mir2xMapData(const std::string &fileName)
             : Mir2xMapData()
         {
-            if(!Load(pName)){
-                throw std::runtime_error(str_fflprintf(": Failed to load map: %s", pName));
+            load(fileName);
+        }
+
+        Mir2xMapData(const void *data, size_t size)
+            : Mir2xMapData()
+        {
+            loadData(data, size);
+        }
+
+    public:
+        void allocate(int argW, int argH)
+        {
+            m_data.clear();
+            m_data.allocate(argW, argH);
+        }
+
+        void clear()
+        {
+            m_data.clear();
+        }
+
+    public:
+        size_t w() const
+        {
+            return m_data.w;
+        }
+
+        size_t h() const
+        {
+            return m_data.h;
+        }
+
+    public:
+        auto &block(int argX, int argY)
+        {
+            fflassert(validC(argX, argY));
+            return m_data.blockList[argX / 2 + (argY / 2) * (m_data.w / 2)];
+        }
+
+        auto &tile(int argX, int argY)
+        {
+            return block(argX, argY).tile;
+        }
+
+        auto &cell(int argX, int argY)
+        {
+            return block(argX, argY).cell[(argY % 2) * 2 + (argX % 2)];
+        }
+
+    public:
+        const auto &block(int argX, int argY) const
+        {
+            fflassert(validC(argX, argY));
+            return m_data.blockList[argX / 2 + (argY / 2) * (m_data.w / 2)];
+        }
+
+        const auto &tile(int argX, int argY) const
+        {
+            return block(argX, argY).tile;
+        }
+
+        const auto &cell(int argX, int argY) const
+        {
+            return block(argX, argY).cell[(argY % 2) * 2 + (argX % 2)];
+        }
+
+    public:
+        void loadData(const void *data, size_t size)
+        {
+            m_data = cerealf::deserialize<Mir2xMapData::InnMapData>(data, size);
+        }
+
+        void load(const std::string &fileName)
+        {
+            std::stringstream ss;
+            ss << std::ifstream(fileName, std::ifstream::binary).rdbuf();
+            m_data = cerealf::deserialize<Mir2xMapData::InnMapData>(ss.str());
+        }
+
+        void save(const std::string &fileName) const
+        {
+            std::ofstream f(fileName, std::ofstream::binary);
+            const auto s = cerealf::serialize(m_data);
+            f.write(s.data(), s.size());
+        }
+
+    public:
+        bool valid() const
+        {
+            return w() > 0 && h() > 0;
+        }
+
+        bool validC(int argX, int argY) const
+        {
+            return argX >= 0 && argX < to_d(w()) && argY >= 0 && argY < to_d(h());
+        }
+
+        bool validP(int argX, int argY) const
+        {
+            return argX >= 0 && argX < to_d(w() * SYS_MAPGRIDXP) && argY >= 0 && argY < to_d(h() * SYS_MAPGRIDYP);
+        }
+
+    public:
+        Mir2xMapData submap(size_t argX, size_t argY, size_t argW, size_t argH) const
+        {
+            fflassert(argX % 2 == 0);
+            fflassert(argY % 2 == 0);
+
+            fflassert(argW > 0 && argW % 2 == 0);
+            fflassert(argH > 0 && argH % 2 == 0);
+
+            fflassert(argX + argW <= w());
+            fflassert(argY + argH <= h());
+
+            Mir2xMapData sub;
+            sub.allocate(argW, argH);
+
+            for(size_t iy = 0; iy < argH; ++iy){
+                for(size_t ix = 0; ix < argW; ++ix){
+                    if((ix % 2) || (iy % 2)){
+                        continue;
+                    }
+                    sub.block(ix, iy) = block(argX + ix, argY + iy);
+                }
             }
-        }
-
-    public:
-        const uint8_t *Data() const
-        {
-            return (uint8_t *)(&m_Data[0]);
-        }
-
-        size_t DataLen() const
-        {
-            return m_Data.size() * sizeof(m_Data[0]);
-        }
-
-    public:
-        bool Allocate(uint16_t, uint16_t);
-
-    public:
-        int W() const { return m_W; }
-        int H() const { return m_H; }
-
-    public:
-        auto &Block(int nX, int nY)
-        {
-            return m_Data[nX / 2 + (nY / 2) * (m_W / 2)];
-        }
-
-        auto &Tile(int nX, int nY)
-        {
-            return Block(nX, nY).Tile[0];
-        }
-
-        auto &Cell(int nX, int nY)
-        {
-            return Block(nX, nY).Cell[(nY % 2) * 2 + (nX % 2)];
-        }
-
-    public:
-        const auto &Block(int nX, int nY) const
-        {
-            return m_Data[nX / 2 + (nY / 2) * (m_W / 2)];
-        }
-
-        const auto &Tile(int nX, int nY) const
-        {
-            return Block(nX, nY).Tile[0];
-        }
-
-        const auto &Cell(int nX, int nY) const
-        {
-            return Block(nX, nY).Cell[(nY % 2) * 2 + (nX % 2)];
-        }
-
-    public:
-        bool Load(const char *);
-        bool Load(const uint8_t *, size_t);
-
-    public:
-        bool Save(const char *);
-
-    public:
-        bool Valid() const
-        {
-            return !m_Data.empty();
-        }
-
-        bool ValidC(int nX, int nY) const
-        {
-            return nX >= 0 && nX < m_W && nY >= 0 && nY < m_H;
-        }
-
-        bool ValidP(int nX, int nY) const
-        {
-            return nX >= 0 && nX < m_W * SYS_MAPGRIDXP && nY >= 0 && nY < m_H * SYS_MAPGRIDYP;
+            return sub;
         }
 };

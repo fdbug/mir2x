@@ -3,7 +3,7 @@
  *
  *       Filename: sdldevice.cpp
  *        Created: 03/07/2016 23:57:04
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -17,208 +17,419 @@
  */
 
 #include <cinttypes>
-#include <SDL2/SDL.h>
 #include <system_error>
+#include <unordered_map>
+#include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
 
 #include "log.hpp"
+#include "mathf.hpp"
+#include "totype.hpp"
 #include "rawbuf.hpp"
+#include "colorf.hpp"
 #include "xmlconf.hpp"
+#include "fflerror.hpp"
 #include "sdldevice.hpp"
-#include "condcheck.hpp"
+#include "clientargparser.hpp"
 
-extern Log *g_Log;
-extern SDLDevice *g_SDLDevice;
+extern Log *g_log;
+extern XMLConf *g_xmlConf;
+extern SDLDevice *g_sdlDevice;
+extern ClientArgParser *g_clientArgParser;
 
-SDLDevice::EnableDrawColor::EnableDrawColor(uint32_t nRGBA)
+SDLDeviceHelper::EnableRenderColor::EnableRenderColor(uint32_t color, SDLDevice *devPtr)
+    : m_device(devPtr ? devPtr : g_sdlDevice)
 {
-    g_SDLDevice->PushColor(nRGBA);
+    if(SDL_GetRenderDrawColor(m_device->getRenderer(), &m_r, &m_g, &m_b, &m_a)){
+        throw fflerror("get renderer draw color failed: %s", SDL_GetError());
+    }
+
+    if(SDL_SetRenderDrawColor(m_device->getRenderer(), colorf::R(color), colorf::G(color), colorf::B(color), colorf::A(color))){
+        throw fflerror("set renderer draw color failed: %s", SDL_GetError());
+    }
 }
 
-SDLDevice::EnableDrawColor::~EnableDrawColor()
+SDLDeviceHelper::EnableRenderColor::~EnableRenderColor()
 {
-    g_SDLDevice->PopColor();
+    if(SDL_SetRenderDrawColor(m_device->getRenderer(), m_r, m_g, m_b, m_a)){
+        g_log->addLog(LOGTYPE_WARNING, "Set renderer draw color failed: %s", SDL_GetError());
+    }
 }
 
-SDLDevice::EnableDrawBlendMode::EnableDrawBlendMode(SDL_BlendMode stBlendMode)
+SDLDeviceHelper::EnableRenderBlendMode::EnableRenderBlendMode(SDL_BlendMode blendMode, SDLDevice *devPtr)
+    : m_device(devPtr ? devPtr : g_sdlDevice)
 {
-    g_SDLDevice->PushBlendMode(stBlendMode);
+    if(SDL_GetRenderDrawBlendMode(m_device->getRenderer(), &m_blendMode)){
+        throw fflerror("get renderer blend mode failed: %s", SDL_GetError());
+    }
+
+    if(SDL_SetRenderDrawBlendMode(m_device->getRenderer(), blendMode)){
+        throw fflerror("set renderer blend mode failed: %s", SDL_GetError());
+    }
 }
 
-SDLDevice::EnableDrawBlendMode::~EnableDrawBlendMode()
+SDLDeviceHelper::EnableRenderBlendMode::~EnableRenderBlendMode()
 {
-    g_SDLDevice->PopBlendMode();
+    if(SDL_SetRenderDrawBlendMode(m_device->getRenderer(), m_blendMode)){
+        g_log->addLog(LOGTYPE_WARNING, "set renderer blend mode failed: %s", SDL_GetError());
+    }
+}
+
+SDLDeviceHelper::RenderNewFrame::RenderNewFrame(SDLDevice *devPtr)
+    : m_device(devPtr ? devPtr : g_sdlDevice)
+{
+    m_device->clearScreen();
+}
+
+SDLDeviceHelper::RenderNewFrame::~RenderNewFrame()
+{
+    m_device->updateFPS();
+    m_device->present();
+}
+
+SDLDeviceHelper::EnableTextureBlendMode::EnableTextureBlendMode(SDL_Texture *texPtr, SDL_BlendMode mode)
+    : m_texPtr(texPtr)
+{
+    if(!m_texPtr){
+        return;
+    }
+
+    if(SDL_GetTextureBlendMode(m_texPtr, &m_blendMode)){
+        throw fflerror("get texture blend mode failed: %s", SDL_GetError());
+    }
+
+    if(SDL_SetTextureBlendMode(m_texPtr, mode)){
+        throw fflerror("set texture blend mode failed: %s", SDL_GetError());
+    }
+}
+
+SDLDeviceHelper::EnableTextureBlendMode::~EnableTextureBlendMode()
+{
+    if(!m_texPtr){
+        return;
+    }
+
+    if(SDL_SetTextureBlendMode(m_texPtr, m_blendMode)){
+        g_log->addLog(LOGTYPE_WARNING, "Setup texture blend mode failed: %s", SDL_GetError());
+    }
+}
+
+SDLDeviceHelper::EnableTextureModColor::EnableTextureModColor(SDL_Texture *texPtr, uint32_t color)
+    : m_texPtr(texPtr)
+{
+    if(!m_texPtr){
+        return;
+    }
+
+    if(SDL_GetTextureColorMod(m_texPtr, &m_r, &m_g, &m_b)){
+        throw fflerror("SDL_GetTextureColorMod(%p) failed: %s", to_cvptr(m_texPtr), SDL_GetError());
+    }
+
+    if(SDL_GetTextureAlphaMod(m_texPtr, &m_a)){
+        throw fflerror("SDL_GetTextureAlphaMod(%p) failed: %s", to_cvptr(m_texPtr), SDL_GetError());
+    }
+
+    if(SDL_SetTextureColorMod(m_texPtr, colorf::R(color), colorf::G(color), colorf::B(color))){
+        throw fflerror("SDL_SetTextureColorMod(%p) failed: %s", to_cvptr(m_texPtr), SDL_GetError());
+    }
+
+    if(SDL_SetTextureAlphaMod(m_texPtr, colorf::A(color))){
+        throw fflerror("SDL_SetTextureAlphaMod(%p) failed: %s", to_cvptr(m_texPtr), SDL_GetError());
+    }
+}
+
+SDLDeviceHelper::EnableTextureModColor::~EnableTextureModColor()
+{
+    if(!m_texPtr){
+        return;
+    }
+
+    if(SDL_SetTextureColorMod(m_texPtr, m_r, m_g, m_b)){
+        g_log->addLog(LOGTYPE_WARNING, "set texture mod color failed: %s", SDL_GetError());
+    }
+
+    if(SDL_SetTextureAlphaMod(m_texPtr, m_a)){
+        g_log->addLog(LOGTYPE_WARNING, "set texture mod alpha failed: %s", SDL_GetError());
+    }
+}
+
+char SDLDeviceHelper::getKeyChar(const SDL_Event &event, bool checkShiftKey)
+{
+    const static std::unordered_map<SDL_Keycode, const char *> s_lookupTable
+    {
+        {SDLK_SPACE,        " "   " " },
+        {SDLK_QUOTE,        "'"   "\""},
+        {SDLK_COMMA,        ","   "<" },
+        {SDLK_MINUS,        "-"   "_" },
+        {SDLK_PERIOD,       "."   ">" },
+        {SDLK_SLASH,        "/"   "?" },
+        {SDLK_0,            "0"   ")" },
+        {SDLK_1,            "1"   "!" },
+        {SDLK_2,            "2"   "@" },
+        {SDLK_3,            "3"   "#" },
+        {SDLK_4,            "4"   "$" },
+        {SDLK_5,            "5"   "%" },
+        {SDLK_6,            "6"   "^" },
+        {SDLK_7,            "7"   "&" },
+        {SDLK_8,            "8"   "*" },
+        {SDLK_9,            "9"   "(" },
+        {SDLK_SEMICOLON,    ";"   ":" },
+        {SDLK_EQUALS,       "="   "+" },
+        {SDLK_LEFTBRACKET,  "["   "{" },
+        {SDLK_BACKSLASH,    "\\"  "|" },
+        {SDLK_RIGHTBRACKET, "]"   "}" },
+        {SDLK_BACKQUOTE,    "`"   "~" },
+        {SDLK_a,            "a"   "A" },
+        {SDLK_b,            "b"   "B" },
+        {SDLK_c,            "c"   "C" },
+        {SDLK_d,            "d"   "D" },
+        {SDLK_e,            "e"   "E" },
+        {SDLK_f,            "f"   "F" },
+        {SDLK_g,            "g"   "G" },
+        {SDLK_h,            "h"   "H" },
+        {SDLK_i,            "i"   "I" },
+        {SDLK_j,            "j"   "J" },
+        {SDLK_k,            "k"   "K" },
+        {SDLK_l,            "l"   "L" },
+        {SDLK_m,            "m"   "M" },
+        {SDLK_n,            "n"   "N" },
+        {SDLK_o,            "o"   "O" },
+        {SDLK_p,            "p"   "P" },
+        {SDLK_q,            "q"   "Q" },
+        {SDLK_r,            "r"   "R" },
+        {SDLK_s,            "s"   "S" },
+        {SDLK_t,            "t"   "T" },
+        {SDLK_u,            "u"   "U" },
+        {SDLK_v,            "v"   "V" },
+        {SDLK_w,            "w"   "W" },
+        {SDLK_x,            "x"   "X" },
+        {SDLK_y,            "y"   "Y" },
+        {SDLK_z,            "z"   "Z" },
+    };
+
+    if(const auto p = s_lookupTable.find(event.key.keysym.sym); p != s_lookupTable.end()){
+        return p->second[checkShiftKey && ((event.key.keysym.mod & KMOD_LSHIFT) || (event.key.keysym.mod & KMOD_RSHIFT)) ? 1 : 0];
+    }
+    return '\0';
+}
+
+SDLDeviceHelper::SDLEventPLoc SDLDeviceHelper::getMousePLoc()
+{
+    int mousePX = -1;
+    int mousePY = -1;
+    SDL_GetMouseState(&mousePX, &mousePY);
+
+    return
+    {
+        mousePX,
+        mousePY,
+    };
+}
+
+SDLDeviceHelper::SDLEventPLoc SDLDeviceHelper::getEventPLoc(const SDL_Event &event)
+{
+    switch(event.type){
+        case SDL_MOUSEMOTION:
+            {
+                return {event.motion.x, event.motion.y};
+            }
+        case SDL_MOUSEBUTTONUP:
+        case SDL_MOUSEBUTTONDOWN:
+            {
+                return {event.button.x, event.button.y};
+            }
+        default:
+            {
+                return {-1, -1};
+            }
+    }
+}
+
+std::tuple<int, int> SDLDeviceHelper::getTextureSize(SDL_Texture *texture)
+{
+    fflassert(texture);
+
+    int width  = 0;
+    int height = 0;
+
+    if(!SDL_QueryTexture(const_cast<SDL_Texture *>(texture), 0, 0, &width, &height)){
+        return {width, height};
+    }
+    throw fflerror("query texture failed: %p", to_cvptr(texture));
+}
+
+int SDLDeviceHelper::getTextureWidth(SDL_Texture *texture)
+{
+    return std::get<0>(getTextureSize(texture));
+}
+
+int SDLDeviceHelper::getTextureHeight(SDL_Texture *texture)
+{
+    return std::get<1>(getTextureSize(texture));
 }
 
 SDLDevice::SDLDevice()
-    : m_Window(nullptr)
-    , m_Renderer(nullptr)
-    , m_ColorStack()
-    , m_BlendModeStack()
-    , m_WindowW(0)
-    , m_WindowH(0)
-    , m_InnFontMap()
 {
-    if(g_SDLDevice){
-        throw std::runtime_error(str_fflprintf(": Multiple initialization for SDLDevice"));
+    if(g_sdlDevice){
+        throw fflerror("multiple initialization for SDLDevice");
     }
 
     if(SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_EVENTS)){
-        throw std::runtime_error(str_fflprintf(": Initialization failed for SDL2: %s", SDL_GetError()));
+        throw fflerror("initialization failed for SDL2: %s", SDL_GetError());
     }
 
     if(TTF_Init()){
-        throw std::runtime_error(str_fflprintf(": Initialization failed for SDL2 TTF: %s", TTF_GetError()));
+        throw fflerror("initialization failed for SDL2 TTF: %s", TTF_GetError());
     }
 
     if((IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG) != IMG_INIT_PNG){
-        throw std::runtime_error(str_fflprintf(": Initialization failed for SDL2 IMG: %s", IMG_GetError()));
+        throw fflerror("initialization failed for SDL2 IMG: %s", IMG_GetError());
     }
 }
 
 SDLDevice::~SDLDevice()
 {
-    for(auto pTTF: m_InnFontMap){
-        TTF_CloseFont(pTTF.second);
+    for(auto p: m_fontList){
+        TTF_CloseFont(p.second);
     }
-    m_InnFontMap.clear();
+    m_fontList.clear();
 
-    if(m_Window){
-        SDL_DestroyWindow(m_Window);
+    for(auto p: m_cover){
+        SDL_DestroyTexture(p.second);
+    }
+    m_cover.clear();
+
+    if(m_window){
+        SDL_DestroyWindow(m_window);
     }
 
-    if(m_Renderer){
-        SDL_DestroyRenderer(m_Renderer);
+    if(m_renderer){
+        SDL_DestroyRenderer(m_renderer);
     }
 
     SDL_StopTextInput();
     SDL_Quit();
 }
 
-void SDLDevice::SetWindowIcon()
+void SDLDevice::setWindowIcon()
 {
-    Uint16 pRawData[16 * 16] = {
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0AAB, 0X0789, 0X0BCC, 0X0EEE, 0X09AA, 0X099A, 0X0DDD,
-        0X0FFF, 0X0EEE, 0X0899, 0X0FFF, 0X0FFF, 0X1FFF, 0X0DDE, 0X0DEE,
-        0X0FFF, 0XABBC, 0XF779, 0X8CDD, 0X3FFF, 0X9BBC, 0XAAAB, 0X6FFF,
-        0X0FFF, 0X3FFF, 0XBAAB, 0X0FFF, 0X0FFF, 0X6689, 0X6FFF, 0X0DEE,
-        0XE678, 0XF134, 0X8ABB, 0XF235, 0XF678, 0XF013, 0XF568, 0XF001,
-        0XD889, 0X7ABC, 0XF001, 0X0FFF, 0X0FFF, 0X0BCC, 0X9124, 0X5FFF,
-        0XF124, 0XF356, 0X3EEE, 0X0FFF, 0X7BBC, 0XF124, 0X0789, 0X2FFF,
-        0XF002, 0XD789, 0XF024, 0X0FFF, 0X0FFF, 0X0002, 0X0134, 0XD79A,
-        0X1FFF, 0XF023, 0XF000, 0XF124, 0XC99A, 0XF024, 0X0567, 0X0FFF,
-        0XF002, 0XE678, 0XF013, 0X0FFF, 0X0DDD, 0X0FFF, 0X0FFF, 0XB689,
-        0X8ABB, 0X0FFF, 0X0FFF, 0XF001, 0XF235, 0XF013, 0X0FFF, 0XD789,
-        0XF002, 0X9899, 0XF001, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0XE789,
-        0XF023, 0XF000, 0XF001, 0XE456, 0X8BCC, 0XF013, 0XF002, 0XF012,
-        0X1767, 0X5AAA, 0XF013, 0XF001, 0XF000, 0X0FFF, 0X7FFF, 0XF124,
-        0X0FFF, 0X089A, 0X0578, 0X0FFF, 0X089A, 0X0013, 0X0245, 0X0EFF,
-        0X0223, 0X0DDE, 0X0135, 0X0789, 0X0DDD, 0XBBBC, 0XF346, 0X0467,
-        0X0FFF, 0X4EEE, 0X3DDD, 0X0EDD, 0X0DEE, 0X0FFF, 0X0FFF, 0X0DEE,
-        0X0DEF, 0X08AB, 0X0FFF, 0X7FFF, 0XFABC, 0XF356, 0X0457, 0X0467,
-        0X0FFF, 0X0BCD, 0X4BDE, 0X9BCC, 0X8DEE, 0X8EFF, 0X8FFF, 0X9FFF,
-        0XADEE, 0XECCD, 0XF689, 0XC357, 0X2356, 0X0356, 0X0467, 0X0467,
-        0X0FFF, 0X0CCD, 0X0BDD, 0X0CDD, 0X0AAA, 0X2234, 0X4135, 0X4346,
-        0X5356, 0X2246, 0X0346, 0X0356, 0X0467, 0X0356, 0X0467, 0X0467,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF,
-        0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF, 0X0FFF};
+    Uint16 rawData[16 * 16]
+    {
+        #include "winicon.inc"
+    };
 
-    if(auto pstSurface = SDL_CreateRGBSurfaceFrom(pRawData, 16, 16, 16, 16*2, 0x0f00, 0x00f0, 0x000f, 0xf000)){
-        SDL_SetWindowIcon(m_Window, pstSurface);
-        SDL_FreeSurface(pstSurface);
+    if(auto surfPtr = SDL_CreateRGBSurfaceFrom(rawData, 16, 16, 16, 16 * 2, 0X0F00, 0X00F0, 0X000F, 0XF000)){
+        SDL_SetWindowIcon(m_window, surfPtr);
+        SDL_FreeSurface(surfPtr);
     }
 }
 
-SDL_Texture *SDLDevice::CreateTexture(const uint8_t *pMem, size_t nSize)
+void SDLDevice::toggleWindowFullscreen()
+{
+    fflassert(m_window);
+    const auto winFlag = SDL_GetWindowFlags(m_window);
+
+    if(winFlag & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)){
+        if(SDL_SetWindowFullscreen(m_window, 0)){
+            throw fflerror("SDL_SetWindowFullscreen(%p) failed: %s", to_cvptr(m_window), SDL_GetError());
+        }
+    }
+    else{
+        if(SDL_SetWindowFullscreen(m_window, SDL_WINDOW_FULLSCREEN)){
+            throw fflerror("SDL_SetWindowFullscreen(%p) failed: %s", to_cvptr(m_window), SDL_GetError());
+        }
+    }
+}
+
+SDL_Texture *SDLDevice::loadPNGTexture(const void *data, size_t size)
 {
     // if it's changed
     // all the texture need to be re-load
 
     // currently it doesn't support dynamic set of context
-    // because all textures are based on current m_Renderer
+    // because all textures are based on current m_renderer
 
-    SDL_RWops   *pstRWops   = nullptr;
-    SDL_Surface *pstSurface = nullptr;
-    SDL_Texture *pstTexture = nullptr;
+    fflassert(data);
+    fflassert(size > 0);
 
-    if(pMem && nSize){
-        pstRWops = SDL_RWFromConstMem((const void *)(pMem), nSize);
-        if(pstRWops){
-            pstSurface = IMG_LoadPNG_RW(pstRWops);
-            if(pstSurface){
-                if(m_Renderer){
-                    pstTexture = SDL_CreateTextureFromSurface(m_Renderer, pstSurface);
-                }
-            }
+    if(!m_renderer){
+        return nullptr;
+    }
+
+    SDL_RWops   * rwOpsPtr = nullptr;
+    SDL_Surface *  surfPtr = nullptr;
+    SDL_Texture *   texPtr = nullptr;
+
+    if((rwOpsPtr = SDL_RWFromConstMem(data, size))){
+        if((surfPtr = IMG_LoadPNG_RW(rwOpsPtr))){
+            texPtr = SDL_CreateTextureFromSurface(m_renderer, surfPtr);
         }
     }
 
-    // TODO
-    // not understand well for SDL_FreeRW()
-    // since the creation is done we can free it?
-    if(pstRWops){
-        SDL_FreeRW(pstRWops);
+    if(rwOpsPtr){
+        SDL_FreeRW(rwOpsPtr);
     }
 
-    if(pstSurface){
-        SDL_FreeSurface(pstSurface);
+    if(surfPtr){
+        SDL_FreeSurface(surfPtr);
     }
-    return pstTexture;
+    return texPtr;
 }
 
-void SDLDevice::DrawTexture(SDL_Texture *pstTexture,
-        int nDstX, int nDstY,
-        int nDstW, int nDstH,
-        int nSrcX, int nSrcY,
-        int nSrcW, int nSrcH)
+void SDLDevice::drawTexture(SDL_Texture *texPtr,
+        int dstX, int dstY,
+        int dstW, int dstH,
+        int srcX, int srcY,
+        int srcW, int srcH)
 {
-    if(pstTexture){
-        SDL_Rect stSrc {nSrcX, nSrcY, nSrcW, nSrcH};
-        SDL_Rect stDst {nDstX, nDstY, nDstW, nDstH};
-        SDL_RenderCopy(m_Renderer, pstTexture, &stSrc, &stDst);
-    }
-}
+    if(texPtr){
+        SDL_Rect src;
+        SDL_Rect dst;
 
-void SDLDevice::DrawTexture(SDL_Texture *pstTexture,
-        int nDstX, int nDstY,
-        int nSrcX, int nSrcY,
-        int nSrcW, int nSrcH)
-{
-    if(pstTexture){
-        SDL_Rect stSrc {nSrcX, nSrcY, nSrcW, nSrcH};
-        SDL_Rect stDst {nDstX, nDstY, nSrcW, nSrcH};
-        SDL_RenderCopy(m_Renderer, pstTexture, &stSrc, &stDst);
-    }
-}
+        src.x = srcX;
+        src.y = srcY;
+        src.w = srcW;
+        src.h = srcH;
 
-void SDLDevice::DrawTexture(SDL_Texture *pstTexture, int nX, int nY)
-{
-    if(pstTexture){
-        int nW, nH;
-        if(!SDL_QueryTexture(pstTexture, nullptr, nullptr, &nW, &nH)){
-            DrawTexture(pstTexture, nX, nY, 0, 0, nW, nH);
+        dst.x = dstX;
+        dst.y = dstY;
+        dst.w = dstW;
+        dst.h = dstH;
+
+        SDL_RenderCopy(m_renderer, texPtr, &src, &dst);
+        if(g_clientArgParser->debugDrawTexture){
+            drawRectangle(colorf::BLUE + colorf::A_SHF(128), dstX, dstY, dstW, dstH);
         }
     }
 }
 
-TTF_Font *SDLDevice::CreateTTF(const uint8_t *pMem, size_t nSize, uint8_t nFontPointSize)
+void SDLDevice::drawTexture(SDL_Texture *texPtr,
+        int dstX, int dstY,
+        int srcX, int srcY,
+        int srcW, int srcH)
 {
-    SDL_RWops *pstRWops = nullptr;
-    TTF_Font  *pstTTont = nullptr;
+    drawTexture(texPtr, dstX, dstY, srcW, srcH, srcX, srcY, srcW, srcH);
+}
 
-    if(pMem && nSize && nFontPointSize){
-        pstRWops = SDL_RWFromConstMem((const void *)(pMem), nSize);
-        if(pstRWops){
-            pstTTont = TTF_OpenFontRW(pstRWops, 1, nFontPointSize);
-        }
+void SDLDevice::drawTexture(SDL_Texture *texPtr, int dstX, int dstY)
+{
+    if(texPtr){
+        const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
+        drawTexture(texPtr, dstX, dstY, 0, 0, texW, texH);
+    }
+}
+
+TTF_Font *SDLDevice::createTTF(const void *data, size_t size, uint8_t fontPtSize)
+{
+    fflassert(data);
+    fflassert(size > 0);
+    fflassert(fontPtSize > 0);
+
+    SDL_RWops * rwOpsPtr = nullptr;
+    TTF_Font  *   ttfPtr = nullptr;
+
+    if((rwOpsPtr = SDL_RWFromConstMem(data, size))){
+        ttfPtr = TTF_OpenFontRW(rwOpsPtr, 1, fontPtSize);
     }
 
     // TODO
@@ -233,103 +444,23 @@ TTF_Font *SDLDevice::CreateTTF(const uint8_t *pMem, size_t nSize, uint8_t nFontP
     // so, don't use this code before the resource allocated by SDL_RWops
     // is done. WTF
 
-    // if(pstRWops){
-    //     SDL_FreeRW(pstRWops);
+    // if(rwOpsPtr){
+    //     SDL_FreeRW(rwOpsPtr);
     // }
 
-    return pstTTont;
+    return ttfPtr;
 }
 
-void SDLDevice::PushColor(uint8_t nR, uint8_t nG, uint8_t nB, uint8_t nA)
+void SDLDevice::createInitViewWindow()
 {
-    uint32_t nRGBA = ColorFunc::RGBA(nR, nG, nB, nA);
-    if(m_ColorStack.empty() || nRGBA != m_ColorStack.back().Color){
-        SetColor(nR, nG, nB, nA);
-        m_ColorStack.emplace_back(nRGBA, 1);
-    }else{
-        ++m_ColorStack.back().Repeat;
-    }
-}
-
-void SDLDevice::PopColor()
-{
-    if(m_ColorStack.empty()){
-        PushColor(0, 0, 0, 0);
-    }else{
-        switch(m_ColorStack.back().Repeat){
-            case 0:
-                {
-                    throw std::runtime_error(str_fflprintf(": Last color 0x%" PRIx32 "with zero repeat", m_ColorStack.back().Color));
-                }
-            case 1:
-                {
-                    m_ColorStack.pop_back();
-                    if(m_ColorStack.empty()){
-                        PushColor(0, 0, 0, 0);
-                    }else{
-                        SDL_Color stColor = ColorFunc::RGBA2Color(m_ColorStack.back().Color);
-                        SetColor(stColor.r, stColor.g, stColor.b, stColor.a);
-                    }
-                    break;
-                }
-            default:
-                {
-                    --m_ColorStack.back().Repeat;
-                    break;
-                }
-        }
-    }
-}
-
-void SDLDevice::PushBlendMode(SDL_BlendMode stBlendMode)
-{
-    if(m_BlendModeStack.empty() || stBlendMode != m_BlendModeStack.back().BlendMode){
-        SDL_SetRenderDrawBlendMode(m_Renderer, stBlendMode);
-        m_BlendModeStack.emplace_back(stBlendMode, 1);
-    }else{
-        ++m_BlendModeStack.back().Repeat;
-    }
-}
-
-void SDLDevice::PopBlendMode()
-{
-    if(m_BlendModeStack.empty()){
-        PushBlendMode(SDL_BLENDMODE_NONE);
-    }else{
-        switch(m_BlendModeStack.back().Repeat){
-            case 0:
-                {
-                    throw std::runtime_error(str_fflprintf(": Last blend mode with zero repeat"));
-                }
-            case 1:
-                {
-                    m_BlendModeStack.pop_back();
-                    if(m_BlendModeStack.empty()){
-                        PushBlendMode(SDL_BLENDMODE_NONE);
-                    }else{
-                        SDL_SetRenderDrawBlendMode(m_Renderer, m_BlendModeStack.back().BlendMode);
-                    }
-                    break;
-                }
-            default:
-                {
-                    --m_BlendModeStack.back().Repeat;
-                    break;
-                }
-        }
-    }
-}
-
-void SDLDevice::CreateInitViewWindow()
-{
-    if(m_Renderer){
-        SDL_DestroyRenderer(m_Renderer);
-        m_Renderer = nullptr;
+    if(m_renderer){
+        SDL_DestroyRenderer(m_renderer);
+        m_renderer = nullptr;
     }
 
-    if(m_Window){
-        SDL_DestroyWindow(m_Window);
-        m_Window = nullptr;
+    if(m_window){
+        SDL_DestroyWindow(m_window);
+        m_window = nullptr;
     }
 
     int nWindowW = 388;
@@ -342,138 +473,274 @@ void SDLDevice::CreateInitViewWindow()
         }
     }
 
-    m_Window = SDL_CreateWindow("MIR2X-V0.1-LOADING", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, nWindowW, nWindowH, SDL_WINDOW_BORDERLESS);
-    if(!m_Window){
-        throw std::runtime_error(str_fflprintf(": Failed to create SDL window handler: %s", SDL_GetError()));
+    m_window = SDL_CreateWindow("MIR2X-V0.1-LOADING", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, nWindowW, nWindowH, SDL_WINDOW_BORDERLESS);
+    if(!m_window){
+        throw fflerror("failed to create SDL window handler: %s", SDL_GetError());
     }
 
-    m_Renderer = SDL_CreateRenderer(m_Window, -1, 0);
-    if(!m_Renderer){
-        SDL_DestroyWindow(m_Window);
-        throw std::runtime_error(str_fflprintf(": Failed to create SDL renderer: %s", SDL_GetError()));
+    SDL_ShowWindow(m_window);
+    SDL_RaiseWindow(m_window);
+    SDL_SetWindowResizable(m_window, SDL_FALSE);
+
+    m_renderer = SDL_CreateRenderer(m_window, -1, 0);
+    if(!m_renderer){
+        SDL_DestroyWindow(m_window);
+        throw fflerror("failed to create SDL renderer: %s", SDL_GetError());
     }
 
-    SetWindowIcon();
-    PushColor(0, 0, 0, 0);
-    PushBlendMode(SDL_BLENDMODE_NONE);
+    setWindowIcon();
+
+    if(SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255)){
+        throw fflerror("set renderer draw color failed: %s", SDL_GetError());
+    }
+
+    if(SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND)){
+        throw fflerror("set renderer blend mode failed: %s", SDL_GetError());
+    }
 }
 
-void SDLDevice::CreateMainWindow()
+void SDLDevice::createMainWindow()
 {
     // need to clean the window resource
     // and abort if window allocation failed
     // InitView will allocate window before main window
 
-    if(m_Renderer){
-        SDL_DestroyRenderer(m_Renderer);
-        m_Renderer = nullptr;
+    if(m_renderer){
+        SDL_DestroyRenderer(m_renderer);
+        m_renderer = nullptr;
     }
 
-    if(m_Window){
-        SDL_DestroyWindow(m_Window);
-        m_Window = nullptr;
+    if(m_window){
+        SDL_DestroyWindow(m_window);
+        m_window = nullptr;
     }
 
-    Uint32 nFlags   = 0;
-    int    nWindowW = 0;
-    int    nWindowH = 0;
-
-    extern Log     *g_Log;
-    extern XMLConf *g_XMLConf;
-    int nScreenMode = 0;
-    if(g_XMLConf->NodeAtoi("Root/Window/ScreenMode", &nScreenMode, 0)){
-        g_Log->AddLog(LOGTYPE_INFO, "screen mode by configuration file: %d", nScreenMode);
-    }else{
-        g_Log->AddLog(LOGTYPE_WARNING, "Failed to select screen mode by configuration file.");
-    }
-
-    switch(nScreenMode){
-        case 0:
-            break;
-        case 1:
-            nFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-            break;
-        case 2:
-            nFlags |= SDL_WINDOW_FULLSCREEN;
-            break;
-        default:
-            break;
-    }
-
-    if(true
-            && g_XMLConf->NodeAtoi("Root/Window/W", &nWindowW, 800)
-            && g_XMLConf->NodeAtoi("Root/Window/H", &nWindowH, 600)){
-        g_Log->AddLog(LOGTYPE_INFO, "window size by configuration file: %d x %d", nWindowW, nWindowH);
-    }else{
-        g_Log->AddLog(LOGTYPE_INFO, "Use default window size.");
-        nWindowW = 800;
-        nWindowH = 600;
-    }
-
-    m_WindowW = nWindowW;
-    m_WindowH = nWindowH;
-
-    if(m_WindowW && m_WindowH){
-        // try to adjust the current window size
-        SDL_DisplayMode stDesktop;
-        if(!SDL_GetDesktopDisplayMode(0, &stDesktop)){
-            m_WindowW = std::min(m_WindowW , stDesktop.w);
-            m_WindowH = std::min(m_WindowH , stDesktop.h);
+    const auto winFlag = []() -> Uint32
+    {
+        switch(g_xmlConf->to_d("root/window/screenMode").value_or(-1)){
+            case  1: return SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN_DESKTOP;
+            case  2: return SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN;
+            default: return SDL_WINDOW_RESIZABLE;
         }
+    }();
+
+    m_window = SDL_CreateWindow("MIR2X-V0.1", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 800, 600, winFlag);
+    fflassert(m_window);
+
+    SDL_SetWindowMinimumSize(m_window, 800, 600);
+    m_renderer = SDL_CreateRenderer(m_window, -1, 0);
+
+    if(!m_renderer){
+        SDL_DestroyWindow(m_window);
+        throw fflerror("failed to create SDL renderer: %s", SDL_GetError());
     }
 
-    m_Window = SDL_CreateWindow("MIR2X-V0.1", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, m_WindowW, m_WindowH, nFlags);
-    if(!m_Window){
-        throw std::runtime_error(str_fflprintf(": Failed to create SDL window handler: %s", SDL_GetError()));
+    setWindowIcon();
+
+    if(SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 0)){
+        throw fflerror("set renderer draw color failed: %s", SDL_GetError());
     }
 
-    m_Renderer = SDL_CreateRenderer(m_Window, -1, 0);
-
-    if(!m_Renderer){
-        SDL_DestroyWindow(m_Window);
-        throw std::runtime_error(str_fflprintf(": Failed to create SDL renderer: %s", SDL_GetError()));
+    if(SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND)){
+        throw fflerror("set renderer blend mode failed: %s", SDL_GetError());
     }
-
-    SetWindowIcon();
-    PushColor(0, 0, 0, 0);
-    PushBlendMode(SDL_BLENDMODE_NONE);
 
     SDL_StartTextInput();
 }
 
-void SDLDevice::DrawTextureEx(SDL_Texture *pTexture,
-        int nSrcX, int nSrcY, int nSrcW, int nSrcH,
-        int nDstX, int nDstY, int nDstW, int nDstH,
-        int nCenterDstX,
-        int nCenterDstY,
-        int nRotateDegree)
+void SDLDevice::drawTextureExt(SDL_Texture *texPtr,
+        int srcX, int srcY, int srcW, int srcH,
+        int dstX, int dstY, int dstW, int dstH,
+        int centerSrcX,
+        int centerSrcY,
+        int rotateDegree,
+        SDL_RendererFlip flip)
 {
-    if(pTexture){
-        SDL_Rect stSrc {nSrcX, nSrcY, nSrcW, nSrcH};
-        SDL_Rect stDst {nDstX, nDstY, nDstW, nDstH};
-
-        double fAngle = 1.00 * (nRotateDegree % 360);
-        SDL_Point stCenter {nCenterDstX, nCenterDstY};
-
-        SDL_RenderCopyEx(m_Renderer, pTexture, &stSrc, &stDst, fAngle, &stCenter, SDL_FLIP_NONE);
+    if(texPtr){
+        SDL_Rect src {srcX, srcY, srcW, srcH};
+        SDL_Rect dst {dstX, dstY, dstW, dstH};
+        SDL_Point center {centerSrcX, centerSrcY};
+        if(SDL_RenderCopyEx(m_renderer, texPtr, &src, &dst, 1.00 * (rotateDegree % 360), &center, flip)){
+            throw fflerror("SDL_RenderCopyEx(%p) failed: %s", to_cvptr(m_renderer), SDL_GetError());
+        }
     }
 }
 
-TTF_Font *SDLDevice::DefaultTTF(uint8_t nFontSize)
+SDL_Texture *SDLDevice::createRGBATexture(const uint32_t *data, size_t w, size_t h)
 {
-    static Rawbuf s_DefaultTTFData
+    // TODO
+    // seems we can only use SDL_PIXELFORMAT_RGBA8888
+    // tried SDL_PIXELFORMAT_RGBA32 but gives wrong pixel format
+
+    fflassert(data);
+    fflassert(w > 0);
+    fflassert(h > 0);
+
+    if(auto texPtr = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, w, h)){
+        if(!SDL_UpdateTexture(texPtr, 0, data, w * 4) && !SDL_SetTextureBlendMode(texPtr, SDL_BLENDMODE_BLEND)){
+            return texPtr;
+        }
+        SDL_DestroyTexture(texPtr);
+    }
+    return nullptr;
+}
+
+TTF_Font *SDLDevice::defaultTTF(uint8_t fontSize)
+{
+    if(auto p = m_fontList.find(fontSize); p != m_fontList.end()){
+        return p->second;
+    }
+
+    const static Rawbuf s_defaultTTFData
     {
         #include "monaco.rawbuf"
     };
 
-    if(auto p = m_InnFontMap.find(nFontSize); p != m_InnFontMap.end()){
-        return p->second;
+    if(auto ttfPtr = createTTF(s_defaultTTFData.data(), s_defaultTTFData.size(), fontSize); ttfPtr){
+        return m_fontList[fontSize] = ttfPtr;
+    }
+    throw fflerror("can't build default ttf with point: %llu", to_llu(fontSize));
+}
+
+SDL_Texture *SDLDevice::getCover(int r, int angle)
+{
+    fflassert(r > 0);
+    fflassert(angle >= 0 && angle <= 360);
+
+    const int key = r * 360 + angle;
+    if(auto p = m_cover.find(key); p != m_cover.end()){
+        if(p->second){
+            return p->second;
+        }
+        throw fflerror("invalid registered cover: r = %d, angle = %d", r, angle);
     }
 
-    if(auto pTTF = CreateTTF(s_DefaultTTFData.Data(), s_DefaultTTFData.DataLen(), nFontSize); !pTTF){
-        throw std::runtime_error(str_fflprintf(": Can't build default ttf with point: %" PRIu8, nFontSize));
-    }else{
-        m_InnFontMap[nFontSize] = pTTF;
+    const int w = r * 2 - 1;
+    const int h = r * 2 - 1;
+
+    std::vector<uint32_t> buf(w * h);
+    for(int y = 0; y < h; ++y){
+        for(int x = 0; x < w; ++x){
+            const int dx =  1 * (x - r + 1);
+            const int dy = -1 * (y - r + 1);
+            const int curr_r2 = dx * dx + dy * dy;
+            const uint8_t alpha = [curr_r2, r]() -> uint8_t
+            {
+                if(g_clientArgParser->debugAlphaCover){
+                    return 255;
+                }
+                return 255 - std::min<uint8_t>(255, std::lround(255.0 * curr_r2 / (r * r)));
+            }();
+
+            const auto curr_angle = [dx, dy]() -> int
+            {
+                if(dx == 0){
+                    return (dy >= 0) ? 0 : 180;
+                }
+                return ((dx > 0) ? 0 : 180) + to_d(std::lround((1.0 - 2.0 * std::atan(to_df(dy) / dx) / 3.14159265358979323846) * 90.0));
+            }();
+
+            if(curr_r2 < r * r && mathf::bound<int>(curr_angle, 0, 360) <= angle){
+                buf[x + y * w] = colorf::RGBA(0XFF, 0XFF, 0XFF, alpha);
+            }
+            else{
+                buf[x + y * w] = colorf::RGBA(0, 0, 0, 0);
+            }
+        }
     }
-    return m_InnFontMap[nFontSize];
+
+    if(auto texPtr = createRGBATexture(buf.data(), w, h)){
+        return m_cover[key] = texPtr;
+    }
+    throw fflerror("failed to create texture: r = %d, angle = %d", r, angle);
+}
+
+void SDLDevice::fillRectangle(int nX, int nY, int nW, int nH, int nRad)
+{
+    Uint8 r = 0;
+    Uint8 g = 0;
+    Uint8 b = 0;
+    Uint8 a = 0;
+
+    if(SDL_GetRenderDrawColor(getRenderer(), &r, &g, &b, &a)){
+        throw fflerror("get renderer draw color failed: %s", SDL_GetError());
+    }
+
+    if(a == 0){
+        return;
+    }
+
+    if(roundedBoxRGBA(getRenderer(), nX, nY, nX + nW, nY + nH, nRad, r, g, b, a)){
+        throw fflerror("roundedRectangleRGBA() failed");
+    }
+}
+
+void SDLDevice::fillRectangle(uint32_t nRGBA, int nX, int nY, int nW, int nH, int nRad)
+{
+    if(colorf::A(nRGBA)){
+        SDLDeviceHelper::EnableRenderColor stEnableColor(nRGBA, this);
+        SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND, this);
+        fillRectangle(nX, nY, nW, nH, nRad);
+    }
+}
+
+void SDLDevice::drawRectangle(int nX, int nY, int nW, int nH, int nRad)
+{
+    Uint8 r = 0;
+    Uint8 g = 0;
+    Uint8 b = 0;
+    Uint8 a = 0;
+
+    if(SDL_GetRenderDrawColor(getRenderer(), &r, &g, &b, &a)){
+        throw fflerror("get renderer draw color failed: %s", SDL_GetError());
+    }
+
+    if(a == 0){
+        return;
+    }
+
+    if(roundedRectangleRGBA(getRenderer(), nX, nY, nX + nW, nY + nH, nRad, r, g, b, a)){
+        throw fflerror("roundedRectangleRGBA() failed");
+    }
+}
+
+void SDLDevice::drawRectangle(uint32_t color, int nX, int nY, int nW, int nH, int nRad)
+{
+    if(colorf::A(color)){
+        SDLDeviceHelper::EnableRenderColor enableColor(color, this);
+        SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND, this);
+        drawRectangle(nX, nY, nW, nH, nRad);
+    }
+}
+
+void SDLDevice::drawWidthRectangle(size_t frameLineWidth, int nX, int nY, int nW, int nH)
+{
+    if(!frameLineWidth){
+        return;
+    }
+
+    if(frameLineWidth == 1){
+        drawRectangle(nX, nY, nW, nH);
+        return;
+    }
+
+    fillRectangle(nX, nY,                           nW, frameLineWidth);
+    fillRectangle(nX, nY + nW - 2 * frameLineWidth, nW, frameLineWidth);
+
+    fillRectangle(nX,                           nY + frameLineWidth, frameLineWidth, nH - 2 * frameLineWidth);
+    fillRectangle(nX + nW - 2 * frameLineWidth, nY + frameLineWidth, frameLineWidth, nH - 2 * frameLineWidth);
+}
+
+void SDLDevice::drawWidthRectangle(uint32_t color, size_t frameLineWidth, int nX, int nY, int nW, int nH)
+{
+    SDLDeviceHelper::EnableRenderColor enableColor(color, this);
+    SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND, this);
+    drawWidthRectangle(frameLineWidth, nX, nY, nW, nH);
+}
+
+void SDLDevice::drawString(uint32_t color, int x, int y, const char *s)
+{
+    if(stringRGBA(m_renderer, x, y, s, colorf::R(color), colorf::G(color), colorf::B(color), colorf::A(color))){
+        throw fflerror("failed to draw 8x8 string: %s", s);
+    }
 }

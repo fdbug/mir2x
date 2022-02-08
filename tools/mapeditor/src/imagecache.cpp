@@ -2,10 +2,8 @@
  * =====================================================================================
  *
  *       Filename: imagecache.cpp
- *        Created: 02/14/2016 15:54:58
- *    Description: This class won't handle WilImagePackage directly
- *                 Actually it only deal with all PNG files
- *                 So, don't create Fl_Image and put inside
+ *        Created: 02/14/2016 15:40:17
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -18,78 +16,36 @@
  * =====================================================================================
  */
 
-#include "savepng.hpp"
-#include "filesys.hpp"
-#include "hexstring.hpp"
+#include "colorf.hpp"
+#include "alphaf.hpp"
+#include "imagemapdb.hpp"
 #include "imagecache.hpp"
+#include "mainwindow.hpp"
+#include <FL/Fl_Shared_Image.H>
 
-ImageCache::ImageCache()
-    : m_Path("")
-    , m_Cache()
-{}
+extern ImageMapDB *g_imageMapDB;
+extern MainWindow *g_mainWindow;
 
-ImageCache::~ImageCache()
+Fl_Image *ImageCache::retrieve(uint32_t imageIndex)
 {
-    for(auto stItor: m_Cache){
-        stItor.second->release();
-    }
-}
-
-void ImageCache::SetPath(const char *szPath)
-{
-    std::string szTmpPath = szPath;
-    while(!szTmpPath.empty() && szTmpPath.back() == '/'){
-        szTmpPath.pop_back();
+    if(auto p = m_cache.find(imageIndex); p != m_cache.end()){
+        return p->second.get();
     }
 
-    m_Path = szTmpPath;
-    FileSys::MakeDir(szTmpPath.c_str());
-    szTmpPath += "/CACHE";
-    FileSys::MakeDir(szTmpPath.c_str());
-}
+    if(const auto [imgBuf, imgW, imgH] = g_imageMapDB->decode(imageIndex, g_mainWindow->removeShadowMosaicEnabled()); imgBuf){
+        // understand the Fl_Image and Fl_RGB_Image:
+        // Fl_RGB_Image needs a RGBA buffer as constructor parameter, but it won't create its internal copy
+        // caller has to make sure the buffer is available and not changed
 
-Fl_Shared_Image *ImageCache::Retrieve(uint8_t nFileIndex, uint16_t nImageIndex)
-{
-    // setup cache file folder first
-    if(m_Path.empty()){ return nullptr; }
-
-    uint32_t nKey = (((uint32_t)nFileIndex) << 16) + nImageIndex;
-
-    // printf("0X%08X\n", nKey);
-
-    // retrieve in memory
-    auto stItor = m_Cache.find(nKey);
-    if(stItor != m_Cache.end()){
-        return stItor->second;
+        // but Fl_Image doesn't require such a buffer
+        // immediately after Fl_RGB_Image::copy() returns the Fl_Image pointer
+        // we are good to use the RGBA buffer for other purpose
+        return (m_cache[imageIndex] = std::unique_ptr<Fl_Image>(Fl_RGB_Image((const uchar *)(imgBuf), imgW, imgH, 4).copy())).get();
     }
 
-    // retrieve in file system cache
-    char szHexStr[32];
-    std::memset(szHexStr, 0, sizeof(szHexStr));
-    HexString::ToString<uint32_t, 4>(nKey, szHexStr, true);
-    std::string szPNGFullName = m_Path + "/CACHE/" + szHexStr + ".PNG";
+    // can't load from imageDB
+    // put a place holder, to prevent next load
 
-    if(FileSys::FileExist(szPNGFullName.c_str())){
-        auto pImage = Fl_Shared_Image::get(szPNGFullName.c_str());
-        if(pImage){
-            m_Cache[nKey] = pImage;
-            return pImage;
-        }
-    }
-
+    m_cache[imageIndex] = {};
     return nullptr;
-}
-
-bool ImageCache::Register(uint8_t nFileIndex, uint16_t nImageIndex, const uint32_t *pBuff, int nW, int nH)
-{
-    if(m_Path.empty() || !pBuff || nW <= 0 || nH <= 0){ return false; }
-
-    uint32_t nKey = (((uint32_t)nFileIndex) << 16) + nImageIndex;
-
-    char szHexStr[32];
-    std::memset(szHexStr, 0, sizeof(szHexStr));
-    HexString::ToString<uint32_t, 4>(nKey, szHexStr, true);
-    std::string szPNGFullName = m_Path + "/CACHE/" + szHexStr + ".PNG";
-    return SaveRGBABufferToPNG((uint8_t *)pBuff, nW, nH, szPNGFullName.c_str())
-        && Retrieve(nFileIndex, nImageIndex) != nullptr;
 }

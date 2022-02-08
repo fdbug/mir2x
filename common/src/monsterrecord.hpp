@@ -17,191 +17,73 @@
  */
 
 #pragma once
-#include <array>
 #include <cstdint>
+#include <initializer_list>
 #include "protocoldef.hpp"
 
-class MonsterRecord
+// behave mode
+// monster used this in server side to setup behavior AI
+constexpr int BM_DEFAULT = 0;
+constexpr int BM_NEUTRAL = 1;
+constexpr int BM_GUARD   = 2;
+
+struct MonsterRecord
 {
-    public:
-        const char *Name;
+    const char8_t *name = nullptr;
 
-        int Level;
-        int Undead;
-        int Tamable;
-        int CoolEye;
+    const int lookID      = 0;
+    const int undead      = 0;
+    const int tameable    = 0;
+    const int view        = 0;  // range of view, zero means blind
+    const int coolEye     = 0;
+    const int deadFadeOut = 0;
 
-        int LookID;
+    const int hp  = 0;
+    const int mp  = 0;
+    const int exp = 0;
 
-        int HP;
-        int MP;
-        int Hit;
-        int Exp;
+    const int  dc[2] = {0, 0};
+    const int  mc[2] = {0, 0};
+    const int  ac[2] = {0, 0};
+    const int mac[2] = {0, 0};
 
-        int DC;
-        int DCMax;
-        int MDC;
-        int MDCMax;
-        int AC;
-        int ACMax;
-        int MAC;
-        int MACMax;
+    const int dcHit = 0;
+    const int mcHit = 0;
 
-        int ACFire;
-        int ACIce;
-        int ACLight;
-        int ACWind;
-        int ACHoly;
-        int ACDark;
-        int ACPhantom;
+    const int dcDodge = 0;
+    const int mcDodge = 0;
 
-        int WalkWait;
-        int WalkSpeed;
+    const int hpRecover = 0;
+    const int mpRecover = 0;
 
-        int AttackMode;
-        int AttackWait;
-        int AttackEffect;
+    struct AddElem
+    {
+        const int fire    = 0;
+        const int ice     = 0;
+        const int light   = 0;
+        const int wind    = 0;
+        const int holy    = 0;
+        const int dark    = 0;
+        const int phantom = 0;
+    };
 
-        int DCType0;
-        int DCType1;
-        int DCType2;
-        int DCType3;
-        int DCType4;
-        int DCType5;
-        int DCType6;
-        int DCType7;
+    const AddElem dcElem {};
+    const AddElem acElem {};
 
-    public:
-        constexpr MonsterRecord(
-                const char *szName,
+    const int ai = 0;           // 0 -> 100 means stupid -> smart
+    const int behaveMode = 0;   // 0 means BM_DEFAULT, which is against to player, override by its master's behavior
 
-                int nLevel,
-                int nUndead,
-                int nTamable,
-                int nCoolEye,
+    const int walkWait = 0;
+    const int walkStep = 0;
 
-                int nLookID,
+    const int attackWait   = 0;
+    const int attackEffect = 0;
 
-                int nHP,
-                int nMP,
-                int nHit,
-                int nExp,
+    const char8_t *dcName = nullptr;
+    const char8_t *description = nullptr;
 
-                int nDC,
-                int nDCMax,
-                int nMDC,
-                int nMDCMax,
-                int nAC,
-                int nACMax,
-                int nMAC,
-                int nMACMax,
-
-                int nACFire,
-                int nACIce,
-                int nACLight,
-                int nACWind,
-                int nACHoly,
-                int nACDark,
-                int nACPhantom,
-
-                int nWalkWait,
-                int nWalkSpeed,
-
-                int nAttackMode,
-                int nAttackWait,
-                int nAttackEffect,
-
-                const char *szDC0,
-                const char *szDC1,
-                const char *szDC2,
-                const char *szDC3,
-                const char *szDC4,
-                const char *szDC5,
-                const char *szDC6,
-                const char *szDC7)
-            : Name(szName ? szName : "")
-            , Level(nLevel)
-            , Undead(nUndead)
-            , Tamable(nTamable)
-            , CoolEye(nCoolEye)
-
-            , LookID(nLookID)
-
-            , HP(nHP)
-            , MP(nMP)
-            , Hit(nHit)
-            , Exp(nExp)
-
-            , DC(nDC)
-            , DCMax(nDCMax)
-            , MDC(nMDC)
-            , MDCMax(nMDCMax)
-            , AC(nAC)
-            , ACMax(nACMax)
-            , MAC(nMAC)
-            , MACMax(nMACMax)
-
-            , ACFire(nACFire)
-            , ACIce(nACIce)
-            , ACLight(nACLight)
-            , ACWind(nACWind)
-            , ACHoly(nACHoly)
-            , ACDark(nACDark)
-            , ACPhantom(nACPhantom)
-
-            , WalkWait(nWalkWait)
-            , WalkSpeed(nWalkSpeed)
-
-            , AttackMode(nAttackMode)
-            , AttackWait(nAttackWait)
-            , AttackEffect(nAttackEffect)
-
-            , DCType0(_Inn_MRDCType(szDC0))
-            , DCType1(_Inn_MRDCType(szDC1))
-            , DCType2(_Inn_MRDCType(szDC2))
-            , DCType3(_Inn_MRDCType(szDC3))
-            , DCType4(_Inn_MRDCType(szDC4))
-            , DCType5(_Inn_MRDCType(szDC5))
-            , DCType6(_Inn_MRDCType(szDC6))
-            , DCType7(_Inn_MRDCType(szDC7))
-        {}
-
-    private:
-        // need define some internal functions for constructor
-        // c++14 currently doesn't not support constexpr lambda
-        static constexpr bool _Inn_CompareUTF8(const char *szStr1, const char *szStr2)
-        {
-            if(szStr1 && szStr2){
-                while(*szStr1 == *szStr2){
-                    if(*szStr1){
-                        ++szStr1;
-                        ++szStr2;
-                    }else{
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        static constexpr int _Inn_MRDCType(const char *szDCName)
-        {
-            if(szDCName){
-                if(false){
-                }else if(_Inn_CompareUTF8(szDCName, u8"普通攻击")){ return DC_PHY_PLAIN;
-                }else                                               return DC_NONE;
-            }
-            return DC_NONE;
-        }
-
-    public:
-        operator bool() const
-        {
-            return Name[0] != '\0';
-        }
-
-        std::array<int, 8> DCList() const
-        {
-            return {{DCType0, DCType1, DCType2, DCType3, DCType4, DCType5, DCType6, DCType7}};
-        }
+    operator bool() const
+    {
+        return name && name[0] != '\0';
+    }
 };

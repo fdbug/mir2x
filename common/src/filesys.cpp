@@ -16,56 +16,129 @@
  * =====================================================================================
  */
 
+#include <regex>
+#include <cerrno>
+#include <cstdio>
 #include <string>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include "fileptr.hpp"
 #include "filesys.hpp"
+#include "fflerror.hpp"
 
-bool FileSys::RemoveDir(const char *szAbsolutePath)
+bool filesys::hasDir(const char *dirName)
 {
-    return std::filesystem::remove_all(szAbsolutePath);
+    fflassert(str_haschar(dirName));
+    return std::filesystem::is_directory(dirName);
 }
 
-bool FileSys::MakeDir(const char *szDirName)
+bool filesys::makeDir(const char *dirName)
 {
-    return std::filesystem::create_directory(szDirName);
+    return std::filesystem::create_directory(dirName);
 }
 
-bool FileSys::FileExist(const char *szFileName)
+bool filesys::removeDir(const char *dirName)
 {
-    return std::filesystem::exists(szFileName);
+    return std::filesystem::remove_all(dirName);
 }
 
-bool FileSys::DupFile(const char *szDst, const char *szSrc)
+bool filesys::hasFile(const char *fileName)
 {
-    FILE *fSrc = fopen(szSrc, "rb+");
-    if(fSrc == nullptr){
-        return false;
-    }
-    FILE *fDst = fopen(szDst, "wb+");
-    if(fDst == nullptr){
-        fclose(fSrc);
-        return false;
-    }
+    return std::filesystem::exists(fileName);
+}
 
-    char fileBuf[4096];
-    int  fileSize;
+void filesys::copyFile(const char *dstFileName, const char *srcFileName)
+{
+    auto src_fptr = make_fileptr(srcFileName, "rb+");
+    auto dst_fptr = make_fileptr(dstFileName, "wb+");
 
-    fseek(fSrc, 0L, SEEK_END);
-    fileSize = ftell(fSrc);
-    fseek(fSrc, 0L, SEEK_SET);
+    auto src_fp = src_fptr.get();
+    auto dst_fp = dst_fptr.get();
 
-    for(int i = 0; i < fileSize / 4096; ++i){
-        (void)(1 + fread(fileBuf, 4096, 1, fSrc));
-        fwrite(fileBuf, 4096, 1, fDst);
+    constexpr long copySize = 4096;
+    char fileBuf[copySize];
+
+    if(std::fseek(src_fp, 0L, SEEK_END)){
+        throw fflerror("failed to fseek file %s: %s", srcFileName, std::strerror(errno));
     }
 
-    (void)(1 + fread( fileBuf, fileSize % 4096, 1, fSrc));
-    fwrite(fileBuf, fileSize % 4096, 1, fDst);
-    fclose(fSrc);
-    fclose(fDst);
+    const long fileSize = ftell(src_fp);
+    if(fileSize < 0){
+        throw fflerror("failed to ftell file %s: %s", srcFileName, std::strerror(errno));
+    }
 
-    return true;
+    if(std::fseek(src_fp, 0L, SEEK_SET)){
+        throw fflerror("failed to fseek file %s: %s", srcFileName, std::strerror(errno));
+    }
+
+    long copyDone = 0;
+    while(copyDone < fileSize){
+        const auto currCopySize = std::min<long>(copySize, fileSize - copyDone);
+        if(std::fread (fileBuf, currCopySize, 1, src_fp) != 1){
+            throw fflerror("failed to read file %s: %s", srcFileName, std::strerror(errno));
+        }
+
+        if(std::fwrite(fileBuf, currCopySize, 1, dst_fp) != 1){
+            throw fflerror("failed to write file %s: %s", dstFileName, std::strerror(errno));
+        }
+        copyDone += currCopySize;
+    }
+}
+
+std::vector<std::string> filesys::getFileList(const char *dir, bool fullPath, const char *reg)
+{
+    fflassert(str_haschar(dir));
+    std::vector<std::string> result;
+    std::regex matchRegex(str_haschar(reg) ? reg : ".*");
+
+    for(auto &p: std::filesystem::directory_iterator(dir)){
+        if(!p.is_regular_file()){
+            continue;
+        }
+
+        const auto fileName = p.path().filename().u8string();
+        if(str_haschar(reg)){
+            if(!std::regex_match(reinterpret_cast<const char *>(fileName.c_str()), matchRegex)){
+                continue;
+            }
+        }
+
+        if(fullPath){
+            result.push_back(reinterpret_cast<const char *>(p.path().u8string().c_str()));
+        }
+        else{
+            result.push_back(reinterpret_cast<const char *>(p.path().filename().c_str()));
+        }
+    }
+    return result;
+}
+
+std::tuple<std::string, std::string, std::string> filesys::decompFileName(const char *fullName, bool decompName)
+{
+    fflassert(str_haschar(fullName));
+    const auto fnDecompName = [](std::string pathName, std::string fileName) -> std::tuple<std::string, std::string, std::string>
+    {
+        if(const auto p = fileName.rfind('.'); p != std::string::npos){
+            return {std::move(pathName), fileName.substr(0, p), fileName.substr(p + 1)};
+        }
+        else{
+            return {std::move(pathName), fileName, ""};
+        }
+    };
+
+    if(const auto p = std::strrchr(fullName, '/')){
+        if(decompName){
+            return fnDecompName(std::string(fullName, p), std::string(p + 1));
+        }
+        else{
+            return {std::string(fullName, p), std::string(p + 1), ""};
+        }
+    }
+
+    if(decompName){
+        return fnDecompName("", fullName);
+    }
+    return {"", fullName, ""};
 }

@@ -17,39 +17,26 @@
  */
 
 #include "log.hpp"
-#include "strfunc.hpp"
-#include "xmlboard.hpp"
-#include "colorfunc.hpp"
+#include "totype.hpp"
+#include "strf.hpp"
+#include "xmltypeset.hpp"
 #include "labelboard.hpp"
 
-extern Log *g_Log;
+extern Log *g_log;
 
-void LabelBoard::SetText(const char * szFormatString, ...)
+void LabelBoard::setText(const char8_t *format, ...)
 {
-    std::string szText;
-    bool bError = false;
-    {
-        va_list ap;
-        va_start(ap, szFormatString);
+    std::u8string text;
+    str_format(format, text);
+    loadXML(str_printf("<par>%s</par>", to_cstr(text)).c_str());
+}
 
-        try{
-            szText = str_vprintf(szFormatString, ap);
-        }catch(const std::exception &e){
-            bError = true;
-            szText = str_printf("Exception caught in LabelBoard::SetText(\"%s\", ...): %s", szFormatString, e.what());
-        }
-
-        va_end(ap);
-    }
-
-    if(bError){
-        g_Log->AddLog(LOGTYPE_WARNING, "%s", szText.c_str());
-    }
-
-    // use the fallback values of m_Board
+void LabelBoard::loadXML(const char *xmlString)
+{
+    // use the fallback values of m_tpset
     // don't need to specify the font/size/style info here
-    m_Board.LoadXML(str_printf("<par>%s</par>", szText.c_str()).c_str());
 
-    m_W = m_Board.PX() + m_Board.PW();
-    m_H = m_Board.PY() + m_Board.PH();
+    m_tpset.loadXML(xmlString);
+    m_w = m_tpset.px() + m_tpset.pw();
+    m_h = m_tpset.py() + m_tpset.ph();
 }

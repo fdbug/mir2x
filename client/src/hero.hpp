@@ -3,7 +3,7 @@
  *
  *       Filename: hero.hpp
  *        Created: 09/03/2015 03:48:41
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -16,104 +16,173 @@
  * =====================================================================================
  */
 
-#pragma once 
-#include "creature.hpp"
+#pragma once
+#include <tuple>
+#include <array>
+#include <optional>
+#include "serdesmsg.hpp"
+#include "creaturemovable.hpp"
 
-class Hero: public Creature
+struct HeroFrameGfxSeq final
+{
+    const int count = 0;
+
+    operator bool() const
+    {
+        return count > 0;
+    }
+};
+
+class Hero: public CreatureMovable
 {
     protected:
-        const uint32_t m_DBID;
+        uint8_t m_horse;
+        bool    m_onHorse;
 
     protected:
-        bool     m_Gender;
-        uint8_t  m_Horse;
-        uint16_t m_Weapon;
-
-        uint8_t  m_Hair;
-        uint32_t m_HairColor;
-
-        uint8_t  m_Dress;
-        uint32_t m_DressColor;
+        std::string m_name;
+        uint32_t    m_nameColor;
 
     protected:
-        bool m_OnHorse;
+        SDWLDesp m_sdWLDesp;
+
+    protected:
+        std::unordered_set<uint32_t> m_swingMagicList;
 
     public:
-        Hero(uint64_t, uint32_t, bool, uint32_t, ProcessRun *, const ActionNode &);
+        Hero(uint64_t, ProcessRun *, const ActionNode &);
 
     public:
        ~Hero() = default;
 
     public:
-        bool Location(int *, int *);
+        bool update(double) override;
 
     public:
-        bool Update(double);
-        bool Draw(int, int, int);
+        void drawFrame(int, int, int, int, bool) override;
 
     public:
-        bool CanFocus(int, int);
-
-    public:
-        bool OnHorse() const
+        bool onHorse() const
         {
-            return m_OnHorse;
+            return m_onHorse;
         }
 
     public:
-        bool MotionValid(const MotionNode &) const;
+        bool motionValid(const std::unique_ptr<MotionNode> &) const override;
 
     public:
-        bool ParseAction(const ActionNode &);
+        bool parseAction(const ActionNode &) override;
 
     public:
-        int Type() const
+        uint8_t horse() const
         {
-            return CREATURE_PLAYER;
+            return m_horse;
+        }
+
+        bool gender() const
+        {
+            return uidf::getPlayerGender(UID());
         }
 
     public:
-        bool     Gender() const { return m_Gender ; }
-        uint8_t  Horse () const { return m_Horse  ; }
-        uint16_t Weapon() const { return m_Weapon ; }
-        uint32_t DBID  () const { return m_DBID   ; }
-        uint32_t Dress () const { return m_Dress  ; }
+        bool moving();
 
     public:
-        void Dress(uint32_t nDress)
-        {
-            m_Dress = nDress;
-        }
+        HeroFrameGfxSeq getFrameGfxSeq(int, int) const;
 
-        void Weapon(uint16_t nWeapon)
+    public:
+        int getFrameCount(int motion, int direction) const override
         {
-            m_Weapon = nWeapon;
+            return getFrameGfxSeq(motion, direction).count;
         }
 
     public:
-        bool Moving();
-
-    public:
-        int MotionFrameCount(int, int) const;
-
-    public:
-        int WeaponOrder(int, int, int);
+        static std::optional<int> weaponOrder(int, int, int);
 
     protected:
-        MotionNode MakeMotionWalk(int, int, int, int, int) const;
+        std::unique_ptr<MotionNode> makeWalkMotion(int, int, int, int, int) const override;
 
     protected:
-        int GfxMotionID(int) const;
-        int GfxDressID (int, int, int);
-        int GfxWeaponID(int, int, int);
-
-    public:
-        int  MaxStep() const;
-        int CurrStep() const;
-
-    public:
-        virtual void PickUp()
+        static std::optional<uint32_t> gfxMotionID(int motion)
         {
-            // need to move this to myhero
+            if((motion >= MOTION_BEGIN) && (motion < MOTION_END)){
+                return motion - MOTION_BEGIN;
+            }
+            return {};
         }
+
+    protected:
+        std::optional<uint32_t> gfxHairID  (int, int, int) const;
+        std::optional<uint32_t> gfxDressID (int, int, int) const;
+        std::optional<uint32_t> gfxWeaponID(int, int, int) const;
+        std::optional<uint32_t> gfxHelmetID(int, int, int) const;
+
+    public:
+        int maxStep() const override
+        {
+            return onHorse() ? 3 : 2;
+        }
+
+    public:
+        int currStep() const override;
+
+    public:
+        ClientCreature::TargetBox getTargetBox() const override;
+
+    public:
+        void setWLDesp(SDWLDesp desp)
+        {
+            m_sdWLDesp = std::move(desp);
+        }
+
+        void setName(const char *name, uint32_t nameColor)
+        {
+            m_name = to_cstr(name);
+            m_nameColor = (colorf::maskRGB(nameColor) ? nameColor : colorf::WHITE) + colorf::A_SHF(0XFF);
+        }
+
+        const auto &getWLDesp() const
+        {
+            return m_sdWLDesp;
+        }
+
+    public:
+        std::string getName() const
+        {
+            return m_name;
+        }
+
+        uint32_t getNameColor() const
+        {
+            return m_nameColor;
+        }
+
+    public:
+        const SDItem &getWLItem(int) const;
+        bool          setWLItem(int, SDItem);
+
+    public:
+        void jumpLoc(int, int, int);
+
+    protected:
+        std::unique_ptr<MotionNode> makeIdleMotion() const override
+        {
+            return std::unique_ptr<MotionNode>(new MotionNode
+            {
+                .type = onHorse() ? MOTION_ONHORSESTAND : MOTION_STAND,
+                .direction = m_currMotion->direction,
+                .x = m_currMotion->endX,
+                .y = m_currMotion->endY,
+            });
+        }
+
+    protected:
+        bool deadFadeOut() override;
+
+    public:
+        void setBuff(int, int) override;
+
+    public:
+        bool hasSwingMagic(uint32_t) const;
+        void toggleSwingMagic(uint32_t, std::optional<bool> = {});
 };

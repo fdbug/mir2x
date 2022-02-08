@@ -17,54 +17,34 @@
  */
 
 #pragma once
-#include <utility>
+#include <cstdint>
+#include <initializer_list>
 
-struct LinkEntry
+struct MapSwitch
 {
-    int X;
-    int Y;
+    const int x = -1;
+    const int y = -1;
+    const int w =  1;
+    const int h =  1;
 
-    int W;
-    int H;
+    const char8_t *endName = u8"";
+    const int endX = -1;
+    const int endY = -1;
 
-    int EndX;
-    int EndY;
-
-    const char *EndName;
-
-    constexpr LinkEntry(
-            int nX = -1,
-            int nY = -1,
-            int nW = -1,
-            int nH = -1,
-            int nEndX = -1,
-            int nEndY = -1,
-            const char *szEndName = u8"")
-        : X(nX)
-        , Y(nY)
-        , W(nW)
-        , H(nH)
-        , EndX(nEndX)
-        , EndY(nEndY)
-        , EndName(szEndName ? szEndName : "") {}
+    operator bool () const
+    {
+        return endName && endName[0] != '\0';
+    }
 };
 
-class MapRecord
+struct MapRecord
 {
-    public:
-        const char *Name;
+    const char8_t *name = u8"";
+    const uint32_t miniMapID = 0;
+    const std::initializer_list<MapSwitch> mapSwitchList {};
 
-    public:
-        const LinkEntry LinkArray[8];
-
-    public:
-        template<typename... U> constexpr MapRecord(
-                const char *szName,
-
-                // template pack for LinkEntry array
-                // should put at the end of the argument list
-                U&&... u)
-            : Name(szName ? szName : "")
-            , LinkArray { std::forward<U>(u)... }
-        {}
+    operator bool () const
+    {
+        return name && name[0] != '\0';
+    }
 };

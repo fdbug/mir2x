@@ -3,7 +3,7 @@
  *
  *       Filename: processlogo.cpp
  *        Created: 08/13/2015 12:15:38
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -17,21 +17,24 @@
  */
 
 #include "client.hpp"
+#include "pngtexdb.hpp"
 #include "sdldevice.hpp"
-#include "pngtexdbn.hpp"
 #include "processlogo.hpp"
 
-void ProcessLogo::ProcessEvent(const SDL_Event &rstEvent)
+extern Client *g_client;
+extern PNGTexDB *g_progUseDB;
+extern SDLDevice *g_sdlDevice;
+
+void ProcessLogo::processEvent(const SDL_Event &event)
 {
-    switch(rstEvent.type){
+    switch(event.type){
         case SDL_KEYDOWN:
             {
-                switch(rstEvent.key.keysym.sym){
+                switch(event.key.keysym.sym){
                     case SDLK_SPACE:
                     case SDLK_ESCAPE:
                         {
-                            extern Client *g_Client;
-                            g_Client->RequestProcess(PROCESSID_SYRC);
+                            g_client->requestProcess(PROCESSID_SYRC);
                         }
                         break;
                     default:
@@ -44,42 +47,39 @@ void ProcessLogo::ProcessEvent(const SDL_Event &rstEvent)
     }
 }
 
-void ProcessLogo::Update(double fDTime)
+void ProcessLogo::update(double fDTime)
 {
-    m_TotalTime += fDTime;
-    if(m_TotalTime >= m_FullTime){
-        extern Client *g_Client;
-        g_Client->RequestProcess(PROCESSID_SYRC);
+    m_totalTime += fDTime;
+    if(m_totalTime >= m_fullTime){
+        g_client->requestProcess(PROCESSID_SYRC);
     }
 }
 
-void ProcessLogo::Draw()
+void ProcessLogo::draw() const
 {
-    extern SDLDevice *g_SDLDevice;
-    extern PNGTexDBN *g_ProgUseDBN;
-
-    g_SDLDevice->ClearScreen();
-
-    if(auto pTexture = g_ProgUseDBN->Retrieve(0X00000000)){
-        auto bColor = (Uint8)(std::lround(255 * ColorRatio()));
+    SDLDeviceHelper::RenderNewFrame newFrame;
+    if(auto pTexture = g_progUseDB->retrieve(0X00000000)){
+        auto bColor = (Uint8)(std::lround(255 * colorRatio()));
         SDL_SetTextureColorMod(pTexture, bColor, bColor, bColor);
 
-        auto nWindowW = g_SDLDevice->WindowW(false);
-        auto nWindowH = g_SDLDevice->WindowH(false);
-        g_SDLDevice->DrawTexture(pTexture, 0, 0, 0, 0, nWindowW, nWindowH);
+        const auto nWindowW = g_sdlDevice->getRendererWidth();
+        const auto nWindowH = g_sdlDevice->getRendererHeight();
+        g_sdlDevice->drawTexture(pTexture, 0, 0, 0, 0, nWindowW, nWindowH);
     }
-
-    g_SDLDevice->Present();
 }
 
-double ProcessLogo::ColorRatio()
+double ProcessLogo::colorRatio() const
 {
-    double fRatio = m_TotalTime / m_FullTime;
-    if(fRatio < m_TimeR1){
-        return fRatio / m_TimeR1;
-    }else if(fRatio < m_TimeR1 + m_TimeR2){
+    const double fRatio = m_totalTime / m_fullTime;
+    if(fRatio < m_timeR1){
+        return fRatio / m_timeR1;
+    }
+
+    else if(fRatio < m_timeR1 + m_timeR2){
         return 1.0;
-    }else{
-        return 1.0 - (fRatio - m_TimeR1 - m_TimeR2) / (1.0 - m_TimeR1 - m_TimeR2);
+    }
+
+    else{
+        return 1.0 - (fRatio - m_timeR1 - m_timeR2) / (1.0 - m_timeR1 - m_timeR2);
     }
 }

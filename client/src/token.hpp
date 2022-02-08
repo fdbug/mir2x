@@ -3,7 +3,7 @@
  *
  *       Filename: token.hpp
  *        Created: 12/13/2018 00:17:19
- *    Description: 
+ *    Description:
  *
  *                 +-------------+------(*: X, Y)
  *                 |             |
@@ -40,12 +40,12 @@
 
 struct TOKEN
 {
-    size_t Leaf;
-    size_t SelectID;
+    int leaf;
+    int selectID;
 
-    struct __TokenBox
+    struct _TokenBox
     {
-        struct __TokenBoxInfo
+        struct _TokenBoxInfo
         {
             // general static information
             // keep unchanged after token initialization
@@ -54,7 +54,7 @@ struct TOKEN
             uint16_t    H;
         }Info;
 
-        struct __TokenBoxState
+        struct _TokenBoxState
         {
             // we put mutable attributes here
             // should be valid after token board layout done

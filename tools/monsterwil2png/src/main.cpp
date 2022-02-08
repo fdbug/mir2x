@@ -3,22 +3,23 @@
  *
  *       Filename: main.cpp
  *        Created: 04/03/2017 18:02:52
- *    Description: convert hero graphics res to png files, usage:
+ *    Description: convert monster graphics res to png files, usage:
  *
  *                      monsterwil2png fileIndex            # index for monster files, 0 ~ 19
- *                                     path-to-package      # 
+ *                                     path-to-package      #
  *                                     bodyFileName         # body file
  *                                     bodyFileNameExt      # body file
  *                                     shadowFileName       # shadow file
  *                                     shadowFileNameExt    # shadow file
  *                                     out-dir              # output file path
+ *                                     prefix-width         # add prefix for easier view in file manger, 0 means no prefix
  *
  *                  for one decoding, following two files should exist
  *                      path-to-package/bodyFileName.bodyFileNameExt
  *                      path-to-package/shadowFileName.shadowFileNameExt
  *
  *                  i.e.
- *                      monsterwil2png 13 /home/you Mon-14 wil MonS-14 wil /home/you/out
+ *                      monsterwil2png 13 /home/you Mon-14 wil MonS-14 wil /home/you/out 4
  *
  *                  otherwise get error
  *
@@ -44,19 +45,20 @@
 #include <cinttypes>
 #include <algorithm>
 
-#include "shadow.hpp"
-#include "savepng.hpp"
+#include "imgf.hpp"
+#include "alphaf.hpp"
+#include "totype.hpp"
 #include "filesys.hpp"
 #include "wilimagepackage.hpp"
 
 int g_MonWilFileIndex []
 {
-    1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 1, 1
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
 void printUsage()
 {
-    const char *szUsage = 
+    const char *szUsage =
         "Usage: convert monster graphics res to png files, usage:\n"
         "\n"
         "                  monsterwil2png fileIndex            # index for monster files, 0 ~ 19\n"
@@ -89,7 +91,9 @@ const char *createOffsetFileName(char *szFileName,
         int  nDirection,
         int  nFrame,
         int  nDX,
-        int  nDY)
+        int  nDY,
+        int  nImgCount,
+        int  nPrefixWidth)
 {
     if(szFileName){
         // refer to client/src/monster.cpp to get encoding strategy
@@ -105,9 +109,18 @@ const char *createOffsetFileName(char *szFileName,
             | (nEncodeDirection <<  5)
             | (nEncodeFrame     <<  0);
 
-        std::sprintf(szFileName, "%s/%08" PRIX32 "%s%s%04X%04X.PNG",
+        char prefixBuf[64];
+        if(nPrefixWidth > 0){
+            std::sprintf(prefixBuf, "%0*d_", nPrefixWidth, nImgCount);
+        }
+        else{
+            prefixBuf[0] = '\0';
+        }
+
+        std::sprintf(szFileName, "%s/%s%08llX%s%s%04X%04X.PNG",
                 szOutDir,
-                nEncode, 
+                prefixBuf,
+                to_llu(nEncode),
                 ((nDX > 0) ? "1" : "0"),
                 ((nDY > 0) ? "1" : "0"),
                 std::abs(nDX),
@@ -119,26 +132,19 @@ const char *createOffsetFileName(char *szFileName,
 bool monsterWil2PNG(int nMonsterFileIndex,
         const char *szPath,
         const char *szBodyFileBaseName,
-        const char *szBodyFileExt,
+        const char *,
         const char *szShadowFileBaseName,
-        const char *szShadowFileExt,
-        const char *szOutDir)
+        const char *,
+        const char *szOutDir,
+        const char *szPrefixWidth)
 {
-    WilImagePackage stPackageBody;
-    WilImagePackage stPackageShadow;
+    WilImagePackage stPackageBody(szPath, szBodyFileBaseName);
+    WilImagePackage stPackageShadow(szPath, szShadowFileBaseName);
 
-    if(!stPackageBody.Load(szPath, szBodyFileBaseName, szBodyFileExt)){
-        std::printf("Load wil file failed: %s/%s/%s", szPath, szBodyFileBaseName, szBodyFileExt);
-        return false;
-    }
-
-    if(!stPackageShadow.Load(szPath, szShadowFileBaseName, szShadowFileExt)){
-        std::printf("Load wil file failed: %s/%s/%s", szPath, szShadowFileBaseName, szShadowFileExt);
-        return false;
-    }
-
-    std::vector<uint32_t> stPNGBuf;
     std::vector<uint32_t> stPNGBufShadow;
+
+    int imgCount = 0;
+    const int prefixWidth = std::stoi(szPrefixWidth);
 
     for(int nInnMonID = 0; nInnMonID < 10; ++nInnMonID){
         for(int nMotion = 0; nMotion < 10; ++nMotion){
@@ -185,13 +191,30 @@ bool monsterWil2PNG(int nMonsterFileIndex,
                 for(int nFrame = 0; nFrame < nMaxFrameCount; ++nFrame){
                     int nBaseIndex = nInnMonID * 1000 + nMotion * 80 + nDirection * 10 + nFrame + g_MonWilFileIndex[nMonsterFileIndex];
 
-                    if(true
-                            && stPackageBody.SetIndex(nBaseIndex)
-                            && stPackageBody.CurrentImageValid()){
+                    // For taoist dog, nInnMonID = 0, file = Mon-10.wil
+                    // arrangement:
+                    //
+                    // Mon-10:
+                    // TMP000000.PNG ~ TMP000399.PNG taodog motions                   <-------+
+                    // TMP000400.PNG ~ TMP000639.PNG invalid index or unknown images          |
+                    // TMP000640.PNG ~ TMP000719.PNG taodog transform motions         <----+  |
+                    //                                                                     |  |
+                    // MonS-10:                                                            |  |
+                    // TMP000000.PNG ~ TMP000399.PNG taodog motion shadows-----------------+--+
+                    // TMP000400.PNG ~ TMP000479.PNG taodog transform motion shadows ------+
 
-                        auto stInfo = stPackageBody.CurrentImageInfo();
-                        stPNGBuf.resize(stInfo.shWidth * stInfo.shHeight);
-                        stPackageBody.Decode(&(stPNGBuf[0]), 0XFFFFFFFF, 0XFFFFFFFF, 0XFFFFFFFF);
+                    int alterShadowBaseIndex = -1;
+                    if(nGlobalMonID == 90){
+                        if(nBaseIndex >= 400 && nBaseIndex <= 639){
+                            continue;
+                        }
+                        else if(nBaseIndex >= 640 && nBaseIndex <= 719){
+                            alterShadowBaseIndex = (nBaseIndex - 640) + 400;
+                        }
+                    }
+
+                    if(const auto bodyImgInfo = stPackageBody.setIndex(nBaseIndex)){
+                        const auto layer = stPackageBody.decode(true, false, false);
 
                         // export for MonsterDBN
                         char szSaveFileName[128];
@@ -202,23 +225,25 @@ bool monsterWil2PNG(int nMonsterFileIndex,
                                 nMotion,
                                 nDirection,
                                 nFrame,
-                                stInfo.shPX,
-                                stInfo.shPY);
+                                bodyImgInfo->px,
+                                bodyImgInfo->py,
+                                imgCount++,
+                                prefixWidth);
 
-                        if(!SaveRGBABufferToPNG((uint8_t *)(&(stPNGBuf[0])), stInfo.shWidth, stInfo.shHeight, szSaveFileName)){
+                        if(!imgf::saveImageBuffer((uint8_t *)(layer[0]), bodyImgInfo->width, bodyImgInfo->height, szSaveFileName)){
                             std::printf("save PNG failed: %s", szSaveFileName);
                             return false;
                         }
 
                         // to save shadow png file
                         // try shadow file first, failed then try to make a dynamically one
-                        if(true
-                                && stPackageShadow.SetIndex(nBaseIndex)
-                                && stPackageShadow.CurrentImageValid()){
 
-                            auto stShadowInfo = stPackageShadow.CurrentImageInfo();
-                            stPNGBufShadow.resize(stShadowInfo.shWidth * stShadowInfo.shHeight);
-                            stPackageShadow.Decode(&(stPNGBufShadow[0]), 0XFFFFFFFF, 0XFFFFFFFF, 0XFFFFFFFF);
+                        if(alterShadowBaseIndex >= 0){
+                            nBaseIndex = alterShadowBaseIndex;
+                        }
+
+                        if(const auto shadowImgInfo = stPackageShadow.setIndex(nBaseIndex)){
+                            const auto shadowLayer = stPackageShadow.decode(true, false, false);
 
                             // export for MonsterDBN
                             char szSaveShadowFileName[128];
@@ -229,15 +254,18 @@ bool monsterWil2PNG(int nMonsterFileIndex,
                                     nMotion,
                                     nDirection,
                                     nFrame,
-                                    stShadowInfo.shPX,
-                                    stShadowInfo.shPY);
+                                    shadowImgInfo->px,
+                                    shadowImgInfo->py,
+                                    imgCount++,
+                                    prefixWidth);
 
-                            if(!SaveRGBABufferToPNG((uint8_t *)(&(stPNGBufShadow[0])), stShadowInfo.shWidth, stShadowInfo.shHeight, szSaveShadowFileName)){
+                            if(!imgf::saveImageBuffer(shadowLayer[0],  shadowImgInfo->width, shadowImgInfo->height, szSaveShadowFileName)){
                                 std::printf("save PNG failed: %s", szSaveShadowFileName);
                                 return false;
                             }
 
-                        }else{
+                        }
+                        else{
 
                             // dynamically create one
 
@@ -247,9 +275,6 @@ bool monsterWil2PNG(int nMonsterFileIndex,
                             //  project :  (nW + nH / 2) x (nH / 2 + 1)
                             //          :  (nW x nH)
                             //
-                            int nMaxW = (std::max<int>)(stInfo.shWidth + stInfo.shHeight / 2, stInfo.shWidth ) + 20;
-                            int nMaxH = (std::max<int>)(             1 + stInfo.shHeight / 2, stInfo.shHeight) + 20;
-                            stPNGBufShadow.resize(nMaxW * nMaxH);
 
                             bool bProject = true;
                             if(nMotion == 4){
@@ -278,10 +303,7 @@ bool monsterWil2PNG(int nMonsterFileIndex,
                                 }
                             }
 
-                            int nShadowW = 0;
-                            int nShadowH = 0;
-                            Shadow::MakeShadow(&(stPNGBufShadow[0]), bProject, &(stPNGBuf[0]), stInfo.shWidth, stInfo.shHeight, &nShadowW, &nShadowH, 0XFF000000);
-
+                            const auto [bufShadow, nShadowW, nShadowH] = alphaf::createShadow(stPNGBufShadow, bProject, layer[0], bodyImgInfo->width, bodyImgInfo->height, colorf::A_SHF(0XFF));
                             if(true
                                     && nShadowW > 0
                                     && nShadowH > 0){
@@ -294,10 +316,12 @@ bool monsterWil2PNG(int nMonsterFileIndex,
                                         nMotion,
                                         nDirection,
                                         nFrame,
-                                        bProject ? stInfo.shShadowPX : (stInfo.shPX + 3),
-                                        bProject ? stInfo.shShadowPY : (stInfo.shPY + 2));
+                                        bProject ? bodyImgInfo->shadowPX : (bodyImgInfo->px + 3),
+                                        bProject ? bodyImgInfo->shadowPY : (bodyImgInfo->py + 2),
+                                        imgCount++,
+                                        prefixWidth);
 
-                                if(!SaveRGBABufferToPNG((uint8_t *)(&(stPNGBufShadow[0])), nShadowW, nShadowH, szSaveShadowFileName)){
+                                if(!imgf::saveImageBuffer(bufShadow, nShadowW, nShadowH, szSaveShadowFileName)){
                                     std::printf("save shadow PNG failed: %s", szSaveShadowFileName);
                                     return false;
                                 }
@@ -315,7 +339,7 @@ bool monsterWil2PNG(int nMonsterFileIndex,
 int main(int argc, char *argv[])
 {
     // check arguments
-    if(argc != 8){
+    if(argc != 9){
         printUsage();
         return 1;
     }
@@ -346,5 +370,5 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    return monsterWil2PNG(std::atoi(argv[1]), argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
+    return monsterWil2PNG(std::atoi(argv[1]), argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8]);
 }

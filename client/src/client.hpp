@@ -16,8 +16,10 @@
  * =====================================================================================
  */
 
-#pragma once 
+#pragma once
 #include <atomic>
+#include <string>
+#include <type_traits>
 #include <SDL2/SDL.h>
 
 #include "netio.hpp"
@@ -27,121 +29,166 @@
 #include "raiitimer.hpp"
 #include "cachequeue.hpp"
 
+class ProcessRun;
 class Client final
 {
     private:
         struct SMProcMonitor
         {
-            uint64_t ProcTick;
-            uint32_t RecvCount;
-
-            SMProcMonitor()
-                : ProcTick(0)
-                , RecvCount(0)
-            {}
+            uint64_t procTick  = 0;
+            uint32_t recvCount = 0;
         };
 
         struct ClientMonitor
         {
-            std::array<SMProcMonitor, SM_MAX> SMProcMonitorList;
+            std::array<SMProcMonitor, SM_END> SMProcMonitorList;
             ClientMonitor()
                 : SMProcMonitorList()
             {}
         };
 
     private:
-        ClientMonitor m_ClientMonitor;
+        std::string m_token;
 
     private:
-        hres_timer m_ClientTimer;
+        ClientMonitor m_clientMonitor;
 
     private:
-        double m_ServerDelay;
-        double m_NetPackTick;
+        hres_timer m_clientTimer;
 
     private:
-        NetIO m_NetIO;
+        double m_serverDelay;
+        double m_netPackTick;
 
     private:
-        int m_RequestProcess;
-        Process *m_CurrentProcess;
+        NetIO m_netIO;
 
     private:
-        std::string m_ClipboardBuf;
+        int m_requestProcess = PROCESSID_NONE;
+        std::unique_ptr<Process> m_currentProcess;
+
+    private:
+        std::string m_clipboardBuf;
 
     public:
         Client();
        ~Client();
 
     public:
-        void MainLoop();
+        void mainLoop();
 
     public:
         void Clipboard(const std::string &szInfo)
         {
-            m_ClipboardBuf = szInfo;
+            m_clipboardBuf = szInfo;
         }
 
         std::string Clipboard()
         {
-            return m_ClipboardBuf;
+            return m_clipboardBuf;
         }
 
     public:
-        int RequestProcess() const
+        void requestProcess(int processID)
         {
-            return m_RequestProcess;
-        }
-
-        void RequestProcess(int nProcessID)
-        {
-            m_RequestProcess = nProcessID;
+            m_requestProcess = processID;
         }
 
     private:
-        void SwitchProcess();
-        void SwitchProcess(int);
-        void SwitchProcess(int, int);
+        void switchProcess();
+        void switchProcess(int);
+        void switchProcess(int, int);
 
     public:
-        void InitASIO();
-        void PollASIO();
-        void StopASIO();
+        void initASIO();
 
     private:
-        void OnServerMessage(uint8_t, const uint8_t *, size_t);
+        void onServerMessage(uint8_t, const uint8_t *, size_t);
 
     private:
-        void EventDelay(double);
-        void ProcessEvent();
+        void eventDelay(double);
+        void processEvent();
 
     private:
-        void Draw()
+        void draw()
         {
-            if(m_CurrentProcess){
-                m_CurrentProcess->Draw();
+            if(m_currentProcess){
+                m_currentProcess->draw();
             }
         }
 
-        void Update(double fDTime)
+        void update(double fUpdateTime)
         {
-            if(m_CurrentProcess){
-                m_CurrentProcess->Update(fDTime);
+            if(m_currentProcess){
+                m_currentProcess->update(fUpdateTime);
+                switchProcess();
             }
         }
 
     public:
-        Process *ProcessValid(int nProcessID)
+        Process *ProcessValid(int processID)
         {
-            return (m_CurrentProcess && m_CurrentProcess->ID() == nProcessID) ? m_CurrentProcess : nullptr;
+            return (m_currentProcess && m_currentProcess->id() == processID) ? m_currentProcess.get() : nullptr;
         }
 
     public:
-        template<typename... U> void Send(U&&... u)
+        ProcessRun *processRun()
         {
-            m_NetIO.Send(std::forward<U>(u)...);
+            return ProcessValid(PROCESSID_RUN) ? (ProcessRun *)(m_currentProcess.get()) : nullptr;
+        }
+
+        ProcessRun *processRunEx()
+        {
+            if(auto p = processRun()){
+                return p;
+            }
+            throw fflerror("not in process run");
+        }
+
+    private:
+        void sendCMsgLog(uint8_t);
+        void sendSMsgLog(uint8_t);
+
+    public:
+        void send(uint8_t headCode, const void *buf, size_t bufSize)
+        {
+            m_netIO.send(headCode, static_cast<const uint8_t *>(buf), bufSize);
+            sendCMsgLog(headCode);
+        }
+
+    public:
+        void send(uint8_t headCode)
+        {
+            send(headCode, nullptr, 0);
+        }
+
+        void send(uint8_t headCode, const std::string &buf)
+        {
+            send(headCode, buf.data(), buf.size());
+        }
+
+        void send(uint8_t headCode, const std::u8string &buf)
+        {
+            send(headCode, buf.data(), buf.size());
+        }
+
+        template<typename T> void send(uint8_t headCode, const T &t)
+        {
+            static_assert(std::is_trivially_copyable_v<T>);
+            send(headCode, &t, sizeof(t));
         }
 
     public:
         void PrintMonitor() const;
+
+    public:
+        void setToken(std::string token)
+        {
+            m_token = std::move(token);
+        }
+
+        const std::string &getToken() const
+        {
+            return m_token;
+        }
 };

@@ -17,176 +17,263 @@
  */
 
 #pragma once
+#include <tuple>
 #include <utility>
+#include <string_view>
+#include <initializer_list>
 #include "sysconst.hpp"
-#include "constexprfunc.hpp"
+#include "motion.hpp"
+#include "colorf.hpp"
 
-// use EG_ rather than GE_ here
-// otherwise for GfxEntryType we get GET_XXXX
-
-enum GfxEntryStage: int
+enum MagicElemType: int
 {
-    EGS_NONE = 0,       // u8""
-    EGS_INIT,           // u8"启动"
-    EGS_START,          // u8"开始"
-    EGS_RUN,            // u8"运行"
-    EGS_DONE,           // u8"结束"
-    EGS_HITTED,         // u8"挨打"
-    EGS_MAX,
+    MET_NONE  = 0,
+    MET_BEGIN = 1,
+    MET_FIRE  = 1,
+    MET_ICE,
+    MET_LIGHT,
+    MET_WIND,
+    MET_HOLY,
+    MET_DARK,
+    MET_PHANTOM,
+    MET_END,
 };
 
-enum GfxEntryType: int
+constexpr inline const char8_t *magicElemName(int type)
 {
-    EGT_NONE = 0,       // u8""
-    EGT_FIXED,          // u8"固定"
-    EGT_BOUND,          // u8"附着"
-    EGT_SHOOT,          // u8"射击"
-    EGT_FOLLOW,         // u8"跟随"
-    EGT_MAX,
+    switch(type){
+        case MET_FIRE     : return u8"火";
+        case MET_ICE      : return u8"冰";
+        case MET_LIGHT    : return u8"雷";
+        case MET_WIND     : return u8"风";
+        case MET_HOLY     : return u8"神圣";
+        case MET_DARK     : return u8"暗黑";
+        case MET_PHANTOM  : return u8"幻影";
+        default           : return u8"无";
+    }
+}
+
+constexpr inline int magicElemID(const char8_t *type)
+{
+    if(type && std::u8string_view(type) == u8"火"  ) return MET_FIRE;
+    if(type && std::u8string_view(type) == u8"冰"  ) return MET_ICE;
+    if(type && std::u8string_view(type) == u8"雷"  ) return MET_LIGHT;
+    if(type && std::u8string_view(type) == u8"风"  ) return MET_WIND;
+    if(type && std::u8string_view(type) == u8"神圣") return MET_HOLY;
+    if(type && std::u8string_view(type) == u8"暗黑") return MET_DARK;
+    if(type && std::u8string_view(type) == u8"幻影") return MET_PHANTOM;
+    return                                                  MET_NONE;
+}
+
+enum MagicStageType: int
+{
+    MST_NONE  = 0,
+    MST_BEGIN = 1,
+    MST_SPELL = 1,
+    MST_START,
+    MST_RUN,
+    MST_DONE,
+    MST_HITTED,
+    MST_END,
 };
 
-struct GfxEntry
+constexpr inline const char8_t *magicStageName(int type)
 {
-    int Stage;
+    switch(type){
+        case MST_SPELL  : return u8"启动";
+        case MST_START  : return u8"开始";
+        case MST_RUN    : return u8"运行";
+        case MST_DONE   : return u8"结束";
+        case MST_HITTED : return u8"挨打";
+        default         : return nullptr ;
+    }
+}
 
-    int Type;
-    int GfxID;
-    int FrameCount;
+constexpr inline int magicStageID(const char8_t *type)
+{
+    if(type && std::u8string_view(type) == u8"启动") return MST_SPELL;
+    if(type && std::u8string_view(type) == u8"开始") return MST_START;
+    if(type && std::u8string_view(type) == u8"运行") return MST_RUN;
+    if(type && std::u8string_view(type) == u8"结束") return MST_DONE;
+    if(type && std::u8string_view(type) == u8"挨打") return MST_HITTED;
+    return                                                  MST_NONE;
+}
 
-    // motion of the caster
-    // can only defined for EGS_INIT (u8"启动")
-    // x : MOTION_NONE
-    // 0 : MOTION_SPELL0
-    // 1 : MOTION_SPELL1
-    int Motion;
+enum MagicGfxEntryType: int
+{
+    MGT_NONE  = 0,
+    MGT_BEGIN = 1,
+    MGT_FIXED = 1,
+    MGT_BOUND,
+    MGT_FOLLOW,
+    MGT_END,
+};
 
-    int Speed;
-    int Loop;
-    int DirType;
+constexpr inline const char8_t *magicGfxEntryName(int type)
+{
+    switch(type){
+        case MGT_FIXED  : return u8"固定";
+        case MGT_BOUND  : return u8"附着";
+        case MGT_FOLLOW : return u8"跟随";
+        default         : return nullptr ;
+    }
+}
 
-    // as entries in MagicRecord to use gfx resource
-    // should provide default parameters to GfxEntry since it supports empty entries
-    constexpr GfxEntry(
-            const char *szStage = u8"",
-            const char *szType  = u8"",
+constexpr inline int magicGfxEntryID(const char8_t *type)
+{
+    if(type && std::u8string_view(type) == u8"固定") return MGT_FIXED;
+    if(type && std::u8string_view(type) == u8"附着") return MGT_BOUND;
+    if(type && std::u8string_view(type) == u8"跟随") return MGT_FOLLOW;
+    return                                                  MGT_NONE;
+}
 
-            int nGfxID      = -1,
-            int nFrameCount = -1,
-
-            int nMotion  = -1,
-
-            int nSpeed   = SYS_MINSPEED - 1,
-            int nLoop    = -1,
-            int nDirType = -1)
-
-        : Stage(ConstExprFunc::CheckIntMap(szStage, EGS_NONE,
-                    u8"启动", EGS_INIT,
-                    u8"开始", EGS_START,
-                    u8"运行", EGS_RUN,
-                    u8"结束", EGS_DONE,
-                    u8"挨打", EGS_HITTED))
-        , Type(ConstExprFunc::CheckIntMap(szType, EGT_NONE,
-                    u8"固定", EGT_FIXED,
-                    u8"附着", EGT_BOUND,
-                    u8"射击", EGT_SHOOT,
-                    u8"跟随", EGT_FOLLOW))
-        , GfxID(nGfxID >= -1 ? nGfxID : -1)
-        , FrameCount(nFrameCount >= -1 ? nFrameCount : -1)
-        , Motion(ConstExprFunc::CheckIntParam(nMotion, -1, 0, 1) ? nMotion : -1)
-        , Speed(nSpeed)
-        , Loop(ConstExprFunc::CheckIntParam(nLoop, -1, 0, 1) ? nLoop : -1)
-        , DirType(ConstExprFunc::CheckIntParam(nDirType, -1, 1, 8, 16) ? nDirType : -1)
-    {}
+struct MagicGfxEntryRef
+{
+    const char8_t *name = nullptr;
+    const char8_t *stage = nullptr;
+    const uint32_t modColor = colorf::RGBA(0XFF, 0XFF, 0XFF, 0XFF);
 
     constexpr operator bool () const
     {
-        return true
-            && ((Stage > EGS_NONE) && (Stage < EGS_MAX))
-            && ((Type  > EGT_NONE) && (Type  < EGT_MAX));
+        return name && name[0] && stage && stage[0];
     }
 
-    constexpr bool CheckStage(const char *szStage) const
+    constexpr bool checkStage(const char8_t *argStage) const
     {
-        switch(Stage){
-            case EGS_INIT  : return ConstExprFunc::CompareUTF8(szStage, u8"启动");
-            case EGS_START : return ConstExprFunc::CompareUTF8(szStage, u8"开始");
-            case EGS_RUN   : return ConstExprFunc::CompareUTF8(szStage, u8"运行");
-            case EGS_DONE  : return ConstExprFunc::CompareUTF8(szStage, u8"结束");
-            case EGS_HITTED: return ConstExprFunc::CompareUTF8(szStage, u8"挨打");
-            default        : return false;
-        }
-    }
-
-    constexpr bool CheckType(const char *szTypeStr) const
-    {
-        switch(Type){
-            case EGT_FIXED : return ConstExprFunc::CompareUTF8(szTypeStr, u8"固定");
-            case EGT_BOUND : return ConstExprFunc::CompareUTF8(szTypeStr, u8"附着");
-            case EGT_SHOOT : return ConstExprFunc::CompareUTF8(szTypeStr, u8"射击");
-            case EGT_FOLLOW: return ConstExprFunc::CompareUTF8(szTypeStr, u8"跟随");
-            default        : return false;
-        }
-    }
-
-    void Print() const
-    {
+        return argStage && argStage[0] && stage && stage[0] && (std::u8string_view(argStage) == stage);
     }
 };
 
-namespace
+struct MagicGfxEntry
 {
-    // used for MagicRecord::GfxArray(u8"开始")
-    // if we can't find it we have to return an empty entry
-    constexpr GfxEntry _Inn_Empty_MagicAnimation;
-}
+    const MagicGfxEntryRef ref {};
 
-class MagicRecord
+    const char8_t *stage = nullptr;
+    const char8_t *type  = nullptr;
+
+    const uint32_t gfxID = SYS_TEXNIL;
+    const uint32_t modColor = colorf::RGBA(0XFF, 0XFF, 0XFF, 0XFF);
+
+    const int frameCount = 0;
+    const int gfxIDCount = frameCount;
+    const int gfxDirType = 1;
+
+    // target offset
+    // only needed for magic type: 跟随
+    // targetOffList.size() should be zero or equal to gfxDirType
+    const std::initializer_list<std::tuple<int, int>> targetOffList {};
+
+    // gfx is on ground
+    // player can walk on the magic
+    const int onGround = 0;
+
+    // motion of the magic caster
+    // can only defined for EGS_INIT (u8"启动")
+    // * : MOTION_SPELL0, use push front gesture
+    // * : MOTION_SPELL1
+    // * : MOTION_ATTACKMODE, for 铁布衫 and 破血狂杀
+    const int motion = MOTION_SPELL0;
+
+    const int loop = 0;
+    const int speed = SYS_DEFSPEED;
+
+    constexpr operator bool () const
+    {
+        return (stage && stage[0] && checkStage()) && (type && type[0] && checkType());
+    }
+
+    constexpr bool checkStage(const char8_t *argStage) const
+    {
+        return argStage && argStage[0] && stage && stage[0] && (std::u8string_view(argStage) == stage);
+    }
+
+    constexpr bool checkType(const char8_t *argType) const
+    {
+        return argType && argType[0] && type && type[0] && (std::u8string_view(argType) == type);
+    }
+
+    constexpr bool checkStage() const
+    {
+        return false
+            || checkStage(u8"启动")
+            || checkStage(u8"开始")
+            || checkStage(u8"运行")
+            || checkStage(u8"结束")
+            || checkStage(u8"挨打");
+    }
+
+    constexpr bool checkType() const
+    {
+        return false
+            || checkType(u8"固定")
+            || checkType(u8"附着")
+            || checkType(u8"跟随");
+    }
+};
+
+enum DCCastRangeType: int
 {
-    public:
-        const char *Name;
+    CRT_NONE = 0,
+    CRT_BEGIN,
 
-    public:
-        const GfxEntry GfxArray[8];
+    CRT_DIR = CRT_BEGIN,
+    CRT_LONG,
+    CRT_LIMITED,
+    CRT_END,
+};
 
-    public:
-        template<typename... U> constexpr MagicRecord(
-                const char *szName,
+struct DCCastRange
+{
+    const DCCastRangeType type = CRT_NONE;
+    const int distance = 0;
 
-                // template pack for GfxEntry array
-                // should put at the end of the argument list
-                U&&... u)
-            : Name(szName ? szName : u8"")
-            , GfxArray { std::forward<U>(u)... }
-        {}
-
-    public:
-        constexpr const GfxEntry &GetGfxEntry(int nEntryIndex) const
-        {
-            if(true
-                    && nEntryIndex >= 0
-                    && nEntryIndex <  (int)(sizeof(GfxArray) / sizeof(GfxArray[0]))){
-                return GfxArray[nEntryIndex];
-            }
-            return _Inn_Empty_MagicAnimation;
+    operator bool () const
+    {
+        switch(type){
+            case CRT_DIR    : return distance >= 1;
+            case CRT_LONG   : return distance == 0;
+            case CRT_LIMITED: return distance >= 1;
+            default         : return false;
         }
+    }
+};
 
-        constexpr const GfxEntry &GetGfxEntry(const char *szStage) const
-        {
-            for(size_t nIndex = 0; nIndex < sizeof(GfxArray) / sizeof(GfxArray[0]); ++nIndex){
-                if(GfxArray[nIndex].CheckStage(szStage)){
-                    return GfxArray[nIndex];
-                }
-            }
-            return _Inn_Empty_MagicAnimation;
-        }
-        
-    public:
-        constexpr operator bool () const
-        {
-            return true;
-        }
+struct MagicRecord
+{
+    const char8_t *name = nullptr;
+    const char8_t *elem = nullptr;
 
-        void Print() const
-        {
-        }
+    const struct MagicReq
+    {
+        const int level[3] = {0, 0, 0};
+        const int train[3] = {0, 0, 0};
+        const char8_t *job = nullptr;
+    }
+    req {};
+
+    const DCCastRange castRange
+    {
+        .type = CRT_LONG,
+    };
+
+    const int castDelay   = 0;
+    const int coolDown    = 0;
+    const int checkGround = 0;
+
+    const int mp = 0;
+    const int mpInc = 0;
+
+    const int    power[2] = {0, 0};
+    const int addPower[2] = {0, 0};
+
+    const std::initializer_list<MagicGfxEntry> gfxList {};
+
+    constexpr operator bool () const
+    {
+        return name && name[0];
+    }
+
+    // need to be non-constexpr
+    // because to support magic gfx entry reference
+    std::pair<const MagicGfxEntry &, const MagicGfxEntryRef &> getGfxEntry(const char8_t *) const;
 };

@@ -24,96 +24,102 @@
 
 #include "widget.hpp"
 #include "lalign.hpp"
-#include "xmlboard.hpp"
-#include "colorfunc.hpp"
+#include "xmltypeset.hpp"
+#include "colorf.hpp"
 
 class LabelBoard: public Widget
 {
     private:
-        XMLBoard m_Board;
+        XMLTypeset m_tpset;
 
     public:
         LabelBoard(
-                int              nX,
-                int              nY,
-                const char      *szContent         = "",
-                uint8_t          nDefaultFont      = 0,
-                uint8_t          nDefaultFontSize  = 10,
-                uint8_t          nDefaultFontStyle = 0,
-                uint32_t         nDefaultFontColor = ColorFunc::WHITE + 255,
-                Widget          *pWidget           = nullptr,
-                bool             bAutoDelete       = false)
-            : Widget(nX, nY, 0, 0, pWidget, bAutoDelete)
-            , m_Board
+                dir8_t         dir,
+                int            x,
+                int            y,
+                const char8_t *content    = u8"",
+                uint8_t        font       = 0,
+                uint8_t        fontSize   = 10,
+                uint8_t        fontStyle  = 0,
+                uint32_t       fontColor  = colorf::WHITE + colorf::A_SHF(255),
+                Widget        *widgetPtr  = nullptr,
+                bool           autoDelete = false)
+            : Widget(dir, x, y, 0, 0, widgetPtr, autoDelete)
+            , m_tpset
               {
                   0,
                   LALIGN_LEFT,
                   false,
-                  0,
-                  0,
-                  nDefaultFont,
-                  nDefaultFontSize,
-                  nDefaultFontStyle,
-                  nDefaultFontColor,
+                  font,
+                  fontSize,
+                  fontStyle,
+                  fontColor,
               }
         {
-            SetText("%s", szContent);
+            setText(u8"%s", content);
         }
 
     public:
         ~LabelBoard() = default;
 
     public:
-        void LoadXML(const char *szXMLString)
+        void loadXML(const char *);
+        void setText(const char8_t *, ...);
+
+    public:
+        std::string getText(bool textOnly) const
         {
-            m_Board.LoadXML(szXMLString);
+            return m_tpset.getText(textOnly);
         }
 
     public:
-        void SetText(const char *, ...);
-
-    public:
-        std::string GetText(bool bTextOnly) const
+        void setFont(uint8_t nFont)
         {
-            return m_Board.GetText(bTextOnly);
+            m_tpset.setFont(nFont);
+        }
+
+        void setFontSize(uint8_t nFontSize)
+        {
+            m_tpset.setFontSize(nFontSize);
+        }
+
+        void setFontStyle(uint8_t nFontStyle)
+        {
+            m_tpset.setFontStyle(nFontStyle);
+        }
+
+        void setFontColor(uint32_t nFontColor)
+        {
+            m_tpset.setFontColor(nFontColor);
         }
 
     public:
-        void SetFont(uint8_t nFont)
+        void clear()
         {
-            m_Board.SetDefaultFont(nFont);
-        }
-
-        void SetFontSize(uint8_t nFontSize)
-        {
-            m_Board.SetDefaultFontSize(nFontSize);
-        }
-
-        void SetFontStyle(uint8_t nFontStyle)
-        {
-            m_Board.SetDefaultFontStyle(nFontStyle);
-        }
-
-        void SetFontColor(uint32_t nFontColor)
-        {
-            m_Board.SetDefaultFontColor(nFontColor);
-        }
-
-    public:
-        void Clear()
-        {
-            m_Board.Clear();
+            m_tpset.clear();
         }
 
     public:
         std::string PrintXML() const
         {
-            return m_Board.PrintXML();
+            return m_tpset.PrintXML();
         }
 
     public:
-        void DrawEx(int nDstX, int nDstY, int nSrcX, int nSrcY, int nW, int nH)
+        void drawEx(int nDstX, int nDstY, int nSrcX, int nSrcY, int nW, int nH) const override
         {
-            m_Board.DrawEx(nDstX, nDstY, nSrcX, nSrcY, nW, nH);
+            m_tpset.drawEx(nDstX, nDstY, nSrcX, nSrcY, nW, nH);
+        }
+
+    public:
+        void setImageMaskColor(uint32_t color)
+        {
+            m_tpset.setImageMaskColor(color);
+        }
+
+    public:
+        bool empty() const
+        {
+            return m_tpset.empty();
         }
 };

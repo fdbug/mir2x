@@ -1,38 +1,55 @@
 version: 'build-{build}'
 
-image: Visual Studio 2017
+image: Visual Studio 2019
+
 
 platform: x64
 
 environment:
     VCPKG_INSTALLED_TOOLS_PATH: C:\Tools\vcpkg\installed\x64-windows-static\tools
     PATH: $(VCPKG_INSTALLED_TOOLS_PATH%);$(VCPKG_INSTALLED_TOOLS_PATH)\fltk;$(VCPKG_INSTALLED_TOOLS_PATH)\lua;$(PATH)
-    CMAKE_GENERATOR: -G"Visual Studio 15 2017 Win64"
+    CMAKE_GENERATOR: -G"Visual Studio 16 2019"
     CMAKE_TOOLCHAIN_FILE: -DCMAKE_TOOLCHAIN_FILE="C:\Tools\vcpkg\scripts\buildsystems\vcpkg.cmake"
+    CMAKE_VERBOSE_MAKEFILE: -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON
     VCPKG_DEFAULT_TRIPLET: x64-windows
     VCPKG_TARGET_TRIPLET: -DVCPKG_TARGET_TRIPLET=x64-windows-static
- 
+
 configuration:
     - Release
+
+cache:
+    - .git\lfs\objects -> appveyor.yml
+    - C:\Tools\vcpkg\installed -> appveyor.yml
+
+clone_script:
+    - echo "Skip appveyor clone"
 
 install:
     - cmd: |-
         vcpkg install lua:x64-windows-static
         vcpkg install sdl2:x64-windows-static
+        vcpkg install sdl2-gfx:x64-windows-static
         vcpkg install sdl2-ttf:x64-windows-static
         vcpkg install sdl2-image:x64-windows-static
         vcpkg install fltk:x64-windows-static
         vcpkg install opengl:x64-windows-static
         vcpkg install zlib:x64-windows-static
         vcpkg install libpng:x64-windows-static
+        vcpkg install lz4:x64-windows-static
         vcpkg install sqlite3:x64-windows-static
+        git init %APPVEYOR_BUILD_FOLDER%
+        cd %APPVEYOR_BUILD_FOLDER%
+        git remote add origin https://github.com/%APPVEYOR_REPO_NAME%.git
+        git fetch -q origin %APPVEYOR_REPO_COMMIT%
+        git checkout -qf %APPVEYOR_REPO_COMMIT%
 
 before_build:
     - cmd: |-
+        git lfs prune
         mkdir build
         cd build
         cmake --version
-        cmake .. %CMAKE_GENERATOR% %CMAKE_TOOLCHAIN_FILE% %VCPKG_TARGET_TRIPLET%
+        cmake .. %CMAKE_GENERATOR% %CMAKE_TOOLCHAIN_FILE% %CMAKE_VERBOSE_MAKEFILE% %VCPKG_TARGET_TRIPLET%
         cmake --build . --target package --config Release
 
 build_script:
@@ -45,7 +62,7 @@ test_script:
     - echo "Done"
 
 artifacts:
-    - path: build\*.zip
+   - path: build\*.zip
 
 # on_finish:
 #     - ps: $blockRdp = $true; iex ((new-object net.webclient).DownloadString('https://raw.githubusercontent.com/appveyor/ci/master/scripts/enable-rdp.ps1'))

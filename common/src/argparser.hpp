@@ -18,7 +18,7 @@
 
 #pragma once
 #include "argh.h"
-#include "strfunc.hpp"
+#include "strf.hpp"
 
 class arg_parser: public argh::parser
 {
@@ -34,8 +34,8 @@ class arg_parser: public argh::parser
     public:
         int has_option(const std::string &opt) const
         {
-            auto flag = (bool)((*this)[opt]);
-            auto parm = (bool)((*this)(opt));
+            const auto flag = (bool)((*this)[opt]);
+            const auto parm = (bool)((*this)(opt));
 
             if(flag && parm){
                 return 2;
@@ -44,7 +44,6 @@ class arg_parser: public argh::parser
             if(flag || parm){
                 return 1;
             }
-
             return 0;
         }
 
@@ -58,7 +57,6 @@ class arg_parser: public argh::parser
                 print_message(str_printf("--%s ignores its value: %s", opt.c_str(), (*this)(opt).str().c_str()));
                 return true;
             }
-
             return (*this)[opt];
         }
 

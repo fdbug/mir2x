@@ -54,8 +54,8 @@
 #include <cinttypes>
 #include <algorithm>
 
-#include "shadow.hpp"
-#include "savepng.hpp"
+#include "imgf.hpp"
+#include "alphaf.hpp"
 #include "filesys.hpp"
 #include "wilimagepackage.hpp"
 
@@ -128,26 +128,15 @@ const char *createOffsetFileName(char *szFileName,
 bool weaponWil2PNG(bool bGender, int nIndex,
         const char *szHeroWilPath,
         const char *szHeroWilBaseName,
-        const char *szHeroWilExt,
+        const char *,
         const char *szWeaponWilPath,
         const char *szWeaponWilBaseName,
-        const char *szWeaponWilExt,
+        const char *,
         const char *szOutDir)
 {
-    WilImagePackage stHeroWilPackage;
-    WilImagePackage stWeaponWilPackage;
+    WilImagePackage stHeroWilPackage(szHeroWilPath, szHeroWilBaseName);
+    WilImagePackage stWeaponWilPackage(szWeaponWilPath, szWeaponWilBaseName);
 
-    if(!stHeroWilPackage.Load(szHeroWilPath, szHeroWilBaseName, szHeroWilExt)){
-        std::printf("Load hero wil file failed: %s/%s.%s", szHeroWilPath, szHeroWilBaseName, szHeroWilExt);
-        return false;
-    }
-
-    if(!stWeaponWilPackage.Load(szWeaponWilPath, szWeaponWilBaseName, szWeaponWilExt)){
-        std::printf("Load weapon wil file failed: %s/%s.%s", szWeaponWilPath, szWeaponWilBaseName, szWeaponWilExt);
-        return false;
-    }
-
-    std::vector<uint32_t> stWeaponPNGBuf;
     std::vector<uint32_t> stWeaponPNGBufShadow;
 
     for(int nWeapon = 0; nWeapon < 10; ++nWeapon){
@@ -163,18 +152,11 @@ bool weaponWil2PNG(bool bGender, int nIndex,
                     int   nHeroIndex =       0 * 3000 + nMotion * 80 + nDirection * 10 + nFrame + 1;
                     int nWeaponIndex = nWeapon * 3000 + nMotion * 80 + nDirection * 10 + nFrame + 1;
 
-                    if(true
-                            && stHeroWilPackage.SetIndex(nHeroIndex)
-                            && stHeroWilPackage.CurrentImageValid()
+                    if(stHeroWilPackage.setIndex(nHeroIndex) && stWeaponWilPackage.setIndex(nWeaponIndex)){
+                        const auto heroImgInfo   =   stHeroWilPackage.currImageInfo();
+                        const auto weaponImgInfo = stWeaponWilPackage.currImageInfo();
 
-                            && stWeaponWilPackage.SetIndex(nWeaponIndex)
-                            && stWeaponWilPackage.CurrentImageValid()){
-
-                        auto stHeroInfo   =   stHeroWilPackage.CurrentImageInfo();
-                        auto stWeaponInfo = stWeaponWilPackage.CurrentImageInfo();
-
-                        stWeaponPNGBuf.resize(stWeaponInfo.shWidth * stWeaponInfo.shHeight);
-                        stWeaponWilPackage.Decode(&(stWeaponPNGBuf[0]), 0XFFFFFFFF, 0XFFFFFFFF, 0XFFFFFFFF);
+                        const auto weaponLayer = stWeaponWilPackage.decode(true, false, false);
 
                         // make a buffer to hold the shadow as needed
                         // shadow buffer size depends on do project or not
@@ -183,21 +165,7 @@ bool weaponWil2PNG(bool bGender, int nIndex,
                         //          :  (nW x nH)
                         //
 
-                        int nMaxShadowW = (std::max<int>)(stWeaponInfo.shWidth + stWeaponInfo.shHeight / 2, stWeaponInfo.shWidth ) + 20;
-                        int nMaxShadowH = (std::max<int>)(                   1 + stWeaponInfo.shHeight / 2, stWeaponInfo.shHeight) + 20;
-                        stWeaponPNGBufShadow.resize(nMaxShadowW * nMaxShadowH);
-
-                        int nShadowW = 0;
-                        int nShadowH = 0;
-                        Shadow::MakeShadow(
-                                &(stWeaponPNGBufShadow[0]),
-                                bProject,
-                                &(stWeaponPNGBuf[0]),
-                                stWeaponInfo.shWidth,
-                                stWeaponInfo.shHeight,
-                                &nShadowW,
-                                &nShadowH,
-                                0XFF000000);
+                        const auto [weaponShadowLayer, nShadowW, nShadowH] = alphaf::createShadow(stWeaponPNGBufShadow, bProject, weaponLayer[0], weaponImgInfo->width, weaponImgInfo->height, colorf::A_SHF(0XFF));
 
                         char szSaveFileName[128];
                         createOffsetFileName(szSaveFileName,
@@ -208,10 +176,10 @@ bool weaponWil2PNG(bool bGender, int nIndex,
                                 nMotion,
                                 nDirection,
                                 nFrame,
-                                stWeaponInfo.shPX,
-                                stWeaponInfo.shPY);
+                                weaponImgInfo->px,
+                                weaponImgInfo->py);
 
-                        if(!SaveRGBABufferToPNG((uint8_t *)(&(stWeaponPNGBuf[0])), stWeaponInfo.shWidth, stWeaponInfo.shHeight, szSaveFileName)){
+                        if(!imgf::saveImageBuffer(weaponLayer[0], weaponImgInfo->width, weaponImgInfo->height, szSaveFileName)){
                             std::printf("save weapon PNG failed: %s", szSaveFileName);
                             return false;
                         }
@@ -238,8 +206,8 @@ bool weaponWil2PNG(bool bGender, int nIndex,
                         // 8. offset of ``real start point" of body shadow image is given, then we calculate for weapon shadow image
                         // 9. this method works pretty good!
 
-                        int nWeaponDX = stHeroInfo.shShadowPX + (stWeaponInfo.shPX - stHeroInfo.shPX) - (stWeaponInfo.shPY - stHeroInfo.shPY) / 2 - (stWeaponInfo.shHeight - stHeroInfo.shHeight) / 2;
-                        int nWeaponDY = stHeroInfo.shShadowPY + (stWeaponInfo.shPY - stHeroInfo.shPY) / 2;
+                        int nWeaponDX = heroImgInfo->shadowPX + (weaponImgInfo->px - heroImgInfo->px) - (weaponImgInfo->py - heroImgInfo->py) / 2 - (weaponImgInfo->height - heroImgInfo->height) / 2;
+                        int nWeaponDY = heroImgInfo->shadowPY + (weaponImgInfo->py - heroImgInfo->py) / 2;
 
                         if(true
                                 && nShadowW > 0
@@ -252,10 +220,10 @@ bool weaponWil2PNG(bool bGender, int nIndex,
                                     nMotion,
                                     nDirection,
                                     nFrame,
-                                    bProject ? (nWeaponDX) : (stWeaponInfo.shPX + 3),
-                                    bProject ? (nWeaponDY) : (stWeaponInfo.shPY + 2));
+                                    bProject ? (nWeaponDX) : (weaponImgInfo->px + 3),
+                                    bProject ? (nWeaponDY) : (weaponImgInfo->py + 2));
 
-                            if(!SaveRGBABufferToPNG((uint8_t *)(&(stWeaponPNGBufShadow[0])), nShadowW, nShadowH, szSaveFileName)){
+                            if(!imgf::saveImageBuffer((uint8_t *)(weaponShadowLayer), nShadowW, nShadowH, szSaveFileName)){
                                 std::printf("save shadow PNG failed: %s", szSaveFileName);
                                 return false;
                             }

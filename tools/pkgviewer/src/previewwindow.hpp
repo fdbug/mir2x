@@ -3,7 +3,7 @@
  *
  *       Filename: previewwindow.hpp
  *        Created: 07/22/2015 03:16:57 AM
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -27,22 +27,20 @@
 class PreviewWindow: public Fl_Double_Window
 {
     private:
-        // for Fl_RGB_Image class
-        // caller need to maintain the color buffer
-        std::vector<uint32_t> m_Buf;
+        std::vector<uint32_t> m_imageBuf;
 
     private:
-        std::optional<uint32_t> m_ImageIndex;
+        std::optional<uint32_t> m_imageIndex;
 
     private:
-        std::unique_ptr<Fl_RGB_Image> m_Image;
+        int m_imageOffX = 0;
+        int m_imageOffY = 0;
+        std::unique_ptr<Fl_Image> m_image;
 
     public:
         PreviewWindow()
             : Fl_Double_Window(0, 0, 10, 10)
-            , m_Buf()
-            , m_ImageIndex(0)
-            , m_Image()
+            , m_imageIndex(0)
         {}
 
     public:
@@ -52,5 +50,6 @@ class PreviewWindow: public Fl_Double_Window
         void draw() override;
 
     public:
-        bool LoadImage();
+        bool loadImage();
+        void autoResize();
 };

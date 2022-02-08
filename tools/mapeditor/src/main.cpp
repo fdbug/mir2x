@@ -20,59 +20,46 @@
 #include <cstdint>
 #include <FL/Fl.H>
 
-#include "imagedb.hpp"
+#include "imagemapdb.hpp"
 #include "editormap.hpp"
 #include "mainwindow.hpp"
 #include "imagecache.hpp"
 #include "animationdb.hpp"
 #include "aboutwindow.hpp"
-#include "animationdraw.hpp"
+#include "layerviewwindow.hpp"
 #include "progressbarwindow.hpp"
-#include "layereditorwindow.hpp"
 #include "layerbrowserwindow.hpp"
-#include "cropconfigurewindow.hpp"
-#include "selectsettingwindow.hpp"
-#include "animationselectwindow.hpp"
 #include "attributeselectwindow.hpp"
 
-MainWindow                      *g_MainWindow;
-SelectSettingWindow             *g_SelectSettingWindow;
-AnimationSelectWindow           *g_AnimationSelectWindow;
-AboutWindow                     *g_AboutWindow;
-AttributeSelectWindow           *g_AttributeGridWindow;
-AttributeSelectWindow           *g_AttributeSelectWindow;
-ProgressBarWindow               *g_ProgressBarWindow;
-LayerEditorWindow               *g_LayerEditorWindow;
-LayerBrowserWindow              *g_LayerBrowserWindow;
-CropConfigureWindow             *g_CropConfigureWindow;
-EditorMap                        g_EditorMap;
-ImageDB                          g_ImageDB;
-ImageCache                       g_ImageCache;
-AnimationDB                      g_AnimationDB;
-AnimationDraw                    g_AnimationDraw;
-std::string                      g_WilFilePathName;
-std::string                      g_WorkingPathName;
+MainWindow                      *g_mainWindow               = nullptr;
+AboutWindow                     *g_aboutWindow              = nullptr;
+AttributeSelectWindow           *g_attributeGridWindow      = nullptr;
+AttributeSelectWindow           *g_attributeSelectWindow    = nullptr;
+ProgressBarWindow               *g_progressBarWindow        = nullptr;
+LayerViewWindow                 *g_layerViewWindow          = nullptr;
+LayerBrowserWindow              *g_layerBrowserWindow       = nullptr;
+ImageMapDB                         *g_imageMapDB                  = nullptr;
+EditorMap                        g_editorMap;
+ImageCache                       g_imageCache;
+AnimationDB                      g_animationDB;
+std::string                      g_wilFilePathName;
+std::string                      g_workingPathName;
 
 int main()
 {
     fl_register_images();
 
-    g_WilFilePathName       = "";
-    g_WorkingPathName       = "";
+    g_wilFilePathName       = "";
+    g_workingPathName       = "";
 
-    g_MainWindow            = new MainWindow();
-    g_SelectSettingWindow   = new SelectSettingWindow();
-    g_AnimationSelectWindow = new AnimationSelectWindow();
-    g_AboutWindow           = new AboutWindow();
-    g_AttributeSelectWindow = new AttributeSelectWindow();
-    g_AttributeGridWindow   = new AttributeSelectWindow();
-    g_ProgressBarWindow     = new ProgressBarWindow();
-    g_LayerEditorWindow     = new LayerEditorWindow();
-    g_LayerBrowserWindow    = new LayerBrowserWindow();
-    g_CropConfigureWindow   = new CropConfigureWindow();
+    g_mainWindow            = new MainWindow();
+    g_aboutWindow           = new AboutWindow();
+    g_attributeSelectWindow = new AttributeSelectWindow();
+    g_attributeGridWindow   = new AttributeSelectWindow();
+    g_progressBarWindow     = new ProgressBarWindow();
+    g_layerViewWindow       = new LayerViewWindow();
+    g_layerBrowserWindow    = new LayerBrowserWindow();
 
-    g_ImageCache.SetPath(".");
-
-    g_MainWindow->ShowAll();
+    g_mainWindow->showAll();
     return Fl::run();
 }

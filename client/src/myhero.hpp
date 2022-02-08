@@ -3,7 +3,7 @@
  *
  *       Filename: myhero.hpp
  *        Created: 04/07/2016 03:48:41 AM
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -18,28 +18,35 @@
 
 #pragma once
 #include "hero.hpp"
+#include "mathf.hpp"
 #include "invpack.hpp"
+#include "combatnode.hpp"
 #include "actionnode.hpp"
 
 class MyHero: public Hero
 {
     private:
-        uint32_t m_Gold;
+        uint32_t m_exp  = 0;
+        uint32_t m_gold = 0;
 
     private:
-        InvPack m_InvPack;
+        std::unordered_map<uint32_t, uint64_t> m_lastCastTime;
 
     private:
-        std::deque<ActionNode> m_ActionQueue;
+        SDBelt m_sdBelt;
+        InvPack m_invPack;
+
+    private:
+        std::deque<ActionNode> m_actionQueue;
+
+    private:
+        bool m_nextStrike = false;
 
     public:
-        MyHero(uint64_t, uint32_t, bool, uint32_t, ProcessRun *, const ActionNode &);
+        MyHero(uint64_t, ProcessRun *, const ActionNode &);
 
     public:
         ~MyHero() = default;
-
-    public:
-        bool Update(double);
 
     public:
         // decompose (srcLoc->dstLoc) => (srcLoc->decompLoc->dstLoc)
@@ -52,13 +59,13 @@ class MyHero: public Hero
         // notice:
         // 1. we could have decompLoc == dstLoc
         //    which means provided srcLoc->dstLoc is unit motion
-        // 2. 
+        // 2.
 
         // parameter: bCheckGround    : see ClientPathFinder
         //          : bCheckCreature  : see ClientPathFinder
         //          : bCheckMove      : true  : srcLoc->decompLoc is valid and non-occupied
         //                            : false : not guaranteed
-        bool DecompMove(bool,   // bCheckGround
+        bool decompMove(bool,   // bCheckGround
                 int,            // nCheckCreature
                 bool,           // bCheckMove
                 int, int,       // srcLoc
@@ -66,46 +73,123 @@ class MyHero: public Hero
                 int *, int *);  // decompLoc
 
     public:
-        bool MoveNextMotion();
+        bool moveNextMotion() override;
 
     protected:
-        bool DecompActionMove();
-        bool DecompActionSpell();
-        bool DecompActionPickUp();
-        bool DecompActionAttack();
+        bool decompActionMove();
+        bool decompActionSpell();
+        bool decompActionAttack();
 
     public:
-        bool ParseActionQueue();
+        bool parseActionQueue();
+        void clearActionQueue();
 
     public:
-        uint32_t GetGold() const
+        uint32_t getExp() const
         {
-            return m_Gold;
+            return m_exp;
         }
 
-        void SetGold(uint32_t nGold)
+        void setExp(uint32_t exp)
         {
-            m_Gold = nGold;
+            m_exp = exp;
+        }
+
+        uint32_t getGold() const
+        {
+            return m_gold;
+        }
+
+        void setGold(uint32_t nGold)
+        {
+            m_gold = nGold;
         }
 
     public:
-        InvPack &GetInvPack()
+        uint32_t getLevel() const
         {
-            return m_InvPack;
+            return SYS_LEVEL(getExp());
+        }
+
+        double getLevelRatio() const
+        {
+            if(const auto level = getLevel(); level == 0){
+                return to_df(getExp()) / SYS_EXP(0);
+            }
+            else{
+                return to_df(getExp() - SYS_SUMEXP(level - 1)) / SYS_EXP(level);
+            }
         }
 
     public:
-        bool StayIdle();
+        double getInventoryRatio() const
+        {
+            return mathf::bound<double>(to_df(getInvPack().getWeight()) / getCombatNode().load.inventory, 0.0, 1.0);
+        }
 
     public:
-        virtual void PickUp();
+        CombatNode getCombatNode() const
+        {
+            return ::getCombatNode(m_sdWLDesp.wear, {}, UID(), getLevel());
+        }
 
     public:
-        bool EmplaceAction(const ActionNode &);
+        /* */ SDBelt &getBelt()       { return m_sdBelt; }
+        const SDBelt &getBelt() const { return m_sdBelt; }
+
+        /* */ InvPack &getInvPack()       { return m_invPack; }
+        const InvPack &getInvPack() const { return m_invPack; }
+
+        /* */ SDItem &getBelt(size_t i)       { return m_sdBelt.list.at(i); }
+        const SDItem &getBelt(size_t i) const { return m_sdBelt.list.at(i); }
 
     public:
-        void ReportAction(const ActionNode &);
+        bool stayIdle() const override
+        {
+            return Hero::stayIdle() && m_actionQueue.empty();
+        }
 
     public:
-        void PullGold();
+        void brakeMove();
+
+    public:
+        bool emplaceAction(const ActionNode &);
+
+    public:
+        void reportAction(const ActionNode &);
+
+    public:
+        void pullGold();
+
+    public:
+        void flushForcedMotion() override;
+
+    public:
+        void setBelt(SDBelt belt)
+        {
+            m_sdBelt = std::move(belt);
+        }
+
+        void setBelt(int slot, SDItem item)
+        {
+            m_sdBelt.list.at(slot) = std::move(item);
+        }
+
+    public:
+        bool canWear(uint32_t, int) const;
+
+    public:
+        void setMagicCastTime(uint32_t);
+        int getMagicCoolDownAngle(uint32_t) const;
+
+    public:
+        bool getNextStrike() const
+        {
+            return m_nextStrike;
+        }
+
+        void setNextStrike(bool nextStrike)
+        {
+            m_nextStrike = nextStrike;
+        }
 };

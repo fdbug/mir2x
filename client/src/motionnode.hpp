@@ -3,19 +3,19 @@
  *
  *       Filename: motionnode.hpp
  *        Created: 04/05/2017 12:38:46
- *    Description: for field MotionNode::Speed
- *                  
- *                      means % Speed of default speed
+ *    Description: for field MotionNode::speed
+ *
+ *                      means % speed of default speed
  *
  *                 i.e. if default speed is 100 FPS:
- *                  
- *                      MotionNode::Speed :  20 : FPS =  20 : min
+ *
+ *                      MotionNode::speed :  20 : FPS =  20 : min
  *                                           50 : FPS =  50 : slow
  *                                          100 : FPS = 100 : default
  *                                          200 : FPS = 200 : fast
  *                                          500 : FPS = 500 : max
- *                     
- *                  currently support speed : 20 ~ 500 => speed x5 or d5 
+ *
+ *                  currently support speed : 20 ~ 500 => speed x5 or d5
  *
  *        Version: 1.0
  *       Revision: none
@@ -29,75 +29,140 @@
  */
 
 #pragma once
+#include <list>
+#include <memory>
+#include <functional>
 #include "motion.hpp"
 #include "sysconst.hpp"
+#include "fflerror.hpp"
+#include "dbcomid.hpp"
+#include "dbcomrecord.hpp"
 #include "protocoldef.hpp"
+#include "motioneffect.hpp"
 
-struct MotionNode
+struct MotionNode final
 {
-    // part-1 : const fields
-    //          description of this motion
-    int Motion;
-    int MotionParam;
-
-    int Direction;
-    int Speed;
-
-    int X;
-    int Y;
-
-    int EndX;
-    int EndY;
-
-    // part-2 : mutable field
-    //          always initialized as 0 and get updated later
-    int Frame;
-    int FadeOut;
-
-    struct _InterpMotion
+    struct MotionExtParam
     {
-        int Motion      = MOTION_NONE;
-        int MotionParam = 0;
+        struct MotionSpell
+        {
+            const uint32_t magicID = 0;
+        }
+        spell{};
 
-        int Frame       = 0;
-    }InterpMotion;
+        struct MotionAttack
+        {
+            const int motion = 0;
+        }
+        attack{};
 
-    // don't put any simple data memeber check in constructor
-    // in main code there is need to return an invalid motion node
+        struct MotionDie
+        {
+            int fadeOut = 0;
+        }
+        die{};
 
-    // if put check method in constructor
-    // I need to abort if checking failed this is not good
-    MotionNode(int nMotion, int nMotionParam, int nDirection, int nSpeed, int nX, int nY, int nEndX, int nEndY)
-        : Motion(nMotion)
-        , MotionParam(nMotionParam)
-        , Direction(nDirection)
-        , Speed(nSpeed)
-        , X(nX)
-        , Y(nY)
-        , EndX(nEndX)
-        , EndY(nEndY)
-        , Frame(0)
-        , FadeOut(0)
-    {}
+        struct MotionSwing
+        {
+            const uint32_t magicID = 0;
+        }
+        swing{};
+    };
 
-    MotionNode(int nMotion, int nMotionParam, int nDirection, int nSpeed, int nX, int nY)
-        : MotionNode(nMotion, nMotionParam, nDirection, nSpeed, nX, nY, nX, nY)
-    {}
+    ///////////////////////////////////////////////////////////////////////////
+    ////                                                                   ////
+    ////          AGGREGATE INITIALIZATION MEMEBER LIST                    ////
+    ////                                                                   ////
+    ///////////////////////////////////////////////////////////////////////////
+    /**/                                                                   /**/
+    /**/    const int type      = MOTION_NONE;                             /**/
+    /**/    const int direction = DIR_NONE;                                /**/
+    /**/    /***/ int speed     = SYS_DEFSPEED;                            /**/
+    /**/                                                                   /**/
+    /**/    const int x = -1;                                              /**/
+    /**/    const int y = -1;                                              /**/
+    /**/                                                                   /**/
+    /**/    const int endX = x;                                            /**/
+    /**/    const int endY = y;                                            /**/
+    /**/                                                                   /**/
+    /**/    int frame = 0;                                                 /**/
+    /**/    MotionExtParam extParam {};                                    /**/
+    /**/    std::unique_ptr<MotionEffect> effect {};                       /**/
+    /**/                                                                   /**/
+    ///////////////////////////////////////////////////////////////////////////
 
-    MotionNode(int nMotion, int nMotionParam, int nDirection, int nX, int nY)
-        : MotionNode(nMotion, nMotionParam, nDirection, SYS_DEFSPEED, nX, nY, nX, nY)
-    {}
-
-    MotionNode()
-        : MotionNode(MOTION_NONE, 0, DIR_NONE, 0, 0)
-    {}
+    // private members
+    // make it public to support init by initializer_list
+    std::list<std::function<bool(MotionNode *)>> m_triggerList {};
 
     operator bool () const
     {
         return false
-            || ((Motion > MOTION_NONE)     && (Motion < MOTION_MAX))
-            || ((Motion > MOTION_MON_NONE) && (Motion < MOTION_MON_MAX));
+            || ((type >= MOTION_BEGIN)     && (type < MOTION_END))
+            || ((type >= MOTION_MON_BEGIN) && (type < MOTION_MON_END))
+            || ((type >= MOTION_NPC_BEGIN) && (type < MOTION_NPC_END));
     }
 
-    void Print();
+    void runTrigger();
+    void addTrigger(bool, std::function<bool(MotionNode *)>);
+
+    void print() const;
+    double frameDelay() const;
 };
+
+inline const char *motionName(int type)
+{
+#define _add_motion_type_case(t) case t: return #t;
+    switch(type){
+        _add_motion_type_case(MOTION_STAND        )
+        _add_motion_type_case(MOTION_ARROWATTACK  )
+        _add_motion_type_case(MOTION_SPELL0       )
+        _add_motion_type_case(MOTION_SPELL1       )
+        _add_motion_type_case(MOTION_HOLD         )
+        _add_motion_type_case(MOTION_PUSHBACK     )
+        _add_motion_type_case(MOTION_PUSHBACKFLY  )
+        _add_motion_type_case(MOTION_ATTACKMODE   )
+        _add_motion_type_case(MOTION_CUT          )
+        _add_motion_type_case(MOTION_ONEVSWING    )
+        _add_motion_type_case(MOTION_TWOVSWING    )
+        _add_motion_type_case(MOTION_ONEHSWING    )
+        _add_motion_type_case(MOTION_TWOHSWING    )
+        _add_motion_type_case(MOTION_SPEARVSWING  )
+        _add_motion_type_case(MOTION_SPEARHSWING  )
+        _add_motion_type_case(MOTION_HITTED       )
+        _add_motion_type_case(MOTION_WHEELWIND    )
+        _add_motion_type_case(MOTION_RANDSWING    )
+        _add_motion_type_case(MOTION_SPINKICK     )
+        _add_motion_type_case(MOTION_DIE          )
+        _add_motion_type_case(MOTION_ONHORSEDIE   )
+        _add_motion_type_case(MOTION_WALK         )
+        _add_motion_type_case(MOTION_RUN          )
+        _add_motion_type_case(MOTION_MOODEPO      )
+        _add_motion_type_case(MOTION_ROLL         )
+        _add_motion_type_case(MOTION_FISHSTAND    )
+        _add_motion_type_case(MOTION_FISHHAND     )
+        _add_motion_type_case(MOTION_FISHTHROW    )
+        _add_motion_type_case(MOTION_FISHPULL     )
+        _add_motion_type_case(MOTION_ONHORSESTAND )
+        _add_motion_type_case(MOTION_ONHORSEWALK  )
+        _add_motion_type_case(MOTION_ONHORSERUN   )
+        _add_motion_type_case(MOTION_ONHORSEHITTED)
+
+        _add_motion_type_case(MOTION_MON_STAND    )
+        _add_motion_type_case(MOTION_MON_WALK     )
+        _add_motion_type_case(MOTION_MON_ATTACK0  )
+        _add_motion_type_case(MOTION_MON_HITTED   )
+        _add_motion_type_case(MOTION_MON_DIE      )
+        _add_motion_type_case(MOTION_MON_ATTACK1  )
+        _add_motion_type_case(MOTION_MON_SPELL0   )
+        _add_motion_type_case(MOTION_MON_SPELL1   )
+        _add_motion_type_case(MOTION_MON_SPAWN    )
+        _add_motion_type_case(MOTION_MON_SPECIAL  )
+
+        _add_motion_type_case(MOTION_NPC_STAND    )
+        _add_motion_type_case(MOTION_NPC_ACT      )
+        _add_motion_type_case(MOTION_NPC_ACTEXT   )
+#undef _add_motion_type_case
+        default: return "MOTION_UNKNOWN";
+    }
+}

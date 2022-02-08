@@ -3,7 +3,7 @@
  *
  *       Filename: processlogin.cpp
  *        Created: 08/14/2015 02:47:49
- *    Description: 
+ *    Description:
  *
  *        Version: 1.0
  *       Revision: none
@@ -23,99 +23,155 @@
 #include "log.hpp"
 #include "client.hpp"
 #include "message.hpp"
+#include "pngtexdb.hpp"
 #include "sdldevice.hpp"
-#include "pngtexdbn.hpp"
+#include "buildconfig.hpp"
+#include "notifyboard.hpp"
 #include "processlogin.hpp"
+
+extern Log *g_log;
+extern Client *g_client;
+extern PNGTexDB *g_progUseDB;
+extern SDLDevice *g_sdlDevice;
 
 ProcessLogin::ProcessLogin()
 	: Process()
-	, m_Button1(150, 482, 0X00000005, []{}, [this](){ DoCreateAccount(); })
-	, m_Button2(352, 482, 0X00000008, []{}, [    ](){                    })
-	, m_Button3(554, 482, 0X0000000B, []{}, [    ](){ std::exit(0);      })
-    , m_Button4(600, 536, 0X0000000E, []{}, [this](){ DoLogin();         })
-	, m_IDBox(
-            159,
-            540,
-            146,
-            18,
-            2,
-            1,
-            14,
-            {0XFF, 0XFF, 0XFF, 0XFF},
-            {0XFF, 0XFF, 0XFF, 0XFF},
-            [this]()
-            {
-                m_IDBox      .Focus(false);
-                m_PasswordBox.Focus(true);
-            },
-            [this]()
-            {
-                DoLogin();
-            })
-	, m_PasswordBox(
-            409,
-            540,
-            146,
-            18,
-            true,
-            2,
-            1,
-            14,
-            {0XFF, 0XFF, 0XFF, 0XFF},
-            {0XFF, 0XFF, 0XFF, 0XFF},
-            [this]()
-            {
-                m_IDBox      .Focus(true);
-                m_PasswordBox.Focus(false);
-            },
-            [this]()
-            {
-                DoLogin();
-            })
-{}
+	, m_button1(DIR_UPLEFT, 150, 482, {0X00000005, 0X00000006, 0X00000007}, nullptr, nullptr, [this](){ doCreateAccount();  })
+	, m_button2(DIR_UPLEFT, 352, 482, {0X00000008, 0X00000009, 0X0000000A}, nullptr, nullptr, [this](){ doChangePassword(); })
+	, m_button3(DIR_UPLEFT, 554, 482, {0X0000000B, 0X0000000C, 0X0000000D}, nullptr, nullptr, [this](){ doExit();           })
+    , m_button4(DIR_UPLEFT, 600, 536, {0X0000000E, 0X0000000F, 0X00000010}, nullptr, nullptr, [this](){ doLogin();          })
+	, m_idBox
+      {
+          DIR_UPLEFT,
+          159,
+          540,
+          146,
+          18,
 
-void ProcessLogin::Update(double fMS)
+          2,
+          18,
+          0,
+          colorf::WHITE + colorf::A_SHF(255),
+
+          2,
+          colorf::WHITE + colorf::A_SHF(255),
+
+          [this]()
+          {
+              m_idBox      .focus(false);
+              m_passwordBox.focus(true);
+          },
+          [this]()
+          {
+              doLogin();
+          }
+      }
+	, m_passwordBox
+      {
+          DIR_UPLEFT,
+          409,
+          540,
+          146,
+          18,
+          true,
+
+          2,
+          18,
+          0,
+          colorf::WHITE + colorf::A_SHF(255),
+
+          2,
+          colorf::WHITE + colorf::A_SHF(255),
+
+          [this]()
+          {
+              m_idBox      .focus(true);
+              m_passwordBox.focus(false);
+          },
+          [this]()
+          {
+              doLogin();
+          },
+      }
+
+    , m_buildSignature
+      {
+          DIR_UPLEFT,
+          0,
+          0,
+          u8"build",
+          1,
+          14,
+          0,
+          colorf::YELLOW + colorf::A_SHF(255),
+      }
+
+    , m_notifyBoard
+      {
+          DIR_UPLEFT,
+          0,
+          0,
+          0,
+          1,
+          15,
+          0,
+          colorf::YELLOW + colorf::A_SHF(255),
+          5000,
+          10,
+      }
 {
-    m_IDBox.Update(fMS);
-    m_PasswordBox.Update(fMS);
+    m_buildSignature.setText(u8"编译版本号:%s", getBuildSignature());
 }
 
-void ProcessLogin::Draw()
+void ProcessLogin::update(double fUpdateTime)
 {
-    extern SDLDevice *g_SDLDevice;
-    extern PNGTexDBN *g_ProgUseDBN;
-
-    g_SDLDevice->ClearScreen();
-
-    g_SDLDevice->DrawTexture(g_ProgUseDBN->Retrieve(0X00000003),   0,  75);
-    g_SDLDevice->DrawTexture(g_ProgUseDBN->Retrieve(0X00000004),   0, 465);
-    g_SDLDevice->DrawTexture(g_ProgUseDBN->Retrieve(0X00000011), 103, 536);
-
-    m_Button1.Draw();
-    m_Button2.Draw();
-    m_Button3.Draw();
-    m_Button4.Draw();
-
-    m_IDBox      .Draw();
-    m_PasswordBox.Draw();
-
-    g_SDLDevice->Present();
+    m_idBox.update(fUpdateTime);
+    m_passwordBox.update(fUpdateTime);
+    m_notifyBoard.update(fUpdateTime);
 }
 
-void ProcessLogin::ProcessEvent(const SDL_Event &rstEvent)
+void ProcessLogin::draw() const
 {
-    switch(rstEvent.type){
+    SDLDeviceHelper::RenderNewFrame newFrame;
+    g_sdlDevice->drawTexture(g_progUseDB->retrieve(0X00000003),   0,  75);
+    g_sdlDevice->drawTexture(g_progUseDB->retrieve(0X00000004),   0, 465);
+    g_sdlDevice->drawTexture(g_progUseDB->retrieve(0X00000011), 103, 536);
+
+    m_button1.draw();
+    m_button2.draw();
+    m_button3.draw();
+    m_button4.draw();
+
+    m_idBox      .draw();
+    m_passwordBox.draw();
+
+    m_buildSignature.draw();
+
+    const int notifX = (800 - m_notifyBoard.pw()) / 2;
+    const int notifY = (600 - m_notifyBoard. h()) / 2;
+    const int margin = 15;
+
+    if(!m_notifyBoard.empty()){
+        g_sdlDevice->fillRectangle(colorf::RGBA(0, 0,   0, 128), notifX - margin, notifY - margin, m_notifyBoard.pw() + margin * 2, m_notifyBoard.h() + margin * 2, 8);
+        g_sdlDevice->drawRectangle(colorf::RGBA(0, 0, 255, 128), notifX - margin, notifY - margin, m_notifyBoard.pw() + margin * 2, m_notifyBoard.h() + margin * 2, 8);
+    }
+    m_notifyBoard.drawAt(DIR_UPLEFT, notifX, notifY);
+}
+
+void ProcessLogin::processEvent(const SDL_Event &event)
+{
+    switch(event.type){
         case SDL_KEYDOWN:
             {
-                switch(rstEvent.key.keysym.sym){
+                switch(event.key.keysym.sym){
                     case SDLK_TAB:
                         {
                             if(true
-                                    && !m_IDBox      .Focus()
-                                    && !m_PasswordBox.Focus()){
+                                    && !m_idBox      .focus()
+                                    && !m_passwordBox.focus()){
 
-                                m_IDBox      .Focus(true);
-                                m_PasswordBox.Focus(false);
+                                m_idBox      .focus(true);
+                                m_passwordBox.focus(false);
                                 return;
                             }
                         }
@@ -131,47 +187,49 @@ void ProcessLogin::ProcessEvent(const SDL_Event &rstEvent)
             }
     }
 
-    m_Button1.ProcessEvent(rstEvent, nullptr);
-    m_Button2.ProcessEvent(rstEvent, nullptr);
-    m_Button3.ProcessEvent(rstEvent, nullptr);
-    m_Button4.ProcessEvent(rstEvent, nullptr);
+    bool takeEvent = false;
 
-    // widget idbox and pwdbox are not independent from each other
-    // tab in one box will grant focus to another
-
-    bool bValid = true;
-    m_IDBox      .ProcessEvent(rstEvent, &bValid);
-    m_PasswordBox.ProcessEvent(rstEvent, &bValid);
+    takeEvent |= m_button1    .processEvent(event, !takeEvent);
+    takeEvent |= m_button2    .processEvent(event, !takeEvent);
+    takeEvent |= m_button3    .processEvent(event, !takeEvent);
+    takeEvent |= m_button4    .processEvent(event, !takeEvent);
+    takeEvent |= m_idBox      .processEvent(event, !takeEvent);
+    takeEvent |= m_passwordBox.processEvent(event, !takeEvent);
 }
 
-void ProcessLogin::DoLogin()
+void ProcessLogin::doLogin()
 {
-    if(!(m_IDBox.Content().empty()) && !(m_PasswordBox.Content().empty())){
-        extern Log *g_Log;
-        g_Log->AddLog(LOGTYPE_INFO, "login account: (%s:%s)", m_IDBox.Content().c_str(), m_PasswordBox.Content().c_str());
+    const auto idStr  = m_idBox.getRawString();
+    const auto pwdStr = m_passwordBox.getPasswordString();
 
-        auto szID  = m_IDBox.Content();
-        auto szPWD = m_PasswordBox.Content();
+    if(idStr.empty() || pwdStr.empty()){
+        m_notifyBoard.addLog(u8"无效的账号或密码");
+    }
+    else{
+        // don't check id/password by idstf functions
+        // this allows some test account like: (test, 123456)
+        // but when creating account, changing password we need to be extremely careful
 
-        CMLogin stCML;
-        std::memset(&stCML, 0, sizeof(stCML));
+        CMLogin cmL;
+        std::memset(&cmL, 0, sizeof(cmL));
 
-        if((szID.size() >= sizeof(stCML.ID)) || (szPWD.size() >= sizeof(stCML.Password))){
-            extern Log *g_Log;
-            g_Log->AddLog(LOGTYPE_WARNING, "Too long ID/PWD provided");
-            return;
-        }
-
-        std::memcpy(stCML.ID, szID.c_str(), szID.size());
-        std::memcpy(stCML.Password, szPWD.c_str(), szPWD.size());
-
-        extern Client *g_Client;
-        g_Client->Send(CM_LOGIN, stCML);
+        cmL.id.assign(idStr);
+        cmL.password.assign(pwdStr);
+        g_client->send(CM_LOGIN, cmL);
     }
 }
 
-void ProcessLogin::DoCreateAccount()
+void ProcessLogin::doCreateAccount()
 {
-    extern Client *g_Client;
-    g_Client->RequestProcess(PROCESSID_NEW);
+    g_client->requestProcess(PROCESSID_CREATEACCOUNT);
+}
+
+void ProcessLogin::doChangePassword()
+{
+    g_client->requestProcess(PROCESSID_CHANGEPASSWORD);
+}
+
+void ProcessLogin::doExit()
+{
+    std::exit(0);
 }

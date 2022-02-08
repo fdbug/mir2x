@@ -1,141 +1,71 @@
-/*
- * =====================================================================================
- *
- *       Filename: netio.hpp
- *        Created: 09/03/2015 03:49:00 AM
- *    Description: read / write for 1 to 1 map network, for the server part we use class
- *                 session since it's 1 to N map.
- *
- *                 this class provide an internal buffer to store read data, when using
- *                 internal buffer we need to make the read procedure one by one otherwise
- *                 data will be corrupted
- *
- *                 for sending message, I put the memory pool inside to free user to
- *                 mantain the message buffer, and I put compression support inside
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
-
+#include <cstdint>
 #include <asio.hpp>
-#include <queue>
-#include <functional>
-
-#include "memorychunkpn.hpp"
 
 class NetIO final
 {
     private:
-        struct SendPack
-        {
-            uint8_t  HC;
-
-            const uint8_t *Data;        // buffer from internal pool
-            size_t         DataLen;     // data size rather the buffer capacity
-
-            std::function<void()> OnDone;
-
-            // constructor of SendPack
-            // we don't define the destructor of SendPack
-            // Data will be explicitly released in DoSendNext()
-            SendPack(uint8_t, const uint8_t *, size_t, std::function<void()> &&);
-        };
+        asio::io_service        m_io;
+        asio::ip::tcp::resolver m_resolver;
+        asio::ip::tcp::socket   m_socket;
 
     private:
-        asio::io_service        m_IO;
-        asio::ip::tcp::resolver m_Resolver;
-        asio::ip::tcp::socket   m_Socket;
+        uint8_t m_readHeadCode = 0;
+        uint8_t m_readLen[4] = {0, 0, 0, 0};
 
     private:
-        uint8_t              m_ReadHC;
-        uint8_t              m_ReadLen[4];
-        std::vector<uint8_t> m_ReadBuf;
+        std::vector<uint8_t> m_currSendBuf;
+        std::vector<uint8_t> m_nextSendBuf;
 
     private:
-        // Client::InitASIO() provide the completion handler for read messages
-        // the handler will handle a fully received message instead of (HC, Body) seperately
-        std::function<void(uint8_t, const uint8_t *, size_t)> m_OnReadDone;
+        std::vector<uint8_t> m_readBuf;
 
     private:
-        std::queue<SendPack> m_SendQueue;
-
-    private:
-        MemoryChunkPN<64, 256, 1> m_MemoryPN;
+        std::function<void(uint8_t, const uint8_t *, size_t)> m_msgHandler;
 
     public:
-        NetIO();
-       ~NetIO();
+        NetIO()
+            : m_io()
+            , m_resolver(m_io)
+            , m_socket  (m_io)
+        {}
 
     public:
-        bool InitIO(const char *, const char *, const std::function<void(uint8_t, const uint8_t *, size_t)> &);
-        void PollIO();
-        void StopIO();
-
-    private:
-        void Shutdown();
+        ~NetIO()
+        {
+            m_io.stop();
+        }
 
     public:
-        // basic function for the send function family
-        // caller will provide the send buffer but NetIO will make an internal copy
-        bool Send(uint8_t, const uint8_t *, size_t, std::function<void()>&&);
+        void start(const char *, const char *, std::function<void(uint8_t, const uint8_t *, size_t)>);
 
     public:
-        bool Send(uint8_t nHC)
+        void poll()
         {
-            return Send(nHC, nullptr, 0, std::function<void()>());
+            m_io.poll();
         }
 
-        bool Send(uint8_t nHC, std::function<void()> &&fnDone)
+        void stop()
         {
-            return Send(nHC, nullptr, 0, std::move(fnDone));
+            m_io.post([this]()
+            {
+                shutdown();
+            });
         }
 
-        bool Send(uint8_t nHC, const std::function<void()> &fnDone)
-        {
-            return Send(nHC, nullptr, 0, std::function<void()>(fnDone));
-        }
-
-        bool Send(uint8_t nHC, const uint8_t *pBuf, size_t nBufLen)
-        {
-            return Send(nHC, pBuf, nBufLen, std::function<void()>());
-        }
-
-        bool Send(uint8_t nHC, const uint8_t *pBuf, size_t nBufLen, const std::function<void()>& fnDone)
-        {
-            return Send(nHC, pBuf, nBufLen, std::function<void()>(fnDone));
-        }
-
-        template<typename T> bool Send(uint8_t nHC, const T &stMsg, std::function<void()> &&fnDone)
-        {
-            static_assert(std::is_pod<T>::value, "pod type required");
-            return Send(nHC, (const uint8_t *)(&stMsg), sizeof(stMsg), std::move(fnDone));
-        }
-
-        template<typename T> bool Send(uint8_t nHC, const T &stMsg, const std::function<void()> &fnDone)
-        {
-            return Send<T>(nHC, stMsg, std::function<void()>(fnDone));
-        }
-
-        template<typename T> bool Send(uint8_t nHC, const T &stMsg)
-        {
-            return Send<T>(nHC, stMsg, std::function<void()>());
-        }
+    public:
+        void send(uint8_t, const uint8_t *, size_t);
 
     private:
-        void DoSendHC();
-        void DoSendBuf();
-        void DoSendNext();
+        void doReadHeadCode();
+        void doReadBody(size_t, size_t);
 
     private:
-        void DoReadHC();
-        bool DoReadBody(size_t, size_t);
+        void doSendBuf();
+
+    private:
+        void shutdown()
+        {
+            m_io.stop();
+        }
 };

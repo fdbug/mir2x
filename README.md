@@ -8,7 +8,16 @@
   <img alt="Appveyor Build Status"
        src="https://ci.appveyor.com/api/projects/status/github/etorth/mir2x?svg=true"/>
 </a>
+<a href="https://travis-ci.org/github/etorth/mir2x">
+  <img alt="Travis CI Build Status"
+       src="https://travis-ci.org/etorth/mir2x.svg?branch=master"/>
+</a>
+<a href="https://gitter.im/mir2x/community?utm_source=share-link&utm_medium=link&utm_campaign=share-link">
+  <img alt="Gitter chat"
+       src="https://badges.gitter.im/org.png"/>
+</a>
 
+With C++20 coroutine feature support, you need a compiler supports c++20 to compile.
 
 mir2x is a c/s based mir2ei implementation with various platforms supported. It contains all need components for game players and developers:
 
@@ -17,10 +26,14 @@ mir2x is a c/s based mir2ei implementation with various platforms supported. It 
   - pkgviewer
   - animaker
   - mapeditor
-  - dbcreator
 
-![image](https://github.com/etorth/mir2x/raw/master/readme/screencapture.gif)
-![image](https://github.com/etorth/mir2x/raw/master/readme/mapeditor.png)
+YouTube links: [1](https://youtu.be/3Xne8UHlOl0) [2](https://youtu.be/jl1LPxe2EAA) [3](https://youtu.be/TtGONA83Mb8)
+
+<https://user-images.githubusercontent.com/1754214/148706980-5d0b5d53-10cf-41f2-b9bb-0ba2b2e301fe.mp4>
+
+<img src="https://github.com/etorth/mir2x/raw/master/readme/screencapture6.gif" width="800" height="600"/>
+<img src="https://github.com/etorth/mir2x/raw/master/readme/mapeditor.png" width="800" height="520"/>
+
 
 ### Windows
 
@@ -32,16 +45,16 @@ If complains missing dll, you may need to copy .dll files from mir2x/bin to mir2
 
 ### Building from source
 
-mir2x requires [cmake](https://cmake.org/) v3+ and [gcc](https://gcc.gnu.org/) support c++17 to run. Mir2x needs some pre-installed packages before compile:
+mir2x requires [cmake](https://cmake.org/) v3.12 and [gcc](https://gcc.gnu.org/) support c++20 to run. Mir2x needs some pre-installed packages before compile:
 
 ```sh
 libsdl2-dev
 libsdl2-image-dev
-libsdl2-ttf-dev
 libsdl2-mixer-dev
+libsdl2-ttf-dev
+libsdl2-gfx-dev
 libpng-dev
 liblua5.3-dev
-libmysqlclient-dev
 libfltk1.3-dev
 ```
 
@@ -52,19 +65,12 @@ $ git clone https://github.com/etorth/mir2x.git
 $ cd mir2x
 $ mkdir b
 $ cd b
-$ cmake .. -DCMAKE_INSTALL_PREFIX=${PWD}/install
+$ cmake .. -DCMAKE_INSTALL_PREFIX=install
 $ make
 $ make install
 ```
 ### First time run
-The above steps install binaries in mir2x/b/install. By default mir2x server uses embeded sqlite3. But if you prefer mysql, you have to start mysql server on your host, and create the default database:
-
-```sh
-$ cd mir2x/b/install/tools/dbcreator/
-$ ./main.sh
-```
-
-Start the monoserver, click menu server/launch to start the service before start client:
+The above steps install binaries in mir2x/b/install, to start the monoserver, click menu server/launch to start the service before start client:
 
 ```sh
 $ cd mir2x/b/install/server
@@ -111,10 +117,9 @@ mir2x uses a number of open source projects to work properly, and of course itse
 * [g3log](https://github.com/KjellKod/g3log) - An asynchronous, "crash safe", logger that is easy to use.
 * [lua](https://www.lua.org/) - A powerful, efficient, lightweight, embeddable scripting language.
 * [sol2](https://github.com/ThePhD/sol2) - A fast, simple C++ and Lua binding.
-* [mariadb](https://mariadb.org/) - A community-developed fork of the MySQL relational database management system.
-* [luasql](https://keplerproject.github.io/luasql/) - LuaSQL is a simple interface from Lua to a DBMS.
 * [tinyxml2](http://www.grinninglizard.com/tinyxml2/) - A simple, small, efficient, C++ XML parser.
 * [utf8-cpp](http://utfcpp.sourceforge.net/) - A simple, portable and lightweigt C++ library for UTF-8 string handling.
 * [libpng](http://www.libpng.org/pub/png/libpng.html) - The official PNG reference library.
-* [ThreadPool](https://github.com/progschj/ThreadPool) - A simple C++11 Thread Pool implementation
-* [astar-algorithm](https://github.com/justinhj/astar-algorithm-cpp) - Implementation of the A* algorithm in C++ and C#
+* [ThreadPool](https://github.com/progschj/ThreadPool) - A simple C++11 Thread Pool implementation.
+* [astar-algorithm](https://github.com/justinhj/astar-algorithm-cpp) - Implementation of the A* algorithm in C++ and C#.
+* [SQLiteCpp](https://github.com/SRombauts/SQLiteCpp) - SQLiteC++ (SQLiteCpp) is a smart and easy to use C++ SQLite3 wrapper.
