@@ -1,42 +1,31 @@
-/*
- * =====================================================================================
- *
- *       Filename: motionnode.hpp
- *        Created: 04/05/2017 12:38:46
- *    Description: for field MotionNode::speed
- *
- *                      means % speed of default speed
- *
- *                 i.e. if default speed is 100 FPS:
- *
- *                      MotionNode::speed :  20 : FPS =  20 : min
- *                                           50 : FPS =  50 : slow
- *                                          100 : FPS = 100 : default
- *                                          200 : FPS = 200 : fast
- *                                          500 : FPS = 500 : max
- *
- *                  currently support speed : 20 ~ 500 => speed x5 or d5
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// for field MotionNode::speed
+//
+//      means % speed of default speed
+//
+// i.e. if default speed is 100 FPS:
+//
+//      MotionNode::speed :  20 : FPS =  20 : min
+//                           50 : FPS =  50 : slow
+//                          100 : FPS = 100 : default
+//                          200 : FPS = 200 : fast
+//                          500 : FPS = 500 : max
+//
+//  currently support speed : 20 ~ 500 => speed x5 or d5
 
 #pragma once
 #include <list>
 #include <memory>
+#include <cstdint>
+#include <climits>
+#include <cinttypes>
 #include <functional>
+#include "mathf.hpp"
 #include "motion.hpp"
+#include "totype.hpp"
 #include "sysconst.hpp"
+#include "strf.hpp"
 #include "fflerror.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 #include "protocoldef.hpp"
 #include "motioneffect.hpp"
 
@@ -56,9 +45,15 @@ struct MotionNode final
         }
         attack{};
 
+        struct MotionHitted
+        {
+            const uint64_t fromUID = 0;
+        }
+        hitted{};
+
         struct MotionDie
         {
-            int fadeOut = 0;
+            int fadeOut = 0; //mutable during update
         }
         die{};
 
@@ -75,8 +70,8 @@ struct MotionNode final
     ////                                                                   ////
     ///////////////////////////////////////////////////////////////////////////
     /**/                                                                   /**/
-    /**/    const int type      = MOTION_NONE;                             /**/
-    /**/    const int direction = DIR_NONE;                                /**/
+    /**/    const int type      =  MOTION_NONE;                            /**/
+    /**/    const int direction =     DIR_NONE;                            /**/
     /**/    /***/ int speed     = SYS_DEFSPEED;                            /**/
     /**/                                                                   /**/
     /**/    const int x = -1;                                              /**/
@@ -92,8 +87,25 @@ struct MotionNode final
     ///////////////////////////////////////////////////////////////////////////
 
     // private members
-    // make it public to support init by initializer_list
+    // make public to support init by initializer_list
+
+    const uint32_t m_seq = []()
+    {
+        // if use ClientCreature::m_motionSeqRoller, needs make it mutable
+        // because ClientCreature::makeIdleMotion() changes it but which needs const-qualified *this*
+
+        if(static uint32_t rollMotionSeq = 1; rollMotionSeq == UINT32_MAX){
+            return rollMotionSeq = 1;
+        }
+        else{
+            return ++rollMotionSeq;
+        }
+    }();
+
     std::list<std::function<bool(MotionNode *)>> m_triggerList {};
+
+    // public member functions
+    // private member function get implemeted as anonymous lambdas
 
     operator bool () const
     {
@@ -103,66 +115,57 @@ struct MotionNode final
             || ((type >= MOTION_NPC_BEGIN) && (type < MOTION_NPC_END));
     }
 
-    void runTrigger();
-    void addTrigger(bool, std::function<bool(MotionNode *)>);
-
-    void print() const;
-    double frameDelay() const;
-};
-
-inline const char *motionName(int type)
-{
-#define _add_motion_type_case(t) case t: return #t;
-    switch(type){
-        _add_motion_type_case(MOTION_STAND        )
-        _add_motion_type_case(MOTION_ARROWATTACK  )
-        _add_motion_type_case(MOTION_SPELL0       )
-        _add_motion_type_case(MOTION_SPELL1       )
-        _add_motion_type_case(MOTION_HOLD         )
-        _add_motion_type_case(MOTION_PUSHBACK     )
-        _add_motion_type_case(MOTION_PUSHBACKFLY  )
-        _add_motion_type_case(MOTION_ATTACKMODE   )
-        _add_motion_type_case(MOTION_CUT          )
-        _add_motion_type_case(MOTION_ONEVSWING    )
-        _add_motion_type_case(MOTION_TWOVSWING    )
-        _add_motion_type_case(MOTION_ONEHSWING    )
-        _add_motion_type_case(MOTION_TWOHSWING    )
-        _add_motion_type_case(MOTION_SPEARVSWING  )
-        _add_motion_type_case(MOTION_SPEARHSWING  )
-        _add_motion_type_case(MOTION_HITTED       )
-        _add_motion_type_case(MOTION_WHEELWIND    )
-        _add_motion_type_case(MOTION_RANDSWING    )
-        _add_motion_type_case(MOTION_SPINKICK     )
-        _add_motion_type_case(MOTION_DIE          )
-        _add_motion_type_case(MOTION_ONHORSEDIE   )
-        _add_motion_type_case(MOTION_WALK         )
-        _add_motion_type_case(MOTION_RUN          )
-        _add_motion_type_case(MOTION_MOODEPO      )
-        _add_motion_type_case(MOTION_ROLL         )
-        _add_motion_type_case(MOTION_FISHSTAND    )
-        _add_motion_type_case(MOTION_FISHHAND     )
-        _add_motion_type_case(MOTION_FISHTHROW    )
-        _add_motion_type_case(MOTION_FISHPULL     )
-        _add_motion_type_case(MOTION_ONHORSESTAND )
-        _add_motion_type_case(MOTION_ONHORSEWALK  )
-        _add_motion_type_case(MOTION_ONHORSERUN   )
-        _add_motion_type_case(MOTION_ONHORSEHITTED)
-
-        _add_motion_type_case(MOTION_MON_STAND    )
-        _add_motion_type_case(MOTION_MON_WALK     )
-        _add_motion_type_case(MOTION_MON_ATTACK0  )
-        _add_motion_type_case(MOTION_MON_HITTED   )
-        _add_motion_type_case(MOTION_MON_DIE      )
-        _add_motion_type_case(MOTION_MON_ATTACK1  )
-        _add_motion_type_case(MOTION_MON_SPELL0   )
-        _add_motion_type_case(MOTION_MON_SPELL1   )
-        _add_motion_type_case(MOTION_MON_SPAWN    )
-        _add_motion_type_case(MOTION_MON_SPECIAL  )
-
-        _add_motion_type_case(MOTION_NPC_STAND    )
-        _add_motion_type_case(MOTION_NPC_ACT      )
-        _add_motion_type_case(MOTION_NPC_ACTEXT   )
-#undef _add_motion_type_case
-        default: return "MOTION_UNKNOWN";
+    void runTrigger()
+    {
+        for(auto p = m_triggerList.begin(); p != m_triggerList.end();){
+            if((*p)(this)){
+                p = m_triggerList.erase(p);
+            }
+            else{
+                p++;
+            }
+        }
     }
-}
+
+    void addTrigger(bool addBefore, std::function<bool(MotionNode *)> op)
+    {
+        if(op){
+            if(addBefore){
+                m_triggerList.push_front(std::move(op));
+            }
+            else{
+                m_triggerList.push_back(std::move(op));
+            }
+        }
+    }
+
+    void print(const std::function<void(const std::string &)> &logFunc) const
+    {
+        if(logFunc){
+            logFunc(str_printf("[%llu]::motion            = %s", to_llu(m_seq), motionName(this->type)    ));
+            logFunc(str_printf("[%llu]::direction         = %d", to_llu(m_seq), this->direction           ));
+            logFunc(str_printf("[%llu]::speed             = %d", to_llu(m_seq), this->speed               ));
+            logFunc(str_printf("[%llu]::x                 = %d", to_llu(m_seq), this->x                   ));
+            logFunc(str_printf("[%llu]::y                 = %d", to_llu(m_seq), this->y                   ));
+            logFunc(str_printf("[%llu]::endX              = %d", to_llu(m_seq), this->endX                ));
+            logFunc(str_printf("[%llu]::endY              = %d", to_llu(m_seq), this->endY                ));
+            logFunc(str_printf("[%llu]::frame             = %d", to_llu(m_seq), this->frame               ));
+            logFunc(str_printf("[%llu]::triggerList::size = %d", to_llu(m_seq), to_d(m_triggerList.size())));
+        }
+    }
+
+    double frameDelay() const
+    {
+        return (1000.0 / to_df(SYS_DEFFPS)) / (to_df(mathf::bound<int>(speed, SYS_MINSPEED, SYS_MAXSPEED)) / 100.0);
+    }
+
+    uint64_t getSeqID() const
+    {
+        return (to_u64(this->type) << 48) | (to_u64(m_seq) << 16);
+    }
+
+    uint64_t getSeqFrameID() const
+    {
+        return (to_u64(this->type) << 48) | (to_u64(m_seq) << 16) | to_u64(this->frame);
+    }
+};

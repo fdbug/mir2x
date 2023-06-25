@@ -10,7 +10,6 @@
 #include "servertaodog.hpp"
 #include "fflerror.hpp"
 #include "actorpod.hpp"
-#include "condcheck.hpp"
 #include "monoserver.hpp"
 #include "charobject.hpp"
 #include "actormsgpack.hpp"
@@ -19,77 +18,36 @@
 #include "bufflist.hpp"
 
 extern MonoServer *g_monoServer;
-BattleObject::BOPathFinder::BOPathFinder(const BattleObject *boPtr, int nCheckCO)
-    : AStarPathFinder([this](int nSrcX, int nSrcY, int nDstX, int nDstY) -> double
+BattleObject::BOPathFinder::BOPathFinder(const BattleObject *boPtr, int checkCO)
+    : pathf::AStarPathFinder(0, boPtr->maxStep(), [this](int srcX, int srcY, int srcDir, int dstX, int dstY) -> std::optional<double>
       {
-          // we pass lambda to ctor of AStarPathFinder()
-          // only capture *this*, this helps std::function to be not expensive
+          fflassert(pathf::hopValid(maxStep(), srcX, srcY, dstX, dstY), maxStep(), srcX, srcY, dstX, dstY);
+          return m_BO->oneStepCost(this, m_checkCO, srcX, srcY, srcDir, dstX, dstY);
+      })
 
-          if(0){
-              if(true
-                      && MaxStep() != 1
-                      && MaxStep() != 2
-                      && MaxStep() != 3){
-                    throw fflerror("invalid MaxStep provided: %d, should be (1, 2, 3)", MaxStep());
-              }
-
-              const int nDistance2 = mathf::LDistance2(nSrcX, nSrcY, nDstX, nDstY);
-              if(true
-                      && nDistance2 != 1
-                      && nDistance2 != 2
-                      && nDistance2 != MaxStep() * MaxStep()
-                      && nDistance2 != MaxStep() * MaxStep() * 2){
-                  throw fflerror("invalid step checked: (%d, %d) -> (%d, %d)", nSrcX, nSrcY, nDstX, nDstY);
-              }
-          }
-          return m_BO->OneStepCost(this, m_checkCO, nSrcX, nSrcY, nDstX, nDstY);
-      }, boPtr->MaxStep())
     , m_BO(boPtr)
-    , m_checkCO(nCheckCO)
-    , m_cache()
+    , m_checkCO(checkCO)
 {
-    if(!m_BO){
-        throw fflerror("invalid argument: CO = %p, CheckCO = %d", to_cvptr(m_BO), m_checkCO);
-    }
+    fflassert(m_BO);
 
-    switch(m_checkCO){
-        case 0:
-        case 1:
-        case 2:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid argument: CO = %p, CheckCO = %d", to_cvptr(m_BO), m_checkCO);
-            }
-    }
+    fflassert(m_checkCO >= 0, m_checkCO);
+    fflassert(m_checkCO <= 2, m_checkCO);
 
-    switch(m_BO->MaxStep()){
-        case 1:
-        case 2:
-        case 3:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid MaxStep provided: %d, should be (1, 2, 3)", m_BO->MaxStep());
-            }
-    }
+    fflassert(m_BO->maxStep() >= 1, m_BO->maxStep());
+    fflassert(m_BO->maxStep() <= 3, m_BO->maxStep());
 }
 
-int BattleObject::BOPathFinder::GetGrid(int nX, int nY) const
+int BattleObject::BOPathFinder::getGrid(int nX, int nY) const
 {
     if(!m_BO->GetServerMap()->validC(nX, nY)){
-        return PathFind::INVALID;
+        return PF_NONE;
     }
 
     const uint32_t nKey = (to_u32(nX) << 16) | to_u32(nY);
     if(auto p = m_cache.find(nKey); p != m_cache.end()){
         return p->second;
     }
-    return (m_cache[nKey] = m_BO->CheckPathGrid(nX, nY));
+    return (m_cache[nKey] = m_BO->checkPathGrid(nX, nY));
 }
 
 BattleObject::BattleObject(
@@ -107,7 +65,7 @@ BattleObject::BattleObject(
     m_lastActionTime.fill(0);
     m_stateTrigger.install([ptimer = std::make_shared<hres_timer>(), this]() mutable -> bool
     {
-        if(hasActorPod() && (ptimer->diff_secf() >= 1.0f)){
+        if(hasActorPod() && (ptimer->diff_secf() >= 1.0)){
             updateHealth(m_sdHealth.getHPRecover(), m_sdHealth.getMPRecover());
             ptimer->reset();
         }
@@ -170,11 +128,11 @@ bool BattleObject::requestJump(int nX, int nY, int nDirection, std::function<voi
                     m_X = amAJ.EndX;
                     m_Y = amAJ.EndY;
 
-                    if(directionValid(nDirection)){
+                    if(pathf::dirValid(nDirection)){
                         m_direction = nDirection;
                     }
                     else{
-                        m_direction = PathFind::GetDirection(oldX, oldY, X(), Y());
+                        m_direction = pathf::getOffDir(oldX, oldY, X(), Y());
                     }
 
                     AMJumpOK amJOK;
@@ -196,6 +154,10 @@ bool BattleObject::requestJump(int nX, int nY, int nDirection, std::function<voi
                         dynamic_cast<Player *>(this)->notifySlaveGLoc();
                     }
 
+                    m_buffList.runOnTrigger(BATGR_MOVE);
+                    m_buffList.runOnBOMove();
+                    m_buffList.dispatchAura();
+
                     if(onOK){
                         onOK();
                     }
@@ -212,10 +174,10 @@ bool BattleObject::requestJump(int nX, int nY, int nDirection, std::function<voi
     });
 }
 
-bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, bool removeMonster, std::function<void()> onOK, std::function<void()> onError)
+bool BattleObject::requestMove(int dstX, int dstY, int speed, bool allowHalfMove, bool removeMonster, std::function<void()> onOK, std::function<void()> onError)
 {
-    if(!m_map->groundValid(nX, nY)){
-        throw fflerror("invalid destination: (mapID = %lld, x = %d, y = %d)", to_lld(mapID()), nX, nY);
+    if(!m_map->groundValid(dstX, dstY)){
+        throw fflerror("invalid destination: (mapID = %lld, x = %d, y = %d)", to_lld(mapID()), dstX, dstY);
     }
 
     if(!canMove()){
@@ -225,7 +187,7 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
         return false;
     }
 
-    if(estimateHop(nX, nY) != 1){
+    if(estimateHop(dstX, dstY) != 1){
         if(onError){
             onError();
         }
@@ -236,16 +198,16 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
         throw fflerror("RemoveMonster in requestMove() not implemented yet");
     }
 
-    switch(mathf::LDistance2(X(), Y(), nX, nY)){
+    switch(mathf::LDistance2(X(), Y(), dstX, dstY)){
         case 1:
         case 2:
             {
-                switch(CheckPathGrid(nX, nY)){
-                    case PathFind::FREE:
+                switch(checkPathGrid(dstX, dstY)){
+                    case PF_FREE:
                         {
                             break;
                         }
-                    case PathFind::OCCUPIED:
+                    case PF_OCCUPIED:
                     default:
                         {
                             if(onError){
@@ -260,14 +222,12 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
             {
                 // one-hop distance but has internal steps
                 // need to check if there is co blocking the path
-                int nXm = -1;
-                int nYm = -1;
-                PathFind::GetFrontLocation(&nXm, &nYm, X(), Y(), PathFind::GetDirection(X(), Y(), nX, nY), 1);
+                const auto [nXm, nYm] = pathf::getFrontGLoc(X(), Y(), pathf::getOffDir(X(), Y(), dstX, dstY), 1);
 
                 // for strict co check
                 // need to skip the current (X(), Y())
 
-                if(OneStepCost(nullptr, 2, nXm, nYm, nX, nY) < 0.00){
+                if(!oneStepCost(nullptr, 2, nXm, nYm, Direction(), dstX, dstY).has_value()){
                     if(!allowHalfMove){
                         if(onError){
                             onError();
@@ -286,13 +246,13 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
     amTM.mapID         = mapID();
     amTM.X             = X();
     amTM.Y             = Y();
-    amTM.EndX          = nX;
-    amTM.EndY          = nY;
+    amTM.EndX          = dstX;
+    amTM.EndY          = dstY;
     amTM.AllowHalfMove = allowHalfMove;
     amTM.RemoveMonster = removeMonster;
 
     m_moveLock = true;
-    return m_actorPod->forward(mapUID(), {AM_TRYMOVE, amTM}, [this, nX, nY, nSpeed, onOK, onError](const ActorMsgPack &rmpk)
+    return m_actorPod->forward(mapUID(), {AM_TRYMOVE, amTM}, [this, dstX, dstY, speed, onOK, onError](const ActorMsgPack &rmpk)
     {
         fflassert(m_moveLock);
         m_moveLock = false;
@@ -304,7 +264,7 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
             case AM_ALLOWMOVE:
                 {
                     // since we may allow half move
-                    // servermap permitted dst may not be (nX, nY)
+                    // servermap permitted dst may not be (dstX, dstY)
 
                     const auto amAM = rmpk.conv<AMAllowMove>();
                     fflassert(m_map->validC(amAM.EndX, amAM.EndY));
@@ -323,7 +283,7 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
                     m_X = amAM.EndX;
                     m_Y = amAM.EndY;
 
-                    m_direction = PathFind::GetDirection(oldX, oldY, X(), Y());
+                    m_direction = pathf::getOffDir(oldX, oldY, X(), Y());
 
                     AMMoveOK amMOK;
                     std::memset(&amMOK, 0, sizeof(amMOK));
@@ -331,7 +291,7 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
                     amMOK.mapID = mapID();
                     amMOK.action = ActionMove
                     {
-                        .speed = nSpeed,
+                        .speed = speed,
                         .x = oldX,
                         .y = oldY,
                         .aimX = X(),
@@ -341,13 +301,22 @@ bool BattleObject::requestMove(int nX, int nY, int nSpeed, bool allowHalfMove, b
                     m_actorPod->forward(rmpk.from(), {AM_MOVEOK, amMOK}, rmpk.seqID());
                     trimInViewCO();
 
+                    // here firstly we make map to boardcast the ActionMove
+                    // then if BO is a player, notify all its slaves with ActionStand
+
+                    // however the order of these two actions reaches neighbor can switch
+                    // from neighbor's view it firstly get an ActionStand but location changed, then get an ActionMove but destination is current location
+
                     if(isPlayer()){
                         dynamic_cast<Player *>(this)->notifySlaveGLoc();
                     }
 
+                    m_buffList.runOnTrigger(BATGR_MOVE);
+                    m_buffList.runOnBOMove();
+                    m_buffList.dispatchAura();
+
                     if(onOK){
                         onOK();
-                        m_buffList.runOnTrigger(BATGR_MOVE);
                     }
                     return;
                 }
@@ -443,6 +412,10 @@ bool BattleObject::requestSpaceMove(int locX, int locY, bool strictMove, std::fu
                         dynamic_cast<Player *>(this)->notifySlaveGLoc();
                     }
 
+                    m_buffList.runOnTrigger(BATGR_MOVE);
+                    m_buffList.runOnBOMove();
+                    m_buffList.dispatchAura();
+
                     if(onOK){
                         onOK();
                     }
@@ -496,7 +469,7 @@ bool BattleObject::requestMapSwitch(uint32_t argMapID, int locX, int locY, bool 
                     // if request rejected then it stays in current map
 
                     m_moveLock = true;
-                    m_actorPod->forward(uidf::getMapUID(argMapID), {AM_TRYMAPSWITCH, amTMS}, [mpk, onOK, onError, this](const ActorMsgPack &rmpk)
+                    m_actorPod->forward(uidf::getMapBaseUID(argMapID), {AM_TRYMAPSWITCH, amTMS}, [mpk, onOK, onError, this](const ActorMsgPack &rmpk)
                     {
                         fflassert(m_moveLock);
                         m_moveLock = false;
@@ -601,6 +574,10 @@ bool BattleObject::requestMapSwitch(uint32_t argMapID, int locX, int locY, bool 
                                                                         dynamic_cast<Player *>(this)->notifySlaveGLoc();
                                                                     }
 
+                                                                    m_buffList.runOnTrigger(BATGR_MOVE);
+                                                                    m_buffList.runOnBOMove();
+                                                                    m_buffList.dispatchAura();
+
                                                                     if(onOK){
                                                                         onOK();
                                                                     }
@@ -704,7 +681,7 @@ bool BattleObject::canAttack() const
 
 std::optional<std::tuple<int, int, int>> BattleObject::oneStepReach(int dir, int maxDistance) const
 {
-    fflassert(directionValid(dir));
+    fflassert(pathf::dirValid(dir));
     fflassert(maxDistance >= 1);
 
     std::optional<std::tuple<int, int, int>> result;
@@ -729,7 +706,7 @@ void BattleObject::dispatchHealth(uint64_t uid)
     forwardNetPackage(uid, SM_HEALTH, cerealf::serialize(m_sdHealth));
 }
 
-void BattleObject::dispatchAttackDamage(uint64_t nUID, int nDC)
+void BattleObject::dispatchAttackDamage(uint64_t nUID, int nDC, int modifierID)
 {
     if(nUID && dcValid(nDC, true)){
         AMAttack amA;
@@ -741,7 +718,7 @@ void BattleObject::dispatchAttackDamage(uint64_t nUID, int nDC)
         amA.X = X();
         amA.Y = Y();
 
-        amA.damage = getAttackDamage(nDC);
+        amA.damage = getAttackDamage(nDC, modifierID);
         m_actorPod->forward(nUID, {AM_ATTACK, amA});
     }
 }
@@ -796,8 +773,7 @@ int BattleObject::estimateHop(int nX, int nY)
         return -1;
     }
 
-    int nLDistance2 = mathf::LDistance2(nX, nY, X(), Y());
-    switch(nLDistance2){
+    switch(const auto distance2 = mathf::LDistance2<int>(nX, nY, X(), Y())){
         case 0:
             {
                 return 0;
@@ -809,22 +785,17 @@ int BattleObject::estimateHop(int nX, int nY)
             }
         default:
             {
-                auto nMaxStep = MaxStep();
-                switch(nMaxStep){
-                    case 1:
-                    case 2:
-                    case 3: break;
-                    default: throw fflvalue(nMaxStep);
-                }
+                fflassert(maxStep() >= 1, maxStep());
+                fflassert(maxStep() <= 3, maxStep());
 
                 if(false
-                        || nLDistance2 == 1 * nMaxStep * nMaxStep
-                        || nLDistance2 == 2 * nMaxStep * nMaxStep){
+                        || distance2 == 1 * maxStep() * maxStep()
+                        || distance2 == 2 * maxStep() * maxStep()){
 
-                    const auto nDir = PathFind::GetDirection(X(), Y(), nX, nY);
-                    const auto nMaxReach = oneStepReach(nDir, nMaxStep);
+                    const auto nDir = pathf::getOffDir(X(), Y(), nX, nY);
+                    const auto nMaxReach = oneStepReach(nDir, maxStep());
 
-                    if(nMaxReach.has_value() && std::get<2>(nMaxReach.value()) == nMaxStep){
+                    if(nMaxReach.has_value() && std::get<2>(nMaxReach.value()) == maxStep()){
                         return 1;
                     }
                 }
@@ -833,33 +804,30 @@ int BattleObject::estimateHop(int nX, int nY)
     }
 }
 
-int BattleObject::CheckPathGrid(int nX, int nY) const
+int BattleObject::checkPathGrid(int argX, int argY) const
 {
-    if(!m_map){
-        throw fflerror("CO has no map associated");
+    fflassert(m_map);
+    if(!m_map->getMapData().validC(argX, argY)){
+        return PF_NONE;
     }
 
-    if(!m_map->getMapData().validC(nX, nY)){
-        return PathFind::INVALID;
+    if(!m_map->getMapData().cell(argX, argY).land.canThrough()){
+        return PF_OBSTACLE;
     }
 
-    if(!m_map->getMapData().cell(nX, nY).land.canThrough()){
-        return PathFind::OBSTACLE;
-    }
-
-    if(X() == nX && Y() == nY){
-        return PathFind::OCCUPIED;
+    if(X() == argX && Y() == argY){
+        return PF_OCCUPIED;
     }
 
     for(const auto &[uid, coLoc]: m_inViewCOList){
-        if(coLoc.x == nX && coLoc.y == nY){
-            return PathFind::OCCUPIED;
+        if(coLoc.x == argX && coLoc.y == argY){
+            return PF_OCCUPIED;
         }
     }
-    return PathFind::FREE;
+    return PF_FREE;
 }
 
-std::array<PathFind::PathNode, 3> BattleObject::GetChaseGrid(int nX, int nY, int nDLen) const
+std::array<pathf::PathNode, 3> BattleObject::getChaseGrid(int nX, int nY, int nDLen) const
 {
     // always get the next step to chase
     // this function won't check if (nX, nY) is valid
@@ -867,7 +835,7 @@ std::array<PathFind::PathNode, 3> BattleObject::GetChaseGrid(int nX, int nY, int
     const int nX0 = X();
     const int nY0 = Y();
 
-    std::array<PathFind::PathNode, 3> pathNodeList
+    std::array<pathf::PathNode, 3> pathNodeList
     {{
         {-1, -1},
         {-1, -1},
@@ -907,10 +875,10 @@ std::array<PathFind::PathNode, 3> BattleObject::GetChaseGrid(int nX, int nY, int
     return pathNodeList;
 }
 
-std::vector<PathFind::PathNode> BattleObject::GetValidChaseGrid(int nX, int nY, int nDLen) const
+std::vector<pathf::PathNode> BattleObject::getValidChaseGrid(int nX, int nY, int nDLen) const
 {
-    std::vector<PathFind::PathNode> result;
-    for(const auto &node: GetChaseGrid(nX, nY, nDLen)){
+    std::vector<pathf::PathNode> result;
+    for(const auto &node: getChaseGrid(nX, nY, nDLen)){
         if(m_map->groundValid(node.X, node.Y)){
             result.push_back(node);
         }
@@ -918,10 +886,10 @@ std::vector<PathFind::PathNode> BattleObject::GetValidChaseGrid(int nX, int nY, 
     return result;
 }
 
-void BattleObject::GetValidChaseGrid(int nX, int nY, int nDLen, scoped_alloc::svobuf_wrapper<PathFind::PathNode, 3> &buf) const
+void BattleObject::getValidChaseGrid(int nX, int nY, int nDLen, scoped_alloc::svobuf_wrapper<pathf::PathNode, 3> &buf) const
 {
     buf.c.clear();
-    for(const auto &node: GetChaseGrid(nX, nY, nDLen)){
+    for(const auto &node: getChaseGrid(nX, nY, nDLen)){
         if(m_map->groundValid(node.X, node.Y)){
             buf.c.push_back(node);
         }
@@ -932,96 +900,69 @@ void BattleObject::GetValidChaseGrid(int nX, int nY, int nDLen, scoped_alloc::sv
     }
 }
 
-double BattleObject::OneStepCost(const BattleObject::BOPathFinder *pFinder, int nCheckCO, int nX0, int nY0, int nX1, int nY1) const
+std::optional<double> BattleObject::oneStepCost(const BattleObject::BOPathFinder *finder, int checkCO, int srcX, int srcY, int srcDir, int dstX, int dstY) const
 {
-    switch(nCheckCO){
-        case 0:
-        case 1:
-        case 2:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid argument: BOPathFinder = %p, CheckCO = %d", to_cvptr(pFinder), nCheckCO);
-            }
-    }
+    fflassert(checkCO >= 0, checkCO);
+    fflassert(checkCO <= 2, checkCO);
 
-    int nMaxIndex = -1;
-    switch(mathf::LDistance2(nX0, nY0, nX1, nY1)){
-        case 0:
-            {
-                nMaxIndex = 0;
-                break;
-            }
-        case 1:
-        case 2:
-            {
-                nMaxIndex = 1;
-                break;
-            }
-        case 4:
-        case 8:
-            {
-                nMaxIndex = 2;
-                break;
-            }
+    int hopSize = -1;
+    switch(mathf::LDistance2(srcX, srcY, dstX, dstY)){
+        case  1:
+        case  2: hopSize = 1; break;
+        case  4:
+        case  8: hopSize = 2; break;
         case  9:
-        case 18:
-            {
-                nMaxIndex = 3;
-                break;
-            }
-        default:
-            {
-                return -1.00;
-            }
+        case 18: hopSize = 3; break;
+        case  0: return .0;
+        default: return {};
     }
 
-    int nDX = (nX1 > nX0) - (nX1 < nX0);
-    int nDY = (nY1 > nY0) - (nY1 < nY0);
+    double gridExtraPen = 0.00;
+    const auto hopDir = pathf::getOffDir(srcX, srcY, dstX, dstY);
 
-    double fExtraPen = 0.00;
-    for(int nIndex = 0; nIndex <= nMaxIndex; ++nIndex){
-        int nCurrX = nX0 + nDX * nIndex;
-        int nCurrY = nY0 + nDY * nIndex;
-        switch(const auto nGrid = pFinder ? pFinder->GetGrid(nCurrX, nCurrY) : CheckPathGrid(nCurrX, nCurrY)){
-            case PathFind::FREE:
+    for(int stepSize = 1; stepSize <= hopSize; ++stepSize){
+        const auto [currX, currY] = pathf::getFrontGLoc(srcX, srcY, hopDir, stepSize);
+        switch(const auto pfGrid = finder ? finder->getGrid(currX, currY) : checkPathGrid(currX, currY)){
+            case PF_FREE:
                 {
                     break;
                 }
-            case PathFind::OCCUPIED:
+            case PF_OCCUPIED:
                 {
-                    switch(nCheckCO){
+                    switch(checkCO){
+                        case 0:
+                            {
+                                break;
+                            }
                         case 1:
                             {
-                                fExtraPen += 100.00;
+                                gridExtraPen += 100.00;
                                 break;
                             }
                         case 2:
                             {
-                                return -1.00;
+                                return {};
                             }
                         default:
                             {
-                                break;
+                                throw fflvalue(checkCO);
                             }
                     }
                     break;
                 }
-            case PathFind::INVALID:
-            case PathFind::OBSTACLE:
+            case PF_NONE:
+            case PF_OBSTACLE:
                 {
-                    return -1.00;
+                    return {};
                 }
             default:
                 {
-                    throw fflerror("invalid grid provided: %d at (%d, %d)", nGrid, nCurrX, nCurrY);
+                    throw fflvalue(currX, currY, pfGrid);
                 }
         }
     }
 
-    return 1.00 + nMaxIndex * 0.10 + fExtraPen;
+    return 1.00 + hopSize * 0.10 + gridExtraPen + pathf::getDirAbsDiff(srcDir, hopDir) * 0.01;
 }
 
 void BattleObject::setLastAction(int type)
@@ -1169,41 +1110,99 @@ void BattleObject::updateBuffList()
     }
 }
 
-std::tuple<int, BaseBuff *> BattleObject::addBuff(uint64_t fromUID, uint32_t buffID)
+void BattleObject::removeBuff(uint64_t buffSeq, bool dispatch)
 {
-    switch(buffID){
-        case DBCOM_BUFFID(u8"治愈术"):
-        case DBCOM_BUFFID(u8"施毒术"):
-        case DBCOM_BUFFID(u8"幽灵盾"):
-        case DBCOM_BUFFID(u8"神圣战甲术"):
-        case DBCOM_BUFFID(u8"恢复光环"):
-        case DBCOM_BUFFID(u8"恢复光环使能"):
-            {
-                for(const auto pbuff: m_buffList.hasBuff(DBCOM_BUFFRECORD(buffID).name)){
-                    if(pbuff->fromUID() == fromUID){
-                        return {0, nullptr};
-                    }
-                }
+    if(auto buffp = m_buffList.hasBuffSeq(buffSeq)){
+        const auto fromUID = buffp->fromUID();
+        m_buffList.erase(buffSeq);
 
-                const auto buffTag = m_buffList.addBuff(std::make_unique<BaseBuff>(this, fromUID, buffID));
-                dispatchBuffIDList();
-                return buffTag;
+        AMRemoveBuff amRB;
+        std::memset(&amRB, 0, sizeof(amRB));
+
+        amRB.fromUID = UID();
+        amRB.fromBuffSeq = buffSeq;
+
+        for(const auto uid: getInViewUIDList()){
+            switch(uidf::getUIDType(uid)){
+                case UID_PLY:
+                case UID_MON:
+                    {
+                        m_actorPod->forward(uid, {AM_REMOVEBUFF, amRB});
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    }
             }
-        default:
-            {
-                return {0, nullptr};
-            }
+        }
+
+        for(auto fromBuff: m_buffList.hasFromBuff(fromUID, buffSeq)){
+            removeBuff(fromBuff->buffSeq(), false);
+        }
+
+        if(dispatch){
+            dispatchBuffIDList();
+        }
     }
+}
+
+void BattleObject::removeFromBuff(uint64_t fromUID, uint64_t fromBuffSeq, bool dispatch)
+{
+    for(auto pbuff: m_buffList.hasFromBuff(fromUID, fromBuffSeq)){
+        removeBuff(pbuff->buffSeq(), false);
+    }
+
+    if(dispatch){
+        dispatchBuffIDList();
+    }
+}
+
+BaseBuff *BattleObject::addBuff(uint64_t fromUID, uint64_t fromBuffSeq, uint32_t buffID)
+{
+    const auto fnAddBuff = [fromUID, fromBuffSeq, buffID, this]() -> BaseBuff *
+    {
+        if(auto buff = m_buffList.addBuff(std::make_unique<BaseBuff>(this, fromUID, fromBuffSeq, buffID, m_buffList.rollSeqID(buffID)))){
+            for(const auto paura: buff->getAuraList()){
+                paura->dispatch();
+                if(paura->getBAR().aura.self){
+                    addBuff(buff->fromUID(), buff->buffSeq(), DBCOM_BUFFID(paura->getBAR().aura.buff));
+                }
+            }
+
+            if(buff->getBR().icon.show){
+                dispatchBuffIDList();
+            }
+            return buff;
+        }
+        return nullptr;
+    };
+
+    // NOTE currently only *replace* buff added by self
+    // can not remove/override buffs added by other person to avoid cheating
+
+    if(const auto &br = DBCOM_BUFFRECORD(buffID); br){
+        auto pbuffList = m_buffList.hasBuff(br.name);
+        auto pbuffListFromUID = m_buffList.hasFromBuff(fromUID, fromBuffSeq, buffID);
+
+        fflassert(pbuffList.size() >= pbuffListFromUID.size());
+        if(to_d(pbuffList.size()) < br.stackCount + 1){
+            return fnAddBuff();
+        }
+        else if(!pbuffListFromUID.empty() && br.stackReplace){
+            // total number has reach max stack count
+            // but there are buffs from fromUID and can replace, remove the oldest and add new buff
+            m_buffList.erase(pbuffListFromUID.front()->buffSeq());
+            return fnAddBuff();
+        }
+    }
+    return nullptr;
 }
 
 bool BattleObject::updateHealth(int addHP, int addMP, int addMaxHP, int addMaxMP)
 {
     if(m_sdHealth.updateHealth(addHP, addMP, addMaxHP, addMaxMP)){
-        const auto sdBuf = cerealf::serialize(m_sdHealth);
-        dispatchInViewCONetPackage(SM_HEALTH, sdBuf);
-        if(isPlayer()){
-            dynamic_cast<Player *>(this)->postNetMessage(SM_HEALTH, sdBuf);
-        }
+        dispatchInViewCONetPackage(SM_HEALTH, cerealf::serialize(m_sdHealth));
         return true;
     }
     return false;
@@ -1251,12 +1250,13 @@ std::pair<int, SDTaggedValMap &> BattleObject::updateBuffedAbility(uint32_t buff
     }
 }
 
-void BattleObject::sendBuff(uint64_t uid, uint32_t buffID)
+void BattleObject::sendBuff(uint64_t uid, uint64_t fromBuffSeq, uint32_t buffID)
 {
     AMAddBuff amAB;
     std::memset(&amAB, 0, sizeof(amAB));
 
     amAB.id = buffID;
-    amAB.from = UID();
+    amAB.fromUID = UID();
+    amAB.fromBuffSeq = fromBuffSeq;
     m_actorPod->forward(uid, {AM_ADDBUFF, amAB});
 }

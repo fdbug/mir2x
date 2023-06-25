@@ -1,7 +1,9 @@
 #include <cinttypes>
 #include "dbpod.hpp"
 #include "player.hpp"
+#include "luaf.hpp"
 #include "uidf.hpp"
+#include "jobf.hpp"
 #include "pathf.hpp"
 #include "mathf.hpp"
 #include "dbcomid.hpp"
@@ -10,7 +12,6 @@
 #include "charobject.hpp"
 #include "friendtype.hpp"
 #include "protocoldef.hpp"
-#include "dbcomrecord.hpp"
 #include "buildconfig.hpp"
 #include "serverargparser.hpp"
 
@@ -41,7 +42,456 @@ Player::Player(const SDInitPlayer &initParam, const ServerMap *mapPtr)
     dbLoadBelt();
     dbLoadInventory();
     dbLoadLearnedMagic();
-    dbLoadRuntimeConfig();
+    dbLoadPlayerConfig();
+}
+
+void Player::onActivate()
+{
+    BattleObject::onActivate();
+    m_luaRunner = std::make_unique<ServerLuaCoroutineRunner>(m_actorPod);
+
+    m_luaRunner->bindFunction("getLevel", [this]() -> uint64_t
+    {
+        return level();
+    });
+
+    m_luaRunner->bindFunction("getGold", [this]() -> uint64_t
+    {
+        return gold();
+    });
+
+    m_luaRunner->bindFunction("getName", [this]() -> std::string
+    {
+        return name();
+    });
+
+    m_luaRunner->bindFunction("getTeamLeader", [this](sol::this_state s) -> sol::object
+    {
+        sol::state_view sv(s);
+        if(m_teamLeader){
+            return sol::object(sv, sol::in_place_type<lua_Integer>, m_teamLeader);
+        }
+        else{
+            return sol::make_object(sv, sol::nil);
+        }
+    });
+
+    m_luaRunner->bindFunctionCoop("_RSVD_NAME_getTeamMemberList", [this](LuaCoopResumer onDone)
+    {
+        auto closed = std::make_shared<bool>(false);
+        onDone.pushOnClose([closed]()
+        {
+            *closed = true;
+        });
+
+        pullTeamMemberList([closed, onDone](std::optional<SDTeamMemberList> sdTML)
+        {
+            if(*closed){
+                return;
+            }
+            else{
+                onDone.popOnClose();
+            }
+
+            if(sdTML.has_value()){
+                onDone(sol::as_table(sdTML.value().getUIDList()));
+            }
+            else{
+                onDone();
+            }
+        });
+    });
+
+    m_luaRunner->bindFunction("_RSVD_NAME_runQuestTrigger", [this](uint64_t questUID, int triggerType, sol::variadic_args args)
+    {
+        fflassert(uidf::isQuest(questUID), uidf::getUIDString(questUID));
+
+        fflassert(triggerType >= SYS_ON_BEGIN, triggerType);
+        fflassert(triggerType <  SYS_ON_END  , triggerType);
+
+        switch(triggerType){
+            case SYS_ON_LEVELUP:
+                {
+                    const auto [oldLevel, newLevel] = [&args, this]() -> std::tuple<int, int>
+                    {
+                        switch(args.size()){
+                            case 1:
+                                {
+                                    fflassert(args[0].is<lua_Integer>());
+                                    return {args[0].as<lua_Integer>(), level()};
+                                }
+                            case 2:
+                                {
+                                    fflassert(args[0].is<lua_Integer>());
+                                    fflassert(args[1].is<lua_Integer>());
+                                    return {args[0].as<lua_Integer>(), args[1].as<lua_Integer>()};
+                                }
+                            default:
+                                {
+                                    throw fflvalue(args.size());
+                                }
+                        }
+                    }();
+
+                    m_actorPod->forward(questUID, {AM_RUNQUESTTRIGGER, cerealf::serialize<SDQuestTriggerVar>(SDQuestTriggerLevelUp
+                    {
+                        .oldLevel = oldLevel,
+                        .newLevel = newLevel,
+                    })});
+                    break;
+                }
+            case SYS_ON_KILL:
+                {
+                    fflassert(args.size() == 1, args.size());
+                    fflassert(args[0].is<lua_Integer>());
+
+                    const auto monsterID = to_u32(args[0].as<lua_Integer>());
+                    m_actorPod->forward(questUID, {AM_RUNQUESTTRIGGER, cerealf::serialize<SDQuestTriggerVar>(SDQuestTriggerKill
+                    {
+                        .monsterID = monsterID,
+                    })});
+                    break;
+                }
+            case SYS_ON_GAINEXP:
+                {
+                    fflassert(args.size() == 1, args.size());
+                    fflassert(args[0].is<lua_Integer>());
+
+                    const auto addedExp = to_d(args[0].as<lua_Integer>());
+                    m_actorPod->forward(questUID, {AM_RUNQUESTTRIGGER, cerealf::serialize<SDQuestTriggerVar>(SDQuestTriggerGainExp
+                    {
+                        .addedExp = addedExp,
+                    })});
+                    break;
+                }
+            case SYS_ON_GAINGOLD:
+                {
+                    fflassert(args.size() == 1, args.size());
+                    fflassert(args[0].is<lua_Integer>());
+
+                    const auto addedGold = to_d(args[0].as<lua_Integer>());
+                    m_actorPod->forward(questUID, {AM_RUNQUESTTRIGGER, cerealf::serialize<SDQuestTriggerVar>(SDQuestTriggerGainGold
+                    {
+                        .addedGold = addedGold,
+                    })});
+                    break;
+                }
+            case SYS_ON_GAINITEM:
+                {
+                    fflassert(args.size() == 1, args.size());
+                    fflassert(args[0].is<lua_Integer>());
+
+                    const auto itemID = to_u32(args[0].as<lua_Integer>());
+                    m_actorPod->forward(questUID, {AM_RUNQUESTTRIGGER, cerealf::serialize<SDQuestTriggerVar>(SDQuestTriggerGainItem
+                    {
+                        .itemID = itemID,
+                    })});
+                    break;
+                }
+            default:
+                {
+                    break;
+                }
+        }
+    });
+
+    m_luaRunner->bindFunction("postRawString", [this](std::string msg)
+    {
+        postNetMessage(SM_TEXT, msg);
+    });
+
+    m_luaRunner->bindFunction("secureItem", [this](uint32_t itemID, uint32_t seqID)
+    {
+        secureItem(itemID, seqID);
+    });
+
+    m_luaRunner->bindFunction("reportSecuredItemList", [this]()
+    {
+        reportSecuredItemList();
+    });
+
+    m_luaRunner->bindFunction("addItem", [this](int itemID, int itemCount)
+    {
+        const auto &ir = DBCOM_ITEMRECORD(itemID);
+        fflassert(ir);
+        fflassert(itemCount > 0);
+
+        if(ir.isGold()){
+            setGold(getGold() + itemCount);
+        }
+        else{
+            int added = 0;
+            while(added < itemCount){
+                const auto &addedItem = addInventoryItem(SDItem
+                {
+                    .itemID = to_u32(itemID),
+                    .seqID  = 1,
+                    .count = std::min<size_t>(ir.packable() ? SYS_INVGRIDMAXHOLD : 1, itemCount - added),
+                }, false);
+                added += addedItem.count;
+            }
+        }
+    });
+
+    m_luaRunner->bindFunction("removeItem", [this](int itemID, int seqID, int count) -> bool
+    {
+        fflassert(itemID >  0, itemID);
+        fflassert( seqID >= 0,  seqID);
+        fflassert( count >  0,  count);
+
+        const auto argItemID = to_u32(itemID);
+        const auto argSeqID  = to_u32( seqID);
+        const auto argCount  = to_uz ( count);
+
+        const auto &ir = DBCOM_ITEMRECORD(argItemID);
+        fflassert(ir);
+
+        if(ir.isGold()){
+            fflassert(argSeqID == 0, argSeqID);
+            if(m_sdItemStorage.gold >= argCount){
+                setGold(m_sdItemStorage.gold - argCount);
+                return true;
+            }
+            else{
+                return false;
+            }
+        }
+        else if(argSeqID > 0){
+            fflassert(argCount == 1, argCount);
+            return removeInventoryItem(argItemID, argSeqID) > 0;
+        }
+        else{
+            fflassert(argCount > 0);
+            if(hasInventoryItem(argItemID, argSeqID, argCount)){
+                removeInventoryItem(argItemID, 0, argCount);
+                return true;
+            }
+            else{
+                return false;
+            }
+        }
+    });
+
+    m_luaRunner->bindFunction("dbLoadQuestNameList", [this]() -> std::vector<std::string>
+    {
+        return dbLoadQuestNameList();
+    });
+
+    m_luaRunner->bindFunctionCoop("_RSVD_NAME_queryQuestUID", [this](LuaCoopResumer onDone, std::string questName)
+    {
+        auto closed = std::make_shared<bool>(false);
+        onDone.pushOnClose([closed]()
+        {
+            *closed = true;
+        });
+
+        m_actorPod->forward(uidf::getServiceCoreUID(), {AM_QUERYQUESTUID, cerealf::serialize(SDQueryQuestUID
+        {
+            .name = std::move(questName),
+        })},
+
+        [closed, onDone](const ActorMsgPack &rmpk)
+        {
+            if(*closed){
+                return;
+            }
+            else{
+                onDone.popOnClose();
+            }
+
+            switch(rmpk.type()){
+                case AM_UID:
+                    {
+                        const auto amUID = rmpk.conv<AMUID>();
+                        onDone(amUID.UID);
+                        break;
+                    }
+                default:
+                    {
+                        onDone(0);
+                        break;
+                    }
+            }
+        });
+    });
+
+    m_luaRunner->bindFunctionCoop("_RSVD_NAME_spaceMove", [this](LuaCoopResumer onDone, uint32_t argMapID, int argX, int argY)
+    {
+        auto closed = std::make_shared<bool>(false);
+        onDone.pushOnClose([closed]()
+        {
+            *closed = true;
+        });
+
+        const auto &mr = DBCOM_MAPRECORD(argMapID);
+        fflassert(mr, argMapID);
+
+        fflassert(argX >= 0, argX);
+        fflassert(argY >= 0, argY);
+
+        if(to_u32(argMapID) == mapID()){
+            requestSpaceMove(argX, argY, false, [closed, onDone, this]()
+            {
+                if(*closed){
+                    return;
+                }
+                else{
+                    onDone.popOnClose();
+                }
+                onDone(mapID(), X(), Y());
+            },
+
+            [closed, onDone]()
+            {
+                if(*closed){
+                    return;
+                }
+                else{
+                    onDone.popOnClose();
+                }
+                onDone();
+            });
+        }
+        else{
+            requestMapSwitch(argMapID, argX, argY, false, [closed, onDone, this]()
+            {
+                if(*closed){
+                    return;
+                }
+                else{
+                    onDone.popOnClose();
+                }
+                onDone(mapID(), X(), Y());
+            },
+
+            [closed, onDone]()
+            {
+                if(*closed){
+                    return;
+                }
+                else{
+                    onDone.popOnClose();
+                }
+                onDone();
+            });
+        }
+    });
+
+    m_luaRunner->bindFunctionCoop("_RSVD_NAME_randomMove", [this](LuaCoopResumer onDone)
+    {
+        const auto newGLoc = [this]() -> std::optional<std::array<int, 2>>
+        {
+            const int startDir = pathf::getRandDir();
+            for(int i = 0; i < 8; ++i){
+                if(const auto [newX, newY] = pathf::getFrontGLoc(X(), Y(), pathf::getNextDir(startDir, i)); m_map->groundValid(newX, newY)){
+                    return {{newX, newY}};
+                }
+            }
+            return {};
+        }();
+
+        if(newGLoc.has_value()){
+            auto closed = std::make_shared<bool>(false);
+            onDone.pushOnClose([closed]()
+            {
+                *closed = true;
+            });
+
+            const auto [newX, newY] = newGLoc.value();
+            requestMove(newX, newY, SYS_DEFSPEED, false, false, [closed, oldX = X(), oldY = Y(), onDone, this]()
+            {
+                if(*closed){
+                    return;
+                }
+                else{
+                    onDone.popOnClose();
+                }
+
+                // player doesn't sendback its move to client in requestMove() because player's move usually driven by client
+                // but here need to sendback the forced move since it's driven by server
+
+                reportAction(UID(), mapID(), ActionMove
+                {
+                    .speed = SYS_DEFSPEED,
+                    .x = oldX,
+                    .y = oldY,
+                    .aimX = X(),
+                    .aimY = Y(),
+                });
+
+                onDone(mapID(), X(), Y());
+            },
+
+            [closed, onDone]()
+            {
+                if(*closed){
+                    return;
+                }
+                else{
+                    onDone.popOnClose();
+                }
+                onDone();
+            });
+        }
+        else{
+            onDone();
+        }
+    });
+
+    m_luaRunner->bindFunctionCoop("_RSVD_NAME_queryQuestTriggerList", [this](LuaCoopResumer onDone, int triggerType)
+    {
+        fflassert(triggerType >= SYS_ON_BEGIN, triggerType);
+        fflassert(triggerType <  SYS_ON_END  , triggerType);
+
+        auto closed = std::make_shared<bool>(false);
+        onDone.pushOnClose([closed]()
+        {
+            *closed = true;
+        });
+
+        AMQueryQuestTriggerList amQQTL;
+        std::memset(&amQQTL, 0, sizeof(amQQTL));
+
+        amQQTL.type = triggerType;
+
+        m_actorPod->forward(uidf::getServiceCoreUID(), {AM_QUERYQUESTTRIGGERLIST, amQQTL}, [closed, onDone, this](const ActorMsgPack &rmpk)
+        {
+            if(*closed){
+                return;
+            }
+            else{
+                onDone.popOnClose();
+            }
+
+            switch(rmpk.type()){
+                case AM_OK:
+                    {
+                        onDone(rmpk.deserialize<std::vector<uint64_t>>());
+                        break;
+                    }
+                default:
+                    {
+                        onDone();
+                        break;
+                    }
+            }
+        });
+    });
+
+    m_luaRunner->pfrCheck(m_luaRunner->execRawString(BEGIN_LUAINC(char)
+#include "player.lua"
+    END_LUAINC()));
+
+    m_luaRunner->spawn(m_threadKey++, str_printf(
+    R"###( for _, questName in ipairs(dbLoadQuestNameList())                        )###""\n"
+    R"###( do                                                                       )###""\n"
+    R"###(     local questUID = _RSVD_NAME_callFuncCoop("queryQuestUID", questName) )###""\n"
+    R"###(     assertType(questUID, 'integer')                                      )###""\n"
+    R"###(                                                                          )###""\n"
+    R"###(     if questUID ~= 0 then                                                )###""\n"
+    R"###(         uidExecute(questUID, [[ restoreUIDQuestState(%llu) ]])           )###""\n"
+    R"###(     end                                                                  )###""\n"
+    R"###( end                                                                      )###""\n", to_llu(UID())));
 }
 
 void Player::operateAM(const ActorMsgPack &rstMPK)
@@ -77,11 +527,6 @@ void Player::operateAM(const ActorMsgPack &rstMPK)
                 on_AM_MAPSWITCHTRIGGER(rstMPK);
                 break;
             }
-        case AM_NPCQUERY:
-            {
-                on_AM_NPCQUERY(rstMPK);
-                break;
-            }
         case AM_QUERYLOCATION:
             {
                 on_AM_QUERYLOCATION(rstMPK);
@@ -100,6 +545,11 @@ void Player::operateAM(const ActorMsgPack &rstMPK)
         case AM_ADDBUFF:
             {
                 on_AM_ADDBUFF(rstMPK);
+                break;
+            }
+        case AM_REMOVEBUFF:
+            {
+                on_AM_REMOVEBUFF(rstMPK);
                 break;
             }
         case AM_MISS:
@@ -142,6 +592,11 @@ void Player::operateAM(const ActorMsgPack &rstMPK)
                 on_AM_RECVPACKAGE(rstMPK);
                 break;
             }
+        case AM_QUERYUIDBUFF:
+            {
+                on_AM_QUERYUIDBUFF(rstMPK);
+                break;
+            }
         case AM_QUERYCORECORD:
             {
                 on_AM_QUERYCORECORD(rstMPK);
@@ -155,6 +610,11 @@ void Player::operateAM(const ActorMsgPack &rstMPK)
         case AM_OFFLINE:
             {
                 on_AM_OFFLINE(rstMPK);
+                break;
+            }
+        case AM_QUERYPLAYERNAME:
+            {
+                on_AM_QUERYPLAYERNAME(rstMPK);
                 break;
             }
         case AM_QUERYPLAYERWLDESP:
@@ -175,6 +635,36 @@ void Player::operateAM(const ActorMsgPack &rstMPK)
         case AM_NOTIFYDEAD:
             {
                 on_AM_NOTIFYDEAD(rstMPK);
+                break;
+            }
+        case AM_REMOTECALL:
+            {
+                on_AM_REMOTECALL(rstMPK);
+                break;
+            }
+        case AM_REQUESTJOINTEAM:
+            {
+                on_AM_REQUESTJOINTEAM(rstMPK);
+                break;
+            }
+        case AM_REQUESTLEAVETEAM:
+            {
+                on_AM_REQUESTLEAVETEAM(rstMPK);
+                break;
+            }
+        case AM_QUERYTEAMPLAYER:
+            {
+                on_AM_QUERYTEAMPLAYER(rstMPK);
+                break;
+            }
+        case AM_QUERYTEAMMEMBERLIST:
+            {
+                on_AM_QUERYTEAMMEMBERLIST(rstMPK);
+                break;
+            }
+        case AM_TEAMUPDATE:
+            {
+                on_AM_TEAMUPDATE(rstMPK);
                 break;
             }
         default:
@@ -198,17 +688,23 @@ void Player::operateNet(uint8_t nType, const uint8_t *pData, size_t nDataLen)
         _support_cm(CM_PICKUP                    );
         _support_cm(CM_PING                      );
         _support_cm(CM_CONSUMEITEM               );
+        _support_cm(CM_MAKEITEM                  );
         _support_cm(CM_BUY                       );
         _support_cm(CM_QUERYGOLD                 );
         _support_cm(CM_NPCEVENT                  );
         _support_cm(CM_QUERYSELLITEMLIST         );
+        _support_cm(CM_QUERYPLAYERNAME           );
+        _support_cm(CM_QUERYUIDBUFF              );
         _support_cm(CM_QUERYPLAYERWLDESP         );
         _support_cm(CM_REQUESTEQUIPWEAR          );
         _support_cm(CM_REQUESTGRABWEAR           );
         _support_cm(CM_REQUESTEQUIPBELT          );
         _support_cm(CM_REQUESTGRABBELT           );
+        _support_cm(CM_REQUESTJOINTEAM           );
+        _support_cm(CM_REQUESTLEAVETEAM          );
         _support_cm(CM_DROPITEM                  );
         _support_cm(CM_SETMAGICKEY               );
+        _support_cm(CM_SETRUNTIMECONFIG          );
         default: break;
 #undef _support_cm
     }
@@ -320,7 +816,7 @@ bool Player::dcValid(int, bool)
     return true;
 }
 
-DamageNode Player::getAttackDamage(int nDC) const
+DamageNode Player::getAttackDamage(int nDC, int) const
 {
     const auto node = getCombatNode(m_sdItemStorage.wear, {}, UID(), level());
     const double elemRatio = 1.0 + 0.1 * [nDC, &node]() -> int
@@ -388,7 +884,7 @@ DamageNode Player::getAttackDamage(int nDC) const
     }
 }
 
-bool Player::struckDamage(const DamageNode &node)
+bool Player::struckDamage(uint64_t, const DamageNode &node)
 {
     // hack for debug
     // make the player never die
@@ -536,7 +1032,7 @@ void Player::onCMActionStand(CMAction stCMA)
             case 0:
             default:
                 {
-                    if(directionValid(nDirection)){
+                    if(pathf::dirValid(nDirection)){
                         m_direction = nDirection;
                     }
 
@@ -560,7 +1056,7 @@ void Player::onCMActionMove(CMAction stCMA)
     switch(estimateHop(nX0, nY0)){
         case 0:
             {
-                requestMove(nX1, nY1, MoveSpeed(), false, false, [this]()
+                requestMove(nX1, nY1, moveSpeed(), false, false, [this]()
                 {
                     dbUpdateMapGLoc();
                 },
@@ -618,7 +1114,7 @@ void Player::onCMActionAttack(CMAction stCMA)
                     switch(estimateHop(nX0, nY0)){
                         case 0:
                             {
-                                if(const auto aimDir = PathFind::GetDirection(X(), Y(), rstLocation.x, rstLocation.y); directionValid(aimDir)){
+                                if(const auto aimDir = pathf::getOffDir(X(), Y(), rstLocation.x, rstLocation.y); pathf::dirValid(aimDir)){
                                     m_direction = aimDir;
                                     dispatchAction(makeActionStand());
 
@@ -630,6 +1126,8 @@ void Player::onCMActionAttack(CMAction stCMA)
                                     case 1:
                                     case 2:
                                         {
+                                            const auto [buffID, modifierID] = m_buffList.rollAttackModifier();
+
                                             // client reports 攻杀技术 but server need to validate if it's scheduled
                                             // if not scheduled then dispatch 物理攻击 instead, this is for client anti-cheat
                                             dispatchAction(ActionAttack
@@ -647,6 +1145,7 @@ void Player::onCMActionAttack(CMAction stCMA)
                                                         return nDCType;
                                                     }
                                                 }(),
+                                                .modifierID = to_u32(modifierID),
                                             });
 
                                             std::vector<uint64_t> aimUIDList;
@@ -661,7 +1160,7 @@ void Player::onCMActionAttack(CMAction stCMA)
                                                     {
                                                         scoped_alloc::svobuf_wrapper<std::tuple<int, int>, 3> aimGridList;
                                                         for(int d: {-1, 0, 1}){
-                                                            aimGridList.c.push_back(pathf::getFrontGLoc(X(), Y(), pathf::nextDirection(Direction(), d)));
+                                                            aimGridList.c.push_back(pathf::getFrontGLoc(X(), Y(), pathf::getNextDir(Direction(), d)));
                                                         }
 
                                                         for(const auto &[uid, coLoc]: m_inViewCOList){
@@ -707,7 +1206,10 @@ void Player::onCMActionAttack(CMAction stCMA)
                                             }
 
                                             for(const auto uid: aimUIDList){
-                                                dispatchAttackDamage(uid, nDCType);
+                                                if(buffID){
+                                                    sendBuff(uid, 0, buffID);
+                                                }
+                                                dispatchAttackDamage(uid, nDCType, 0);
                                             }
 
                                             if(m_nextStrike){
@@ -777,51 +1279,44 @@ void Player::onCMActionSpell(CMAction cmA)
         case DBCOM_MAGICID(u8"幽灵盾"):
         case DBCOM_MAGICID(u8"神圣战甲术"):
             {
+                const auto buffID = DBCOM_BUFFID(DBCOM_MAGICRECORD(magicID).name);
+                const auto &br = DBCOM_BUFFRECORD(buffID);
+
+                fflassert(buffID);
+                fflassert(br);
+
                 if(cmA.action.aimUID){
                     switch(uidf::getUIDType(cmA.action.aimUID)){
                         case UID_MON:
                         case UID_PLY:
                             {
-                                checkFriend(cmA.action.aimUID, [cmA, this](int friendType)
-                                {
-                                    const static std::unordered_map<uint32_t, uint32_t> s_magic2buffID
+                                if(br.favor == 0){
+                                    sendBuff(cmA.action.aimUID, 0, buffID);
+                                }
+                                else{
+                                    checkFriend(cmA.action.aimUID, [magicID, cmA, buffID, this](int friendType)
                                     {
-                                        {DBCOM_MAGICID(u8"治愈术"    ), DBCOM_BUFFID(u8"治愈术"    )},
-                                        {DBCOM_MAGICID(u8"施毒术"    ), DBCOM_BUFFID(u8"施毒术"    )},
-                                        {DBCOM_MAGICID(u8"幽灵盾"    ), DBCOM_BUFFID(u8"幽灵盾"    )},
-                                        {DBCOM_MAGICID(u8"神圣战甲术"), DBCOM_BUFFID(u8"神圣战甲术")},
-                                    };
-
-                                    const auto id = [cmA]() -> uint32_t
-                                    {
-                                        if(const auto p = s_magic2buffID.find(cmA.action.extParam.spell.magicID); p != s_magic2buffID.end()){
-                                            return p->second;
-                                        }
-                                        return 0;
-                                    }();
-
-                                    if(id){
-                                        const auto &br = DBCOM_BUFFRECORD(id);
+                                        const auto &br = DBCOM_BUFFRECORD(buffID);
                                         fflassert(br);
 
                                         switch(friendType){
                                             case FT_FRIEND:
                                                 {
                                                     if(br.favor >= 0){
-                                                        sendBuff(cmA.action.aimUID, id);
+                                                        sendBuff(cmA.action.aimUID, 0, buffID);
                                                     }
                                                     return;
                                                 }
                                             case FT_ENEMY:
                                                 {
                                                     if(br.favor <= 0){
-                                                        sendBuff(cmA.action.aimUID, id);
+                                                        sendBuff(cmA.action.aimUID, 0, buffID);
                                                     }
                                                     return;
                                                 }
                                             case FT_NEUTRAL:
                                                 {
-                                                    sendBuff(cmA.action.aimUID, id);
+                                                    sendBuff(cmA.action.aimUID, 0, buffID);
                                                     return;
                                                 }
                                             default:
@@ -829,8 +1324,9 @@ void Player::onCMActionSpell(CMAction cmA)
                                                     return;
                                                 }
                                         }
-                                    }
-                                });
+                                    });
+                                }
+                                break;
                             }
                         default:
                             {
@@ -838,8 +1334,8 @@ void Player::onCMActionSpell(CMAction cmA)
                             }
                     }
                 }
-                else{
-                    addBuff(UID(), DBCOM_BUFFID(u8"治愈术"));
+                else if(br.favor >= 0){
+                    addBuff(UID(), 0, buffID);
                 }
                 break;
             }
@@ -860,7 +1356,7 @@ void Player::onCMActionSpell(CMAction cmA)
 
                         addDelay(delay, [cmA, this]()
                         {
-                            dispatchAttackDamage(cmA.action.aimUID, cmA.action.extParam.spell.magicID);
+                            dispatchAttackDamage(cmA.action.aimUID, cmA.action.extParam.spell.magicID, 0);
                         });
                     });
                 }
@@ -884,7 +1380,7 @@ void Player::onCMActionSpell(CMAction cmA)
                     dispatchNetPackage(true, SM_CASTMAGIC, smFM);
                     addDelay(300, [smFM, this]()
                     {
-                        dispatchAttackDamage(smFM.AimUID, DBCOM_MAGICID(u8"雷电术"));
+                        dispatchAttackDamage(smFM.AimUID, DBCOM_MAGICID(u8"雷电术"), 0);
                     });
                 });
                 break;
@@ -918,9 +1414,7 @@ void Player::onCMActionSpell(CMAction cmA)
         case DBCOM_MAGICID(u8"召唤骷髅"):
         case DBCOM_MAGICID(u8"超强召唤骷髅"):
             {
-                int nFrontX = -1;
-                int nFrontY = -1;
-                PathFind::GetFrontLocation(&nFrontX, &nFrontY, X(), Y(), Direction(), 2);
+                const auto [nFrontX, nFrontY] = pathf::getFrontGLoc(X(), Y(), Direction(), 2);
 
                 SMCastMagic smFM;
                 std::memset(&smFM, 0, sizeof(smFM));
@@ -934,11 +1428,13 @@ void Player::onCMActionSpell(CMAction cmA)
 
                 addDelay(600, [this, magicID, smFM]()
                 {
-                    if(to_u32(magicID) == DBCOM_MAGICID(u8"召唤骷髅")){
-                        addMonster(DBCOM_MONSTERID(u8"变异骷髅"), smFM.AimX, smFM.AimY, false);
-                    }
-                    else{
-                        addMonster(DBCOM_MONSTERID(u8"超强骷髅"), smFM.AimX, smFM.AimY, false);
+                    for(int i = 0; i < g_serverArgParser->summonCount; ++i){
+                        if(to_u32(magicID) == DBCOM_MAGICID(u8"召唤骷髅")){
+                            addMonster(DBCOM_MONSTERID(u8"变异骷髅"), smFM.AimX, smFM.AimY, false);
+                        }
+                        else{
+                            addMonster(DBCOM_MONSTERID(u8"超强骷髅"), smFM.AimX, smFM.AimY, false);
+                        }
                     }
 
                     // addMonster will send ACTION_SPAWN to client
@@ -948,9 +1444,7 @@ void Player::onCMActionSpell(CMAction cmA)
             }
         case DBCOM_MAGICID(u8"召唤神兽"):
             {
-                int nFrontX = -1;
-                int nFrontY = -1;
-                PathFind::GetFrontLocation(&nFrontX, &nFrontY, X(), Y(), Direction(), 2);
+                const auto [nFrontX, nFrontY] = pathf::getFrontGLoc(X(), Y(), Direction(), 2);
 
                 SMCastMagic smFM;
                 std::memset(&smFM, 0, sizeof(smFM));
@@ -964,7 +1458,9 @@ void Player::onCMActionSpell(CMAction cmA)
 
                 addDelay(1000, [this, smFM]()
                 {
-                    addMonster(DBCOM_MONSTERID(u8"神兽"), smFM.AimX, smFM.AimY, false);
+                    for(int i = 0; i < g_serverArgParser->summonCount; ++i){
+                        addMonster(DBCOM_MONSTERID(u8"神兽"), smFM.AimX, smFM.AimY, false);
+                    }
                 });
                 break;
             }
@@ -1013,7 +1509,7 @@ void Player::onCMActionSpell(CMAction cmA)
         case DBCOM_MAGICID(u8"冰沙掌"):
         case DBCOM_MAGICID(u8"疾光电影"):
             {
-                if(const auto dirIndex = pathf::getDir8(cmA.action.aimX - cmA.action.x, cmA.action.aimY - cmA.action.y); (dirIndex >= 0) && directionValid(dirIndex + DIR_BEGIN)){
+                if(const auto dirIndex = pathf::getDir8(cmA.action.aimX - cmA.action.x, cmA.action.aimY - cmA.action.y); (dirIndex >= 0) && pathf::dirValid(dirIndex + DIR_BEGIN)){
                     m_direction = dirIndex + DIR_BEGIN;
                 }
 
@@ -1060,11 +1556,11 @@ void Player::onCMActionSpell(CMAction cmA)
                 AMStrikeFixedLocDamage amSFLD;
                 std::memset(&amSFLD, 0, sizeof(amSFLD));
 
-                for(const auto [pathGX, pathGY]: pathGridList){
+                for(const auto &[pathGX, pathGY]: pathGridList){
                     if(m_map->groundValid(pathGX, pathGY)){
                         amSFLD.x = pathGX;
                         amSFLD.y = pathGY;
-                        amSFLD.damage = getAttackDamage(magicID);
+                        amSFLD.damage = getAttackDamage(magicID, 0);
                         addDelay(550 + mathf::CDistance(X(), Y(), amSFLD.x, amSFLD.y) * 100, [amSFLD, castMapID = mapID(), this]()
                         {
                             if(castMapID == mapID()){
@@ -1090,24 +1586,32 @@ void Player::onCMActionSpell(CMAction cmA)
     }
 }
 
-int Player::MaxStep() const
-{
-    if(Horse()){
-        return 3;
-    }else{
-        return 2;
-    }
-}
-
 void Player::gainExp(int addedExp)
 {
     if(addedExp <= 0){
         return;
     }
 
+    const auto oldLevel = level();
+    const auto oldMaxHP = Player::maxHP(UID(), oldLevel);
+    const auto oldMaxMP = Player::maxMP(UID(), oldLevel);
+
     m_exp += addedExp;
+    m_luaRunner->spawn(m_threadKey++, str_printf("_RSVD_NAME_trigger(SYS_ON_GAINEXP, %d)", addedExp));
+
+    const auto addedMaxHP = std::max<int>(Player::maxHP(UID(), level()) - oldMaxHP, 0);
+    const auto addedMaxMP = std::max<int>(Player::maxMP(UID(), level()) - oldMaxMP, 0);
+
     dbUpdateExp();
     postExp();
+
+    if(level() > oldLevel){
+        m_luaRunner->spawn(m_threadKey++, str_printf("_RSVD_NAME_trigger(SYS_ON_LEVELUP, %d, %d)", to_d(oldLevel), to_d(level())));
+    }
+
+    if(addedMaxHP > 0 || addedMaxMP > 0){
+        updateHealth(0, 0, addedMaxHP, addedMaxMP);
+    }
 }
 
 bool Player::CanPickUp(uint32_t, uint32_t)
@@ -1140,6 +1644,16 @@ void Player::reportSecuredItemList()
     {
         .itemList = dbLoadSecuredItemList(),
     }));
+}
+
+void Player::reportTeamMemberList()
+{
+    pullTeamMemberList([this](std::optional<SDTeamMemberList> sdTML)
+    {
+        if(sdTML.has_value()){
+            postNetMessage(SM_TEAMMEMBERLIST, cerealf::serialize(sdTML.value()));
+        }
+    });
 }
 
 void Player::checkFriend(uint64_t targetUID, std::function<void(int)> fnOp)
@@ -1216,7 +1730,14 @@ void Player::RequestKillPets()
 
 void Player::postOnlineOK()
 {
-    postNetMessage(SM_ONLINEOK);
+    SMOnlineOK smOOK;
+    std::memset(&smOOK, 0, sizeof(smOOK));
+
+    smOOK.uid = UID();
+    smOOK.mapID = mapID();
+    smOOK.action = makeActionStand();
+
+    postNetMessage(SM_ONLINEOK, smOOK);
     postNetMessage(SM_STARTGAMESCENE, cerealf::serialize(SDStartGameScene
     {
         .uid = UID(),
@@ -1242,20 +1763,16 @@ void Player::postOnlineOK()
     postNetMessage(SM_INVENTORY,        cerealf::serialize(m_sdItemStorage.inventory));
     postNetMessage(SM_BELT,             cerealf::serialize(m_sdItemStorage.belt));
     postNetMessage(SM_LEARNEDMAGICLIST, cerealf::serialize(m_sdLearnedMagicList));
-    postNetMessage(SM_RUNTIMECONFIG,    cerealf::serialize(m_sdRuntimeConfig));
+    postNetMessage(SM_PLAYERCONFIG,     cerealf::serialize(m_sdPlayerConfig));
 
     for(int wltype = WLG_BEGIN; wltype < WLG_END; ++wltype){
         if(const auto &item = m_sdItemStorage.wear.getWLItem(wltype)){
-            if(const auto buffIDOpt = item.getExtAttr<uint32_t>(SDItem::EA_BUFFID); buffIDOpt.has_value() && buffIDOpt.value()){
-                if(const auto [tag, pbuff] = addBuff(UID(), buffIDOpt.value()); pbuff){
-                    if(const auto auraList = pbuff->getAuraList(); !auraList.empty()){
-                        pbuff->dispatchAura();
-                    }
-
-                    m_onWearOff[wltype] = [tag, this]()
+            if(const auto buffIDOpt = item.getExtAttr<SDItem::EA_BUFFID_t>(); buffIDOpt.has_value() && buffIDOpt.value()){
+                if(const auto pbuff = addBuff(UID(), 0, buffIDOpt.value())){
+                    addWLOffTrigger(wltype, [buffSeq = pbuff->buffSeq(), this]()
                     {
-                        m_buffList.erase(tag);
-                    };
+                        removeBuff(buffSeq, true);
+                    });
                 }
             }
         }
@@ -1271,6 +1788,9 @@ const SDItem &Player::addInventoryItem(SDItem item, bool keepSeqID)
 {
     const auto &addedItem = m_sdItemStorage.inventory.add(std::move(item), keepSeqID);
     dbUpdateInventoryItem(addedItem);
+
+    m_luaRunner->spawn(m_threadKey++, str_printf("_RSVD_NAME_trigger(SYS_ON_GAINITEM, %llu)", to_llu(item.itemID)));
+
     postNetMessage(SM_UPDATEITEM, cerealf::serialize(SDUpdateItem
     {
         .item = addedItem,
@@ -1324,7 +1844,7 @@ const SDItem &Player::findInventoryItem(uint32_t itemID, uint32_t seqID) const
     return m_sdItemStorage.inventory.find(itemID, seqID);
 }
 
-void Player::addSecuredItem(uint32_t itemID, uint32_t seqID)
+void Player::secureItem(uint32_t itemID, uint32_t seqID)
 {
     fflassert(findInventoryItem(itemID, seqID));
     dbSecureItem(itemID, seqID);
@@ -1348,6 +1868,16 @@ void Player::setGold(size_t gold)
     m_sdItemStorage.gold = gold;
     g_dbPod->exec("update tbl_char set fld_gold = %llu where fld_dbid = %llu", to_llu(m_sdItemStorage.gold), to_llu(dbid()));
     reportGold();
+}
+
+bool Player::updateHealth(int addHP, int addMP, int addMaxHP, int addMaxMP)
+{
+    if(BattleObject::updateHealth(addHP, addMP, addMaxHP, addMaxMP)){
+        dbUpdateHealth();
+        postNetMessage(SM_HEALTH, cerealf::serialize(m_sdHealth));
+        return true;
+    }
+    return false;
 }
 
 void Player::setWLItem(int wltype, SDItem item)
@@ -1382,13 +1912,9 @@ void Player::postExp()
 
 bool Player::canWear(uint32_t itemID, int wltype) const
 {
-    if(!(wltype >= WLG_BEGIN && wltype < WLG_END)){
-        throw fflerror("invalid wltype: %d", wltype);
-    }
-
-    if(!itemID){
-        throw fflerror("invalid itemID: %llu", to_llu(itemID));
-    }
+    fflassert(itemID, itemID);
+    fflassert(wltype >= WLG_BEGIN, wltype);
+    fflassert(wltype <  WLG_END  , wltype);
 
     const auto &ir = DBCOM_ITEMRECORD(itemID);
     if(!ir){
@@ -1399,7 +1925,7 @@ bool Player::canWear(uint32_t itemID, int wltype) const
         return false;
     }
 
-    if(wltype == WLG_DRESS && getClothGender(itemID) != gender()){
+    if(wltype == WLG_DRESS && (!ir.clothGender().has_value() || ir.clothGender().value() != gender())){
         return false;
     }
 
@@ -1409,7 +1935,7 @@ bool Player::canWear(uint32_t itemID, int wltype) const
     return true;
 }
 
-std::vector<std::string> Player::parseNPCQuery(const char *query)
+std::vector<std::string> Player::parseRemoteCall(const char *query)
 {
     fflassert(str_haschar(query));
 
@@ -1465,4 +1991,151 @@ int Player::maxMP(uint64_t uid, uint32_t level)
     if(uidf::hasPlayerJob(uid, JOB_TAOIST )) result = std::max<int>(result, maxMPTaoist );
     if(uidf::hasPlayerJob(uid, JOB_WIZARD )) result = std::max<int>(result, maxMPWizard );
     return result;
+}
+
+bool Player::consumeBook(uint32_t itemID)
+{
+    const auto &ir = DBCOM_ITEMRECORD(itemID);
+    fflassert(ir);
+    fflassert(ir.isBook());
+
+    const auto magicID = DBCOM_MAGICID(ir.name);
+    const auto &mr = DBCOM_MAGICRECORD(magicID);
+
+    fflassert(magicID);
+    fflassert(mr);
+
+    if(m_sdLearnedMagicList.has(magicID)){
+        postNetMessage(SM_TEXT, str_printf(u8"无法学习%s，因为你已掌握此技能", to_cstr(mr.name)));
+        return false;
+    }
+
+    if(!g_serverArgParser->disableLearnMagicCheckJob){
+        bool hasJob = false;
+        for(const auto reqJob: jobf::getJobList(to_cstr(mr.req.job))){
+            if(uidf::hasPlayerJob(UID(), reqJob)){
+                hasJob = true;
+                break;
+            }
+        }
+
+        if(!hasJob){
+            postNetMessage(SM_TEXT, str_printf(u8"无法学习%s，因为此项技能需要职业为%s", to_cstr(mr.name), to_cstr(mr.req.job)));
+            return false;
+        }
+    }
+
+    if(to_d(level()) < mr.req.level[0] && !g_serverArgParser->disableLearnMagicCheckLevel){
+        postNetMessage(SM_TEXT, str_printf(u8"无法学习%s，因为你尚未到达%d级", to_cstr(mr.name), mr.req.level[0]));
+        return false;
+    }
+
+    if(str_haschar(mr.req.prior) && !g_serverArgParser->disableLearnMagicCheckPrior){
+        const auto priorMagicID = DBCOM_MAGICID(mr.req.prior);
+        const auto &priorMR = DBCOM_MAGICRECORD(priorMagicID);
+
+        fflassert(priorMagicID);
+        fflassert(priorMR);
+
+        if(!m_sdLearnedMagicList.has(priorMagicID)){
+            postNetMessage(SM_TEXT, str_printf(u8"无法学习%s，因为你尚未学习前置魔法%s", to_cstr(mr.name), to_cstr(priorMR.name)));
+            return false;
+        }
+    }
+
+    m_sdLearnedMagicList.magicList.push_back(SDLearnedMagic
+    {
+        .magicID = magicID,
+    });
+
+    dbLearnMagic(magicID);
+    postNetMessage(SM_TEXT, str_printf(u8"恭喜掌握%s", to_cstr(mr.name)));
+    postNetMessage(SM_LEARNEDMAGICLIST, cerealf::serialize(m_sdLearnedMagicList));
+    return true;
+}
+
+bool Player::consumePotion(uint32_t itemID)
+{
+    const auto &ir = DBCOM_ITEMRECORD(itemID);
+    fflassert(ir);
+    fflassert(ir.isPotion());
+
+    if(addBuff(UID(), 0, DBCOM_BUFFID(ir.name))){
+        return true;
+    }
+    return false;
+}
+
+void Player::pullTeamMemberList(std::function<void(std::optional<SDTeamMemberList>)> fnHandle)
+{
+    if(!fnHandle){
+        return;
+    }
+
+    if(!m_teamLeader){
+        fnHandle(SDTeamMemberList{});
+        return;
+    }
+
+    if(m_teamLeader != UID()){
+        m_actorPod->forward(m_teamLeader, AM_QUERYTEAMMEMBERLIST, [fnHandle, this](const ActorMsgPack &mpk)
+        {
+            switch(mpk.type()){
+                case AM_TEAMMEMBERLIST:
+                    {
+                        const auto sdTML = mpk.deserialize<SDTeamMemberList>();
+                        fflassert(sdTML.hasMember(UID())); // keep this function read only
+                        fnHandle(sdTML);
+                        break;
+                    }
+                default:
+                    {
+                        fnHandle({});
+                        break;
+                    }
+            }
+        });
+        return;
+    }
+
+    auto cnter = std::make_shared<size_t>(0);
+    auto sdTML = std::make_shared<SDTeamMemberList>();
+
+    sdTML->teamLeader = m_teamLeader;
+    sdTML->memberList.resize(m_teamMemberList.size());
+
+    for(size_t i = 0; i < m_teamMemberList.size(); ++i){
+        if(m_teamMemberList.at(i) == UID()){
+            sdTML->memberList[i] = SDTeamPlayer
+            {
+                .uid = UID(),
+                .level = level(),
+                .name = name(),
+            };
+
+            if(++(*cnter) == m_teamMemberList.size()){
+                fnHandle(*sdTML);
+            }
+        }
+        else{
+            m_actorPod->forward(m_teamMemberList.at(i), AM_QUERYTEAMPLAYER, [i, cnter, sdTML, memberCount = m_teamMemberList.size(), fnHandle, this](const ActorMsgPack &mpk)
+            {
+                switch(mpk.type()){
+                    case AM_TEAMPLAYER:
+                        {
+                            sdTML->memberList.at(i) = mpk.deserialize<SDTeamPlayer>();
+                            break;
+                        }
+                    default:
+                        {
+                            break;
+                        }
+                }
+
+                if(++(*cnter) == memberCount){
+                    fnHandle(*sdTML);
+                }
+            });
+        }
+    }
 }

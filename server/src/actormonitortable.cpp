@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: actormonitortable.cpp
- *        Created: 12/04/2018 23:39:19
- *    Description: check FLTK/examples/table-*.cxx
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <FL/Fl.H>
 #include <algorithm>
 #include <FL/fl_draw.H>
@@ -111,7 +93,8 @@ void ActorMonitorTable::setupColWidth()
         for(int i = 0; i < getColCount(); ++i){
             col_width(i, fnHeaderWidth(i));
         }
-    }else{
+    }
+    else{
         col_width(0, (std::max<int>)(fnHeaderWidth(0), 150)); // UID
         col_width(1, (std::max<int>)(fnHeaderWidth(1),  80)); // TYPE
         col_width(2, (std::max<int>)(fnHeaderWidth(2),  30)); // GROUP
@@ -180,7 +163,8 @@ int ActorMonitorTable::selectUIDRow(uint64_t uid)
         if(m_actorMonitorList[row].uid == uid){
             select_row(row, 1);
             uidRow = row;
-        }else{
+        }
+        else{
             select_row(row, 0);
         }
     }

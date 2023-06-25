@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: magicrecord.hpp
- *        Created: 08/04/2017 23:00:09
- *    Description: description of magic
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <tuple>
 #include <utility>
@@ -69,11 +51,11 @@ enum MagicStageType: int
 {
     MST_NONE  = 0,
     MST_BEGIN = 1,
-    MST_SPELL = 1,
-    MST_START,
-    MST_RUN,
-    MST_DONE,
-    MST_HITTED,
+    MST_SPELL = 1,  // motion effect to start the magic
+    MST_RUN,        // magic running, for non-sustainable magic this is the main part
+    MST_EXPLODE,    // magic explosion
+    MST_SUSTAIN,    // sustaining magic status, not common
+    MST_HITTED,     // sustaining magic get attacked, not common
     MST_END,
 };
 
@@ -81,9 +63,9 @@ constexpr inline const char8_t *magicStageName(int type)
 {
     switch(type){
         case MST_SPELL  : return u8"启动";
-        case MST_START  : return u8"开始";
         case MST_RUN    : return u8"运行";
-        case MST_DONE   : return u8"结束";
+        case MST_EXPLODE: return u8"裂解";
+        case MST_SUSTAIN: return u8"持续";
         case MST_HITTED : return u8"挨打";
         default         : return nullptr ;
     }
@@ -92,9 +74,9 @@ constexpr inline const char8_t *magicStageName(int type)
 constexpr inline int magicStageID(const char8_t *type)
 {
     if(type && std::u8string_view(type) == u8"启动") return MST_SPELL;
-    if(type && std::u8string_view(type) == u8"开始") return MST_START;
     if(type && std::u8string_view(type) == u8"运行") return MST_RUN;
-    if(type && std::u8string_view(type) == u8"结束") return MST_DONE;
+    if(type && std::u8string_view(type) == u8"裂解") return MST_EXPLODE;
+    if(type && std::u8string_view(type) == u8"持续") return MST_SUSTAIN;
     if(type && std::u8string_view(type) == u8"挨打") return MST_HITTED;
     return                                                  MST_NONE;
 }
@@ -151,7 +133,7 @@ struct MagicGfxEntry
     const char8_t *stage = nullptr;
     const char8_t *type  = nullptr;
 
-    const uint32_t gfxID = SYS_TEXNIL;
+    const uint32_t gfxID = SYS_U32NIL;
     const uint32_t modColor = colorf::RGBA(0XFF, 0XFF, 0XFF, 0XFF);
 
     const int frameCount = 0;
@@ -162,6 +144,64 @@ struct MagicGfxEntry
     // only needed for magic type: 跟随
     // targetOffList.size() should be zero or equal to gfxDirType
     const std::initializer_list<std::tuple<int, int>> targetOffList {};
+    const struct MagicGfxEntrySoundEffect
+    {
+        // common cases of sound indexing
+        // 1. magic has no sound at all, like 精神力战法，基本剑术，etc:
+        //
+        //      leave MagicRecord::seffBase empty as default
+        //      leave MagicGfxEntry::seff::absSeffID empty
+        //
+        // 2. magic entry has sound effect and is by default sound indexing: 0X04000000 + MagicRecord::seff * 16 + offset_2_stage, mostly common
+        //
+        //      assign MagicRecord::seffBase value as in King_Magic.csv
+        //      leave MagicGfxEntry::seff::absSeffID empty
+        //
+        // 3. magic entry has sound effect but sound index can not be figured out directly:
+        //
+        //      ignore MagicRecord::seffBase value
+        //      assign MagicGfxEntry::seff::absSeffID with the absolute seffID in SoundEffectDB
+        //
+        // 4. magic has sound for other gfxEntry, but *this* entry has no sound, very common
+        //
+        //      do same as 2
+        //      client tries to find the sound file in SoundEffectDB, but it doesn't exist
+        //
+        //    TODO this case and case-2 are mostly common for the magic configuration
+        //         I shall keep their configuration as simple as possible, mute a MagicGfxEntry in a gentle way takes me some time
+        //
+        //         for current implementation:
+        //         pros: simple
+        //         cons: SoundEffectDB either loads this non-existing file everytime trying to play it, or a null place-holder needed
+        //
+        //         for implementation that add a flag as: MagicGfxEntry::seff::mute
+        //         pros:
+        //         cons: case-2 and case-4 are inverse
+        //               this means for either case-2 or case-4 I have to explicitly assign this .mute a value to overwrite the default
+        //
+        //         for implementation that assign MagicGfxEntry::seff::absSeffID as SYS_U32NIL
+        //         pros: skip the loading at all
+        //         cons: 1. need to explicit assign this value if to disable the GfxEntry
+        //               2. I am trying to get rid of this SYS_U32MIL and SYS_U64NIL, most of time an empty std::optional can be used to replace magic number
+        //                  but here I can not because the empty std::optional means to used default sound indexing rule
+
+        // for a magic gfx entry, priority of sound effect:
+        // 1. use sound effect of ref if ref is defined
+        // 2. use absSeffID if defined
+        // 3. use 0X04000000 + MagicRecord::seff * 16 + offset_2_stage
+
+        const struct MagicGfxEntrySoundEffectRef
+        {
+            const char8_t * name  = nullptr;
+            const char8_t * stage = nullptr;
+        }
+        ref {};
+
+        // absolute index in SoundEffectDB
+        // assign it to SYS_U32NIL to mute *this* MagicGfxEntry
+        const std::optional<uint32_t> absSeffID {};
+    }
+    seff {};
 
     // gfx is on ground
     // player can walk on the magic
@@ -196,9 +236,9 @@ struct MagicGfxEntry
     {
         return false
             || checkStage(u8"启动")
-            || checkStage(u8"开始")
             || checkStage(u8"运行")
-            || checkStage(u8"结束")
+            || checkStage(u8"裂解")
+            || checkStage(u8"持续")
             || checkStage(u8"挨打");
     }
 
@@ -247,7 +287,9 @@ struct MagicRecord
     {
         const int level[3] = {0, 0, 0};
         const int train[3] = {0, 0, 0};
-        const char8_t *job = nullptr;
+
+        const char8_t *job   = nullptr;
+        const char8_t *prior = nullptr;
     }
     req {};
 
@@ -266,14 +308,13 @@ struct MagicRecord
     const int    power[2] = {0, 0};
     const int addPower[2] = {0, 0};
 
+    // seffBase is MagID in readme/sql2csv/King_Magic.csv
+    // MagicGfxEntry can assign value to absSeffID to give seperate sound effect for specific entry
+    const std::optional<int> seffBase {};
     const std::initializer_list<MagicGfxEntry> gfxList {};
 
     constexpr operator bool () const
     {
         return name && name[0];
     }
-
-    // need to be non-constexpr
-    // because to support magic gfx entry reference
-    std::pair<const MagicGfxEntry &, const MagicGfxEntryRef &> getGfxEntry(const char8_t *) const;
 };

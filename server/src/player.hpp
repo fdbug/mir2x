@@ -1,23 +1,6 @@
-/*
- * =====================================================================================
- *
- *       Filename: player.hpp
- *        Created: 04/08/2016 22:37:01
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <set>
+#include <deque>
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
@@ -25,6 +8,7 @@
 #include "monoserver.hpp"
 #include "battleobject.hpp"
 #include "combatnode.hpp"
+#include "serverluamodule.hpp"
 
 class Player final: public BattleObject
 {
@@ -52,6 +36,10 @@ class Player final: public BattleObject
     protected:
         std::set<uint64_t> m_slaveList;
 
+    protected:
+        uint64_t m_teamLeader = 0;
+        std::vector<uint64_t> m_teamMemberList; // ignored if not team leader
+
     private:
         bool m_pickUpLock = false;
 
@@ -63,18 +51,28 @@ class Player final: public BattleObject
 
     private:
         SDItemStorage      m_sdItemStorage;
+        SDPlayerConfig     m_sdPlayerConfig;
         SDLearnedMagicList m_sdLearnedMagicList;
-        SDRuntimeConfig    m_sdRuntimeConfig;
 
     private:
         std::unordered_map<int, std::function<void()>> m_onBeltOff;
-        std::unordered_map<int, std::function<void()>> m_onWearOff;
+        std::unordered_map<int, std::function<void()>> m_onWLOff;
+
+    private:
+        uint64_t m_threadKey = 1;
+        std::unique_ptr<ServerLuaCoroutineRunner> m_luaRunner;
+
+    private:
+        std::unordered_map<int, std::vector<sol::function>> m_scriptEventTriggerList;
 
     public:
         Player(const SDInitPlayer &, const ServerMap *);
 
     public:
         ~Player() = default;
+
+    public:
+        void onActivate() override;
 
     protected:
         uint32_t exp() const
@@ -92,6 +90,16 @@ class Player final: public BattleObject
             return to_u32(SYS_LEVEL(exp()));
         }
 
+        std::string name() const
+        {
+            return m_name;
+        }
+
+        uint32_t nameColor() const
+        {
+            return m_nameColor;
+        }
+
     public:
         int Speed(int) const override
         {
@@ -107,62 +115,77 @@ class Player final: public BattleObject
         void operateAM(const ActorMsgPack &);
 
     private:
-        void on_AM_EXP(const ActorMsgPack &);
-        void on_AM_ADDBUFF(const ActorMsgPack &);
-        void on_AM_MISS(const ActorMsgPack &);
-        void on_AM_HEAL(const ActorMsgPack &);
-        void on_AM_GIFT(const ActorMsgPack &);
-        void on_AM_ACTION(const ActorMsgPack &);
-        void on_AM_ATTACK(const ActorMsgPack &);
-        void on_AM_OFFLINE(const ActorMsgPack &);
-        void on_AM_CORECORD(const ActorMsgPack &);
-        void on_AM_NPCQUERY(const ActorMsgPack &);
-        void on_AM_METRONOME(const ActorMsgPack &);
-        void on_AM_MAPSWITCHTRIGGER(const ActorMsgPack &);
-        void on_AM_SENDPACKAGE(const ActorMsgPack &);
-        void on_AM_RECVPACKAGE(const ActorMsgPack &);
-        void on_AM_BADCHANNEL(const ActorMsgPack &);
-        void on_AM_NOTIFYDEAD(const ActorMsgPack &);
-        void on_AM_NOTIFYNEWCO(const ActorMsgPack &);
-        void on_AM_QUERYHEALTH(const ActorMsgPack &);
-        void on_AM_DEADFADEOUT(const ActorMsgPack &);
-        void on_AM_BADACTORPOD(const ActorMsgPack &);
-        void on_AM_BINDCHANNEL(const ActorMsgPack &);
-        void on_AM_CHECKMASTER(const ActorMsgPack &);
-        void on_AM_QUERYCORECORD(const ActorMsgPack &);
-        void on_AM_QUERYLOCATION(const ActorMsgPack &);
-        void on_AM_QUERYFRIENDTYPE(const ActorMsgPack &);
-        void on_AM_REMOVEGROUNDITEM(const ActorMsgPack &);
-        void on_AM_QUERYPLAYERWLDESP(const ActorMsgPack &);
+        void on_AM_EXP                (const ActorMsgPack &);
+        void on_AM_ADDBUFF            (const ActorMsgPack &);
+        void on_AM_REMOVEBUFF         (const ActorMsgPack &);
+        void on_AM_MISS               (const ActorMsgPack &);
+        void on_AM_HEAL               (const ActorMsgPack &);
+        void on_AM_GIFT               (const ActorMsgPack &);
+        void on_AM_ACTION             (const ActorMsgPack &);
+        void on_AM_ATTACK             (const ActorMsgPack &);
+        void on_AM_OFFLINE            (const ActorMsgPack &);
+        void on_AM_CORECORD           (const ActorMsgPack &);
+        void on_AM_METRONOME          (const ActorMsgPack &);
+        void on_AM_MAPSWITCHTRIGGER   (const ActorMsgPack &);
+        void on_AM_SENDPACKAGE        (const ActorMsgPack &);
+        void on_AM_RECVPACKAGE        (const ActorMsgPack &);
+        void on_AM_BADCHANNEL         (const ActorMsgPack &);
+        void on_AM_NOTIFYDEAD         (const ActorMsgPack &);
+        void on_AM_NOTIFYNEWCO        (const ActorMsgPack &);
+        void on_AM_QUERYHEALTH        (const ActorMsgPack &);
+        void on_AM_DEADFADEOUT        (const ActorMsgPack &);
+        void on_AM_BADACTORPOD        (const ActorMsgPack &);
+        void on_AM_BINDCHANNEL        (const ActorMsgPack &);
+        void on_AM_CHECKMASTER        (const ActorMsgPack &);
+        void on_AM_QUERYCORECORD      (const ActorMsgPack &);
+        void on_AM_QUERYLOCATION      (const ActorMsgPack &);
+        void on_AM_QUERYFRIENDTYPE    (const ActorMsgPack &);
+        void on_AM_REMOVEGROUNDITEM   (const ActorMsgPack &);
+        void on_AM_QUERYUIDBUFF       (const ActorMsgPack &);
+        void on_AM_QUERYPLAYERNAME    (const ActorMsgPack &);
+        void on_AM_QUERYPLAYERWLDESP  (const ActorMsgPack &);
+        void on_AM_REMOTECALL         (const ActorMsgPack &);
+        void on_AM_REQUESTJOINTEAM    (const ActorMsgPack &);
+        void on_AM_REQUESTLEAVETEAM   (const ActorMsgPack &);
+        void on_AM_QUERYTEAMPLAYER    (const ActorMsgPack &);
+        void on_AM_QUERYTEAMMEMBERLIST(const ActorMsgPack &);
+        void on_AM_TEAMUPDATE         (const ActorMsgPack &);
 
     private:
-        void net_CM_REQUESTADDEXP           (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTKILLPETS         (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTSPACEMOVE        (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTMAGICDAMAGE      (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTADDEXP             (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTKILLPETS           (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTSPACEMOVE          (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTMAGICDAMAGE        (uint8_t, const uint8_t *, size_t);
         void net_CM_REQUESTRETRIEVESECUREDITEM(uint8_t, const uint8_t *, size_t);
-        void net_CM_QUERYCORECORD           (uint8_t, const uint8_t *, size_t);
-        void net_CM_QUERYSELLITEMLIST       (uint8_t, const uint8_t *, size_t);
-        void net_CM_QUERYPLAYERWLDESP       (uint8_t, const uint8_t *, size_t);
-        void net_CM_ACTION                  (uint8_t, const uint8_t *, size_t);
-        void net_CM_PICKUP                  (uint8_t, const uint8_t *, size_t);
-        void net_CM_PING                    (uint8_t, const uint8_t *, size_t);
-        void net_CM_CONSUMEITEM             (uint8_t, const uint8_t *, size_t);
-        void net_CM_BUY                     (uint8_t, const uint8_t *, size_t);
-        void net_CM_QUERYGOLD               (uint8_t, const uint8_t *, size_t);
-        void net_CM_NPCEVENT                (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTEQUIPWEAR        (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTGRABWEAR         (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTEQUIPBELT        (uint8_t, const uint8_t *, size_t);
-        void net_CM_REQUESTGRABBELT         (uint8_t, const uint8_t *, size_t);
-        void net_CM_DROPITEM                (uint8_t, const uint8_t *, size_t);
-        void net_CM_SETMAGICKEY             (uint8_t, const uint8_t *, size_t);
+        void net_CM_QUERYCORECORD             (uint8_t, const uint8_t *, size_t);
+        void net_CM_QUERYSELLITEMLIST         (uint8_t, const uint8_t *, size_t);
+        void net_CM_QUERYUIDBUFF              (uint8_t, const uint8_t *, size_t);
+        void net_CM_QUERYPLAYERNAME           (uint8_t, const uint8_t *, size_t);
+        void net_CM_QUERYPLAYERWLDESP         (uint8_t, const uint8_t *, size_t);
+        void net_CM_ACTION                    (uint8_t, const uint8_t *, size_t);
+        void net_CM_PICKUP                    (uint8_t, const uint8_t *, size_t);
+        void net_CM_PING                      (uint8_t, const uint8_t *, size_t);
+        void net_CM_CONSUMEITEM               (uint8_t, const uint8_t *, size_t);
+        void net_CM_MAKEITEM                  (uint8_t, const uint8_t *, size_t);
+        void net_CM_BUY                       (uint8_t, const uint8_t *, size_t);
+        void net_CM_QUERYGOLD                 (uint8_t, const uint8_t *, size_t);
+        void net_CM_NPCEVENT                  (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTEQUIPWEAR          (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTGRABWEAR           (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTEQUIPBELT          (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTGRABBELT           (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTJOINTEAM           (uint8_t, const uint8_t *, size_t);
+        void net_CM_REQUESTLEAVETEAM          (uint8_t, const uint8_t *, size_t);
+        void net_CM_DROPITEM                  (uint8_t, const uint8_t *, size_t);
+        void net_CM_SETMAGICKEY               (uint8_t, const uint8_t *, size_t);
+        void net_CM_SETRUNTIMECONFIG          (uint8_t, const uint8_t *, size_t);
 
     protected:
         void reportGold();
         void reportStand();
         void reportHealth();
         void reportNextStrike();
+        void reportTeamMemberList();
         void reportDeadUID(uint64_t);
         void reportCO(uint64_t) override;
         void reportOffline(uint64_t, uint32_t);
@@ -173,16 +196,19 @@ class Player final: public BattleObject
         virtual void reportAction(uint64_t, uint32_t, const ActionNode &);
 
     protected:
+        void pullTeamMemberList(std::function<void(std::optional<SDTeamMemberList>)>);
+
+    protected:
         void dispatchOffline();
 
     protected:
-        bool struckDamage(const DamageNode &);
+        bool struckDamage(uint64_t, const DamageNode &) override;
 
     protected:
         void RequestKillPets();
 
     protected:
-        DamageNode getAttackDamage(int) const;
+        DamageNode getAttackDamage(int, int) const override;
 
     protected:
         bool dcValid(int, bool);
@@ -217,7 +243,7 @@ class Player final: public BattleObject
             postNetMessage(headCode, buf.data(), buf.length());
         }
 
-        template<typename T> void postNetMessage(uint8_t headCode, T& t)
+        template<typename T> void postNetMessage(uint8_t headCode, const T &t)
         {
             static_assert(std::is_trivially_copyable_v<T>);
             postNetMessage(headCode, &t, sizeof(t));
@@ -230,8 +256,21 @@ class Player final: public BattleObject
     protected:
         bool goOffline();
 
+        bool onHorse() const
+        {
+            return false;
+        }
+
     protected:
-        virtual int MaxStep() const;
+        int maxStep() const override
+        {
+            if(onHorse()){
+                return 3;
+            }
+            else{
+                return 2;
+            }
+        }
 
     protected:
         void gainExp(int);
@@ -241,6 +280,7 @@ class Player final: public BattleObject
 
     private:
         void dbUpdateExp();
+        void dbUpdateHealth();
         void dbUpdateMapGLoc();
 
     private:
@@ -265,15 +305,21 @@ class Player final: public BattleObject
         void dbRemoveWearItem(int);
 
     private:
-        void dbLoadRuntimeConfig();
+        void dbLoadPlayerConfig();
 
     private:
         void dbLoadLearnedMagic();
         void dbUpdateMagicKey(uint32_t, char);
 
     private:
+        void dbUpdateRuntimeConfig();
+
+    private:
         void dbLearnMagic(uint32_t);
         void dbAddMagicExp(uint32_t, size_t);
+
+    private:
+        std::vector<std::string> dbLoadQuestNameList() const;
 
     protected:
         void checkFriend(uint64_t, std::function<void(int)>) override;
@@ -297,7 +343,7 @@ class Player final: public BattleObject
         const SDItem &findInventoryItem(uint32_t, uint32_t) const;
 
     private:
-        void addSecuredItem(uint32_t, uint32_t);
+        void secureItem(uint32_t, uint32_t);
         void removeSecuredItem(uint32_t, uint32_t);
 
     private:
@@ -307,6 +353,15 @@ class Player final: public BattleObject
         }
 
         void setGold(size_t);
+
+    protected:
+        // TODO bad code need change
+        // virtual function with default parameters
+        bool updateHealth(
+                int = 0,            // hp
+                int = 0,            // mp
+                int = 0,            // maxHP
+                int = 0) override;  // maxMP
 
     public:
         uint32_t dbid() const
@@ -329,7 +384,7 @@ class Player final: public BattleObject
         bool canWear(uint32_t, int) const;
 
     private:
-        static std::vector<std::string> parseNPCQuery(const char *);
+        static std::vector<std::string> parseRemoteCall(const char *);
 
     private:
         template<typename... Args> void dispatchNetPackage(bool sendSelf, uint8_t type, Args && ... args)
@@ -346,4 +401,32 @@ class Player final: public BattleObject
     public:
         static int maxHP(uint64_t, uint32_t);
         static int maxMP(uint64_t, uint32_t);
+
+    protected:
+        void addWLOffTrigger(int wltype, std::function<void()> trigger)
+        {
+            fflassert(wltype >= WLG_BEGIN, wltype);
+            fflassert(wltype <  WLG_END  , wltype);
+
+            fflassert(trigger);
+            auto lastTrigger = std::move(m_onWLOff[wltype]);
+
+            m_onWLOff[wltype] = [lastTrigger = std::move(lastTrigger), currTrigger = std::move(trigger)]()
+            {
+                if(lastTrigger){
+                    lastTrigger();
+                }
+
+                if(currTrigger){
+                    currTrigger();
+                }
+            };
+        }
+
+    protected:
+        void resumeCORunner(uint64_t);
+
+    protected:
+        bool consumeBook(uint32_t);
+        bool consumePotion(uint32_t);
 };

@@ -7,8 +7,7 @@
 #include "widget.hpp"
 #include "raiitimer.hpp"
 #include "labelboard.hpp"
-#include "texvslider.hpp"
-#include "dbcomrecord.hpp"
+#include "texslider.hpp"
 #include "tritexbutton.hpp"
 #include "labelshadowboard.hpp"
 
@@ -19,7 +18,7 @@ class SkillBoard: public Widget
         struct MagicIconGfx
         {
             const uint32_t magicID = 0;
-            const uint32_t magicIcon = SYS_TEXNIL;
+            const uint32_t magicIcon = SYS_U32NIL;
 
             const int x = 0;
             const int y = 0;
@@ -86,7 +85,7 @@ class SkillBoard: public Widget
         };
 
     private:
-        class MagicIconButton: public WidgetGroup
+        class MagicIconButton: public WidgetContainer
         {
             // +-+-----+
             // |A|     |
@@ -122,13 +121,13 @@ class SkillBoard: public Widget
                 }
 
             public:
-                auto magicID() const
+                uint32_t magicID() const
                 {
                     return m_magicID;
                 }
         };
 
-        class SkillPage: public WidgetGroup
+        class SkillPage: public WidgetContainer
         {
             private:
                 SkillBoardConfig * const m_config;
@@ -188,7 +187,7 @@ class SkillBoard: public Widget
         std::vector<TritexButton *> m_tabButtonList;
 
     private:
-        TexVSlider m_slider;
+        TexSlider m_slider;
 
     private:
         TritexButton m_closeButton;

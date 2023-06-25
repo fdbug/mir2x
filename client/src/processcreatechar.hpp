@@ -25,16 +25,20 @@ class ProcessCreateChar: public Process
         TritexButton m_exit;
 
     private:
-        InputLine m_nameLine;
+        InputLine m_nameBox;
 
     private:
         NotifyBoard m_notifyBoard;
 
     private:
         double m_aniTime = 0.0;
+        uint32_t m_lastStartAbsFrame = 0;
 
     public:
         ProcessCreateChar();
+
+    public:
+        ~ProcessCreateChar() override;
 
     public:
         int id() const override
@@ -70,4 +74,7 @@ class ProcessCreateChar: public Process
     public:
         void net_CREATECHAROK   (const uint8_t *, size_t);
         void net_CREATECHARERROR(const uint8_t *, size_t);
+
+    private:
+        void playMagicSoundEffect();
 };

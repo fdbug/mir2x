@@ -4,7 +4,6 @@
 #include <cstddef>
 #include "fflerror.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 
 class BaseBuff;
 class BaseBuffAct
@@ -46,6 +45,9 @@ class BaseBuffAct
         {
             return m_buff;
         }
+
+    public:
+        virtual bool done() const; // if duration has passed
 
     public:
         const BuffRecord & getBR() const;

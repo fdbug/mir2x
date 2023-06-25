@@ -1,33 +1,15 @@
-/*
- * =====================================================================================
- *
- *       Filename: clientmonster.cpp
- *        Created: 08/31/2015 08:26:57
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include "log.hpp"
+#include "pathf.hpp"
 #include "totype.hpp"
 #include "dbcomid.hpp"
 #include "clientmonster.hpp"
 #include "uidf.hpp"
 #include "mathf.hpp"
 #include "fflerror.hpp"
-#include "condcheck.hpp"
 #include "processrun.hpp"
 #include "protocoldef.hpp"
-#include "dbcomrecord.hpp"
 #include "pngtexoffdb.hpp"
 #include "clientargparser.hpp"
 #include "clientpathfinder.hpp"
@@ -63,6 +45,7 @@
 #include "clientbombspider.hpp"
 #include "clientshipwrecklord.hpp"
 #include "clientminotaurguardian.hpp"
+#include "clienttree.hpp"
 
 extern Log *g_log;
 extern PNGTexDB *g_progUseDB;
@@ -108,10 +91,7 @@ std::optional<uint32_t> MonsterFrameGfxSeq::gfxID(const ClientMonster *monPtr, s
 ClientMonster::ClientMonster(uint64_t uid, ProcessRun *proc)
     : CreatureMovable(uid, proc)
 {
-    if(uidf::getUIDType(uid) != UID_MON){
-        throw fflerror("invalid UID for monster type: UIDName = %s", to_cstr(uidf::getUIDString(uid)));
-    }
-
+    fflassert(uidf::getUIDType(uid) == UID_MON, uidf::getUIDString(uid));
     if(g_clientArgParser->drawUID){
         m_nameBoard.setText(u8"%s(%llu)", DBCOM_MONSTERRECORD(monsterID()).name, to_llu(UID()));
     }
@@ -123,9 +103,84 @@ ClientMonster::ClientMonster(uint64_t uid, ProcessRun *proc)
 bool ClientMonster::update(double ms)
 {
     updateAttachMagic(ms);
-    const CallOnExitHelper motionOnUpdate([this]()
+    const CallOnExitHelper motionOnUpdate([lastSeqFrameID = m_currMotion->getSeqFrameID(), this]()
     {
         m_currMotion->runTrigger();
+        if(lastSeqFrameID == m_currMotion->getSeqFrameID()){
+            return;
+        }
+
+        switch(m_currMotion->type){
+            case MOTION_MON_SPAWN:
+                {
+                    if(m_currMotion->frame == 0){
+                        playSoundEffect(getSeffID(MONSEFF_SPAWN));
+                    }
+                    break;
+                }
+            case MOTION_MON_STAND: // shall only play when show up
+                {
+                    break;
+                }
+            case MOTION_MON_ATTACK0:
+            case MOTION_MON_ATTACK1:
+                {
+                    if(m_currMotion->frame == 0){
+                        playSoundEffect(getSeffID(MONSEFF_ATTACK));
+                    }
+                    break;
+                }
+            case MOTION_MON_HITTED:
+                {
+                    if(m_currMotion->frame == 0){
+                        playSoundEffect(getSeffID(MONSEFF_HITTED));
+                        switch(const auto fromUID = m_currMotion->extParam.hitted.fromUID; uidf::getUIDType(fromUID)){
+                            case UID_MON:
+                                {
+                                    playSoundEffect(0X01010000 + 61);
+                                    break;
+                                }
+                            case UID_PLY:
+                                {
+                                    playSoundEffect([fromUID, this]() -> uint32_t
+                                    {
+                                        if(const auto plyPtr = m_processRun->findUID(fromUID)){
+                                            if(const auto itemID = dynamic_cast<const Hero *>(plyPtr)->getWLItem(WLG_WEAPON).itemID){
+                                                const auto &ir = DBCOM_ITEMRECORD(itemID);
+                                                fflassert(ir);
+
+                                                if     (ir.equip.weapon.category == u8"匕首") return 0X01010000 + 60;
+                                                else if(ir.equip.weapon.category == u8"木剑") return 0X01010000 + 61;
+                                                else if(ir.equip.weapon.category == u8"剑"  ) return 0X01010000 + 62;
+                                                else if(ir.equip.weapon.category == u8"刀"  ) return 0X01010000 + 63;
+                                                else if(ir.equip.weapon.category == u8"斧"  ) return 0X01010000 + 64;
+                                                else if(ir.equip.weapon.category == u8"锏"  ) return 0X01010000 + 65;
+                                            }
+                                        }
+                                        return 0X01010000 + 61; // use 木剑 sound effect as default
+                                    }());
+                                    break;
+                                }
+                            default:
+                                {
+                                    break;
+                                }
+                        }
+                    }
+                    break;
+                }
+            case MOTION_MON_DIE:
+                {
+                    if(m_currMotion->frame == 0){
+                        playSoundEffect(getSeffID(MONSEFF_DIE));
+                    }
+                    break;
+                }
+            default:
+                {
+                    break;
+                }
+        }
     });
 
     if(m_currMotion->effect && !m_currMotion->effect->done()){
@@ -251,13 +306,7 @@ void ClientMonster::drawFrame(int viewX, int viewY, int focusMask, int frame, bo
     const int startX = currMotion()->x * SYS_MAPGRIDXP + shiftX - viewX;
     const int startY = currMotion()->y * SYS_MAPGRIDYP + shiftY - viewY;
 
-    // TODO some monter doesn't need to draw seperate shadow texture
-    //      the body frame itself has shadow effect, i.e. 洞穴蜈蚣, later should remove the synthesized shadow texture
-
-    if(isMonster(u8"洞穴蜈蚣") || isMonster(u8"栗子树") || isMonster(u8"圣诞树") || isMonster(u8"沙鬼") || isMonster(u8"沙漠鱼魔")){
-        // sikp shadow
-    }
-    else{
+    if(getMR().shadow){
         fnBlendFrame(shadowFrame, 0, startX + shadowDX, startY + shadowDY);
     }
     fnBlendFrame(bodyFrame, 0, startX + bodyDX, startY + bodyDY);
@@ -305,6 +354,51 @@ void ClientMonster::drawFrame(int viewX, int viewY, int focusMask, int frame, bo
             g_sdlDevice->drawTexture(pBar1, drawBarXP, drawBarYP, 0, 0, drawBarWidth, nBarH);
             g_sdlDevice->drawTexture(pBar0, drawBarXP, drawBarYP);
 
+            constexpr int buffIconDrawW = 10;
+            constexpr int buffIconDrawH = 10;
+
+            const int buffIconStartX = drawBarXP + 1;
+            const int buffIconStartY = drawBarYP - buffIconDrawH;
+
+            if(getSDBuffIDList().has_value()){
+                for(int drawIconCount = 0; const auto id: getSDBuffIDList().value().idList){
+                    const auto &br = DBCOM_BUFFRECORD(id);
+                    fflassert(br);
+
+                    if(br.icon.gfxID != SYS_U32NIL){
+                        if(auto iconTexPtr = g_progUseDB->retrieve(br.icon.gfxID)){
+                            const int buffIconOffX = buffIconStartX + (drawIconCount % 3) * buffIconDrawW;
+                            const int buffIconOffY = buffIconStartY - (drawIconCount / 3) * buffIconDrawH;
+
+                            const auto [texW, texH] = SDLDeviceHelper::getTextureSize(iconTexPtr);
+                            g_sdlDevice->drawTexture(iconTexPtr, buffIconOffX, buffIconOffY, buffIconDrawW, buffIconDrawH, 0, 0, texW, texH);
+
+                            const auto baseColor = [&br]() -> uint32_t
+                            {
+                                if(br.favor > 0){
+                                    return colorf::GREEN;
+                                }
+                                else if(br.favor == 0){
+                                    return colorf::YELLOW;
+                                }
+                                else{
+                                    return colorf::RED;
+                                }
+                            }();
+
+                            const auto startColor = baseColor | colorf::A_SHF(255);
+                            const auto   endColor = baseColor | colorf::A_SHF( 64);
+
+                            const auto edgeGridCount = (buffIconDrawW + buffIconDrawH) * 2 - 4;
+                            const auto startLoc = std::lround(edgeGridCount * std::fmod(m_accuUpdateTime, 1500.0) / 1500.0);
+
+                            g_sdlDevice->drawBoxFading(startColor, endColor, buffIconOffX, buffIconOffY, buffIconDrawW, buffIconDrawH, startLoc, buffIconDrawW + buffIconDrawH);
+                            drawIconCount++;
+                        }
+                    }
+                }
+            }
+
             if(g_clientArgParser->alwaysDrawName || (focusMask & (1 << FOCUS_MOUSE))){
                 const int nLW = m_nameBoard.w();
                 const int nLH = m_nameBoard.h();
@@ -314,6 +408,38 @@ void ClientMonster::drawFrame(int viewX, int viewY, int focusMask, int frame, bo
             }
         }
     }
+}
+
+static uint32_t monsterSeffBaseIDHelper(std::u8string_view monName, int offset)
+{
+    fflassert(!monName.empty());
+    fflassert(offset >= 0, offset);
+    fflassert(offset < to_d(SYS_SEFFSIZE), offset, SYS_SEFFSIZE);
+
+    const auto &mr = DBCOM_MONSTERRECORD(monName.data());
+    fflassert(mr);
+
+    if(mr.seff.ref.empty()){
+        if(mr.seff.list.at(offset).has_value()){
+            if(const auto &[subname, suboff] = mr.seff.list.at(offset).value(); subname.empty()){
+                return suboff;
+            }
+            else{
+                return monsterSeffBaseIDHelper(subname, offset);
+            }
+        }
+        else{
+            return SYS_MONSEFFBASE(mr.lookID) + offset;
+        }
+    }
+    else{
+        return monsterSeffBaseIDHelper(mr.seff.ref, offset);
+    }
+}
+
+uint32_t ClientMonster::getSeffID(int offset) const
+{
+    return monsterSeffBaseIDHelper(getMR().name, offset);
 }
 
 bool ClientMonster::parseAction(const ActionNode &action)
@@ -360,7 +486,7 @@ bool ClientMonster::onActionDie(const ActionNode &action)
     m_forcedMotionQueue.emplace_back(std::unique_ptr<MotionNode>(new MotionNode
     {
         .type = MOTION_MON_DIE,
-        .direction = directionValid(dieDir) ? to_d(dieDir) : DIR_UP,
+        .direction = pathf::dirValid(dieDir) ? to_d(dieDir) : DIR_UP,
         .x = dieX,
         .y = dieY,
     }));
@@ -402,6 +528,13 @@ bool ClientMonster::onActionHitted(const ActionNode &action)
         .direction = action.direction,
         .x = action.x,
         .y = action.y,
+        .extParam
+        {
+            .hitted
+            {
+                .fromUID = action.fromUID,
+            },
+        },
     }));
     return true;
 }
@@ -422,8 +555,8 @@ bool ClientMonster::onActionSpaceMove(const ActionNode &action)
         .y = action.aimY,
     });
 
-    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(u8"瞬息移动", u8"开始", action.x, action.y)));
-    addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"瞬息移动", u8"结束")));
+    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(u8"瞬息移动", u8"运行", action.x, action.y)));
+    addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"瞬息移动", u8"裂解")));
     return true;
 }
 
@@ -462,7 +595,7 @@ bool ClientMonster::onActionSpawn(const ActionNode &action)
         .type = MOTION_MON_STAND,
         .direction = [&action]() -> int
         {
-            if(directionValid(action.direction)){
+            if(pathf::dirValid(action.direction)){
                 return action.direction;
             }
             return DIR_UP;
@@ -489,7 +622,7 @@ bool ClientMonster::onActionAttack(const ActionNode &action)
                 if(mathf::LDistance2<int>(nX, nY, action.x, action.y) == 0){
                     return endDir;
                 }
-                return PathFind::GetDirection(action.x, action.y, nX, nY);
+                return pathf::getOffDir(action.x, action.y, nX, nY);
             }(),
             .x = action.x,
             .y = action.y,
@@ -814,6 +947,12 @@ ClientMonster *ClientMonster::create(uint64_t uid, ProcessRun *proc, const Actio
         case DBCOM_MONSTERID(u8"腐僵"):
             {
                 return new ClientRebornZombie(uid, proc, action);
+            }
+        case DBCOM_MONSTERID(u8"栗子树"):
+        case DBCOM_MONSTERID(u8"圣诞树"):
+        case DBCOM_MONSTERID(u8"圣诞树1"):
+            {
+                return new ClientTree(uid, proc, action);
             }
         default:
             {

@@ -5,13 +5,12 @@
 #include <tuple>
 #include <atomic>
 #include <thread>
+#include <queue>
 #include <cstdint>
 #include "uidf.hpp"
 #include "channel.hpp"
 #include "fflerror.hpp"
 #include "sysconst.hpp"
-#include "monoserver.hpp"
-#include "cachequeue.hpp"
 #include "dispatcher.hpp"
 #include "actormsgpack.hpp"
 
@@ -51,8 +50,10 @@ class NetDriver final
         std::thread m_thread;
 
     private:
-        std::queue<uint32_t> m_channIDQ;
-        std::vector<ChannelSlot> m_channList;
+        // use queue instead of vector
+        // we don't want to reuse a channel slot immediately after it disconnects
+        std::deque<uint32_t> m_channelIDList;
+        std::vector<ChannelSlot> m_channelSlotList;
 
     public:
         NetDriver();

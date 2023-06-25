@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: guimanager.hpp
- *        Created: 08/12/2015 09:59:15
- *    Description: public API for class client only
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include "widget.hpp"
 #include "minimapboard.hpp"
@@ -23,14 +5,16 @@
 #include "npcchatboard.hpp"
 #include "controlboard.hpp"
 #include "purchaseboard.hpp"
+#include "teamstateboard.hpp"
 #include "inventoryboard.hpp"
 #include "quickaccessboard.hpp"
 #include "playerstateboard.hpp"
 #include "inputstringboard.hpp"
+#include "runtimeconfigboard.hpp"
 #include "secureditemlistboard.hpp"
 
 class ProcessRun;
-class GUIManager: public WidgetGroup
+class GUIManager: public WidgetContainer
 {
     private:
         ProcessRun *m_processRun;
@@ -43,10 +27,12 @@ class GUIManager: public WidgetGroup
         SkillBoard m_skillBoard;
         MiniMapBoard m_miniMapBoard;
         PurchaseBoard m_purchaseBoard;
+        TeamStateBoard m_teamStateBoard;
         InventoryBoard m_inventoryBoard;
         QuickAccessBoard m_quickAccessBoard;
         PlayerStateBoard m_playerStateBoard;
         InputStringBoard m_inputStringBoard;
+        RuntimeConfigBoard m_runtimeConfigBoard;
         SecuredItemListBoard m_securedItemListBoard;
 
     public:

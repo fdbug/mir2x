@@ -1,6 +1,10 @@
 #include "log.hpp"
+#include "jobf.hpp"
+#include "pathf.hpp"
 #include "client.hpp"
 #include "pngtexdb.hpp"
+#include "bgmusicdb.hpp"
+#include "soundeffectdb.hpp"
 #include "pngtexoffdb.hpp"
 #include "sdldevice.hpp"
 #include "layoutboard.hpp"
@@ -8,16 +12,18 @@
 
 extern Log *g_log;
 extern Client *g_client;
+extern BGMusicDB *g_bgmDB;
+extern SoundEffectDB *g_seffDB;
 extern PNGTexDB *g_progUseDB;
 extern SDLDevice *g_sdlDevice;
 extern PNGTexOffDB *g_selectCharDB;
 
 ProcessSelectChar::ProcessSelectChar()
     : Process()
-	, m_start (DIR_UPLEFT, 335,  75, {0X0C000030, 0X0C000030, 0X0C000031}, nullptr, nullptr, [this](){ onStart (); })
-	, m_create(DIR_UPLEFT, 565, 130, {0X0C000010, 0X0C000010, 0X0C000011}, nullptr, nullptr, [this](){ onCreate(); })
-	, m_delete(DIR_UPLEFT, 110, 305, {0X0C000020, 0X0C000020, 0X0C000021}, nullptr, nullptr, [this](){ onDelete(); })
-	, m_exit  (DIR_UPLEFT,  45, 544, {0X0C000040, 0X0C000040, 0X0C000041}, nullptr, nullptr, [this](){ onExit  (); })
+	, m_start (DIR_UPLEFT, 335,  75, {0X0C000030, 0X0C000030, 0X0C000031}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ onStart (); })
+	, m_create(DIR_UPLEFT, 565, 130, {0X0C000010, 0X0C000010, 0X0C000011}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ onCreate(); })
+	, m_delete(DIR_UPLEFT, 110, 305, {0X0C000020, 0X0C000020, 0X0C000021}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ onDelete(); })
+	, m_exit  (DIR_UPLEFT,  45, 544, {0X0C000040, 0X0C000040, 0X0C000041}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ onExit  (); })
 
     , m_notifyBoard
       {
@@ -41,11 +47,18 @@ ProcessSelectChar::ProcessSelectChar()
           true,
       }
 {
-    m_start .active(false);
-    m_create.active(false);
-    m_delete.active(false);
+    m_start .setActive(false);
+    m_create.setActive(false);
+    m_delete.setActive(false);
     m_notifyBoard.addLog(u8"正在下载游戏角色");
     g_client->send(CM_QUERYCHAR);
+    g_sdlDevice->playBGM(g_bgmDB->retrieve(0X00040002));
+}
+
+ProcessSelectChar::~ProcessSelectChar()
+{
+    g_sdlDevice->stopBGM();
+    g_sdlDevice->stopSoundEffect();
 }
 
 void ProcessSelectChar::update(double fUpdateTime)
@@ -134,7 +147,7 @@ void ProcessSelectChar::onCreate()
 void ProcessSelectChar::onDelete()
 {
     if(hasChar()){
-        m_deleteInput.show(true);
+        m_deleteInput.setShow(true);
         m_deleteInput.waitInput(u8"<layout><par>删除的角色将无法还原，请谨慎操作。如果确定删除，请输入游戏密码，并点击YES。</par></layout>", [this](std::u8string inputString)
         {
             CMDeleteChar cmDC;
@@ -146,7 +159,7 @@ void ProcessSelectChar::onDelete()
                 cmDC.password.assign(inputString);
                 g_client->send(CM_DELETECHAR, cmDC);
             }
-            m_deleteInput.show(false);
+            m_deleteInput.setShow(false);
         });
     }
     else{
@@ -193,7 +206,7 @@ void ProcessSelectChar::drawCharName() const
         xmlStr += str_printf(u8R"###(     <par color='RGB(237,226,200)'>角色：%s</par> )###""\n", to_cstr(name));
         xmlStr += str_printf(u8R"###(     <par color='RGB(175,196,175)'>等级：%d</par> )###""\n", to_d(SYS_LEVEL(exp)));
         for(const auto job: jobList){
-            xmlStr += str_printf(u8R"###( <par color='RGB(231,231,189)'>职业：%s</par> )###""\n", to_cstr(jobName(job)));
+            xmlStr += str_printf(u8R"###( <par color='RGB(231,231,189)'>职业：%s</par> )###""\n", to_cstr(jobf::jobName(job)));
         }
         xmlStr += str_printf(u8R"###( </layout> )###""\n");
         charBoard.loadXML(to_cstr(xmlStr));
@@ -362,11 +375,22 @@ void ProcessSelectChar::switchCharGfx()
                 throw fflreach();
             }
     }
+
+    if(m_charAni == 1){
+        const int offGender = to_d(m_smChar.value().gender);
+        const int offJob = m_smChar.value().job.deserialize<std::vector<int>>().at(0) - JOB_BEGIN;
+
+        const uint32_t seffID = UINT32_C(0X00010000) // base
+            | (to_u32(offGender) << 4)               //
+            | (to_u32(offJob   ) << 8)               //
+            | (to_u32(1        ) << 0);              // 0 for create, 1 for select
+        g_sdlDevice->playSoundEffect(g_seffDB->retrieve(seffID));
+    }
 }
 
 void ProcessSelectChar::updateGUIActive()
 {
-    m_start .active( hasChar());
-    m_create.active(!hasChar());
-    m_delete.active( hasChar());
+    m_start .setActive( hasChar());
+    m_create.setActive(!hasChar());
+    m_delete.setActive( hasChar());
 }

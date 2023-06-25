@@ -1,7 +1,6 @@
 #include "uidf.hpp"
 #include "mathf.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 #include "fflerror.hpp"
 #include "friendtype.hpp"
 #include "buffactaura.hpp"
@@ -9,7 +8,7 @@
 
 BaseBuffActAura::BaseBuffActAura(BaseBuff *argBuff, size_t argBuffActOff)
     : BaseBuffAct(argBuff, argBuffActOff)
-    , m_auraBuffID([argBuffActOff, this]()
+    , m_auraBuffID([this]()
       {
           fflassert(getBAR().isAura());
           const auto id = DBCOM_BUFFID(getBAR().aura.buff);
@@ -24,7 +23,18 @@ BaseBuffActAura::BaseBuffActAura(BaseBuff *argBuff, size_t argBuffActOff)
 void BaseBuffActAura::dispatch()
 {
     for(const auto uid: getBuff()->getBO()->getInViewUIDList()){
-        transmit(uid);
+        switch(uidf::getUIDType(uid)){
+            case UID_PLY:
+            case UID_MON:
+                {
+                    transmit(uid);
+                    break;
+                }
+            default:
+                {
+                    break;
+                }
+        }
     }
 }
 
@@ -41,7 +51,7 @@ void BaseBuffActAura::transmit(uint64_t targetUID)
                     const auto &baref = getBAREF();
                     fflassert(baref);
 
-                    if(mathf::LDistance2<int>(getBuff()->getBO()->X(), getBuff()->getBO()->Y(), coLoc.x, coLoc.y) > baref.aura.radius * baref.aura.radius){
+                    if((getBuff()->getBO()->mapID() != coLoc.mapID) || (mathf::LDistance2<int>(getBuff()->getBO()->X(), getBuff()->getBO()->Y(), coLoc.x, coLoc.y) > baref.aura.radius * baref.aura.radius)){
                         return;
                     }
 
@@ -51,20 +61,20 @@ void BaseBuffActAura::transmit(uint64_t targetUID)
                             case FT_FRIEND:
                                 {
                                     if(getBR().favor >= 0){
-                                        getBuff()->getBO()->sendBuff(targetUID, getAuraBuffID());
+                                        getBuff()->getBO()->sendBuff(targetUID, getBuff()->buffSeq(), getAuraBuffID());
                                     }
                                     break;
                                 }
                             case FT_ENEMY:
                                 {
                                     if(getBR().favor <= 0){
-                                        getBuff()->getBO()->sendBuff(targetUID, getAuraBuffID());
+                                        getBuff()->getBO()->sendBuff(targetUID, getBuff()->buffSeq(), getAuraBuffID());
                                     }
                                     break;
                                 }
                             case FT_NEUTRAL:
                                 {
-                                    getBuff()->getBO()->sendBuff(targetUID, getAuraBuffID());
+                                    getBuff()->getBO()->sendBuff(targetUID, getBuff()->buffSeq(), getAuraBuffID());
                                     break;
                                 }
                             default:

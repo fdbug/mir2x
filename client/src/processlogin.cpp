@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: processlogin.cpp
- *        Created: 08/14/2015 02:47:49
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cstring>
 #include <iostream>
 #include <algorithm>
@@ -24,6 +6,7 @@
 #include "client.hpp"
 #include "message.hpp"
 #include "pngtexdb.hpp"
+#include "bgmusicdb.hpp"
 #include "sdldevice.hpp"
 #include "buildconfig.hpp"
 #include "notifyboard.hpp"
@@ -33,13 +16,14 @@ extern Log *g_log;
 extern Client *g_client;
 extern PNGTexDB *g_progUseDB;
 extern SDLDevice *g_sdlDevice;
+extern BGMusicDB *g_bgmDB;
 
 ProcessLogin::ProcessLogin()
 	: Process()
-	, m_button1(DIR_UPLEFT, 150, 482, {0X00000005, 0X00000006, 0X00000007}, nullptr, nullptr, [this](){ doCreateAccount();  })
-	, m_button2(DIR_UPLEFT, 352, 482, {0X00000008, 0X00000009, 0X0000000A}, nullptr, nullptr, [this](){ doChangePassword(); })
-	, m_button3(DIR_UPLEFT, 554, 482, {0X0000000B, 0X0000000C, 0X0000000D}, nullptr, nullptr, [this](){ doExit();           })
-    , m_button4(DIR_UPLEFT, 600, 536, {0X0000000E, 0X0000000F, 0X00000010}, nullptr, nullptr, [this](){ doLogin();          })
+	, m_button1(DIR_UPLEFT, 150, 482, {0X00000005, 0X00000006, 0X00000007}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ doCreateAccount();  })
+	, m_button2(DIR_UPLEFT, 352, 482, {0X00000008, 0X00000009, 0X0000000A}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ doChangePassword(); })
+	, m_button3(DIR_UPLEFT, 554, 482, {0X0000000B, 0X0000000C, 0X0000000D}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ doExit();           })
+        , m_button4(DIR_UPLEFT, 600, 536, {0X0000000E, 0X0000000F, 0X00000010}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ doLogin();          })
 	, m_idBox
       {
           DIR_UPLEFT,
@@ -47,6 +31,8 @@ ProcessLogin::ProcessLogin()
           540,
           146,
           18,
+
+          false,
 
           2,
           18,
@@ -58,8 +44,8 @@ ProcessLogin::ProcessLogin()
 
           [this]()
           {
-              m_idBox      .focus(false);
-              m_passwordBox.focus(true);
+              m_idBox      .setFocus(false);
+              m_passwordBox.setFocus(true);
           },
           [this]()
           {
@@ -85,8 +71,8 @@ ProcessLogin::ProcessLogin()
 
           [this]()
           {
-              m_idBox      .focus(true);
-              m_passwordBox.focus(false);
+              m_idBox      .setFocus(true);
+              m_passwordBox.setFocus(false);
           },
           [this]()
           {
@@ -121,6 +107,7 @@ ProcessLogin::ProcessLogin()
       }
 {
     m_buildSignature.setText(u8"编译版本号:%s", getBuildSignature());
+    g_sdlDevice->playBGM(g_bgmDB->retrieve(0X00040007));
 }
 
 void ProcessLogin::update(double fUpdateTime)
@@ -170,8 +157,8 @@ void ProcessLogin::processEvent(const SDL_Event &event)
                                     && !m_idBox      .focus()
                                     && !m_passwordBox.focus()){
 
-                                m_idBox      .focus(true);
-                                m_passwordBox.focus(false);
+                                m_idBox      .setFocus(true);
+                                m_passwordBox.setFocus(false);
                                 return;
                             }
                         }

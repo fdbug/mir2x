@@ -1,22 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: actorpod.hpp
- *        Created: 04/20/2016 21:49:14
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #pragma once
-
 #include <map>
 #include <array>
 #include <string>
@@ -27,6 +9,7 @@
 #include "actormsgpack.hpp"
 #include "actormonitor.hpp"
 
+class ServerObject;
 class ActorPod final
 {
     private:
@@ -48,6 +31,9 @@ class ActorPod final
         const uint64_t m_UID;
 
     private:
+        ServerObject * const m_SO;
+
+    private:
         // trigger is only for state update, so it won't accept any parameters w.r.t
         // message or time or xxx
         //
@@ -65,6 +51,7 @@ class ActorPod final
         // informing messges means we didn't register an handler for it
         // this handler is provided at the initialization time and never change
         const std::function<void(const ActorMsgPack &)> m_operation;
+        std::array<std::function<void(const ActorMsgPack &)>, AM_END> m_msgOpList;
 
     private:
         // actorpool automatically send METRONOME to actor
@@ -74,7 +61,7 @@ class ActorPod final
     private:
         // used by rollSeqID()
         // to create unique proper ID for an message expcecting response
-        uint32_t m_nextSeqID = 1;
+        uint64_t m_nextSeqID = 1;
 
         // for expire time check in nanoseconds
         // zero expire time means we never expire any handler for current pod
@@ -91,13 +78,15 @@ class ActorPod final
         // 2. std::map keeps entries in order by Resp number
         //    Resp number gives strict order of expire time, excellent feature by std::map
         //    then when checking expired ones, we start from std::map::begin() and stop at the fist non-expired one
-        std::map<uint32_t, RespondCallback> m_respondCBList;
+        std::map<uint64_t, RespondCallback> m_respondCBList;
 
     private:
         ActorPodMonitor m_podMonitor;
 
     public:
-        explicit ActorPod(uint64_t,                         // UID
+        explicit ActorPod(
+                uint64_t,                                   // UID
+                ServerObject *,                             // SO
                 std::function<void()>,                      // trigger
                 std::function<void(const ActorMsgPack &)>,  // msgHandler
                 double,                                     // metronome frequency in HZ
@@ -107,7 +96,7 @@ class ActorPod final
         ~ActorPod();
 
     private:
-        uint32_t rollSeqID();
+        uint64_t rollSeqID();
 
     private:
         void innHandler(const ActorMsgPack &);
@@ -125,8 +114,19 @@ class ActorPod final
         }
 
     public:
-        bool forward(uint64_t, const ActorMsgBuf &, uint32_t);
-        bool forward(uint64_t, const ActorMsgBuf &, uint32_t, std::function<void(const ActorMsgPack &)>);
+        bool forward(uint64_t, const ActorMsgBuf &, uint64_t);
+        bool forward(uint64_t, const ActorMsgBuf &, uint64_t, std::function<void(const ActorMsgPack &)>);
+
+    public:
+        bool forward(const std::pair<uint64_t, uint64_t> &respAddr, const ActorMsgBuf &mbuf)
+        {
+            return forward(respAddr.first, mbuf, respAddr.second);
+        }
+
+        bool forward(const std::pair<uint64_t, uint64_t> &respAddr, const ActorMsgBuf &mbuf, std::function<void(const ActorMsgPack &)> fnOPR)
+        {
+            return forward(respAddr.first, mbuf, respAddr.second, std::move(fnOPR));
+        }
 
     public:
         uint64_t UID() const
@@ -174,6 +174,20 @@ class ActorPod final
             }
             else{
                 return freq;
+            }
+        }
+
+    public:
+        ServerObject *getSO() const
+        {
+            return m_SO;
+        }
+
+    public:
+        void registerOp(int type, std::function<void(const ActorMsgPack &)> op)
+        {
+            if(op){
+                m_msgOpList.at(type) = std::move(op);
             }
         }
 };

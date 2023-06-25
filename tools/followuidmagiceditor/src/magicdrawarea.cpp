@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: magicdrawarea.cpp
- *        Created: 07/26/2015 04:27:57
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -31,7 +13,7 @@
 #include "fflerror.hpp"
 #include "sysconst.hpp"
 #include "flwrapper.hpp"
-#include "dbcomrecord.hpp"
+#include "dbcomid.hpp"
 #include "magicdrawarea.hpp"
 
 MagicDrawArea::MagicDrawArea(int argX, int argY, int argW, int argH)
@@ -123,13 +105,13 @@ void MagicDrawArea::clear()
 
 std::tuple<Fl_Image *, int, int> MagicDrawArea::getFrameImage(int gfxDirIndex)
 {
-    const auto &gfxEntry = DBCOM_MAGICRECORD(m_magicID).getGfxEntry(u8"运行").first;
+    const auto gfxEntry = DBCOM_MAGICGFXENTRY(m_magicID, u8"运行").first;
     fflassert(gfxEntry);
 
-    if(gfxEntry.gfxID == SYS_TEXNIL){
+    if(gfxEntry->gfxID == SYS_U32NIL){
         return {nullptr, 0, 0};
     }
-    return m_frameDBPtr->retrieve(gfxEntry.gfxID + m_frame + gfxDirIndex * gfxEntry.gfxIDCount);
+    return m_frameDBPtr->retrieve(gfxEntry->gfxID + m_frame + gfxDirIndex * gfxEntry->gfxIDCount);
 }
 
 void MagicDrawArea::draw()
@@ -248,7 +230,7 @@ void MagicDrawArea::output() const
     std::fprintf(stdout, "{\n");
     std::fprintf(stdout, "switch(gfxDirIndex()){\n");
 
-    for(int i = 0; const auto [dx, dy]: m_offList){
+    for(int i = 0; const auto &[dx, dy]: m_offList){
         std::fprintf(stdout, "case %2d: return {%3d, %3d};\n", i++, dx, dy);
     }
 
@@ -259,7 +241,7 @@ void MagicDrawArea::output() const
 
 void MagicDrawArea::updateFrame()
 {
-    m_frame = (m_frame + 1) % DBCOM_MAGICRECORD(m_magicID).getGfxEntry(u8"运行").first.frameCount;
+    m_frame = (m_frame + 1) % DBCOM_MAGICGFXENTRY(m_magicID, u8"运行").first->frameCount;
 }
 
 std::tuple<int, int> MagicDrawArea::getGfxDirPLoc(int gfxDirIndex) const

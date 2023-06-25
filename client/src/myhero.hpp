@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: myhero.hpp
- *        Created: 04/07/2016 03:48:41 AM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include "hero.hpp"
 #include "mathf.hpp"
@@ -26,8 +8,7 @@
 class MyHero: public Hero
 {
     private:
-        uint32_t m_exp  = 0;
-        uint32_t m_gold = 0;
+        uint32_t m_exp = 0;
 
     private:
         std::unordered_map<uint32_t, uint64_t> m_lastCastTime;
@@ -97,12 +78,12 @@ class MyHero: public Hero
 
         uint32_t getGold() const
         {
-            return m_gold;
+            return m_invPack.getGold();
         }
 
-        void setGold(uint32_t nGold)
+        void setGold(int gold)
         {
-            m_gold = nGold;
+            return m_invPack.setGold(gold);
         }
 
     public:
@@ -165,15 +146,8 @@ class MyHero: public Hero
         void flushForcedMotion() override;
 
     public:
-        void setBelt(SDBelt belt)
-        {
-            m_sdBelt = std::move(belt);
-        }
-
-        void setBelt(int slot, SDItem item)
-        {
-            m_sdBelt.list.at(slot) = std::move(item);
-        }
+        void setBelt(SDBelt);
+        void setBelt(int, SDItem, bool playSound = true);
 
     public:
         bool canWear(uint32_t, int) const;
@@ -192,4 +166,8 @@ class MyHero: public Hero
         {
             m_nextStrike = nextStrike;
         }
+
+    public:
+        bool hasTeam() const override;
+        bool isTeamLeader() const override;
 };

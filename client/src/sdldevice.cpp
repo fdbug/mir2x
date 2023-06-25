@@ -1,21 +1,5 @@
-/*
- * =====================================================================================
- *
- *       Filename: sdldevice.cpp
- *        Created: 03/07/2016 23:57:04
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include <ranges>
+#include <numeric>
 #include <cinttypes>
 #include <system_error>
 #include <unordered_map>
@@ -28,9 +12,12 @@
 #include "rawbuf.hpp"
 #include "colorf.hpp"
 #include "xmlconf.hpp"
+#include "sysconst.hpp"
 #include "fflerror.hpp"
 #include "sdldevice.hpp"
 #include "clientargparser.hpp"
+#include "soundeffecthandle.hpp"
+#include "scopedalloc.hpp"
 
 extern Log *g_log;
 extern XMLConf *g_xmlConf;
@@ -226,21 +213,43 @@ SDLDeviceHelper::SDLEventPLoc SDLDeviceHelper::getMousePLoc()
     };
 }
 
-SDLDeviceHelper::SDLEventPLoc SDLDeviceHelper::getEventPLoc(const SDL_Event &event)
+std::tuple<int, int, Uint32> SDLDeviceHelper::getMouseState()
+{
+    int mousePX = -1;
+    int mousePY = -1;
+    Uint32 mouseState = SDL_GetMouseState(&mousePX, &mousePY);
+
+    return
+    {
+        mousePX,
+        mousePY,
+        mouseState,
+    };
+}
+
+std::optional<SDLDeviceHelper::SDLEventPLoc> SDLDeviceHelper::getEventPLoc(const SDL_Event &event)
 {
     switch(event.type){
         case SDL_MOUSEMOTION:
             {
-                return {event.motion.x, event.motion.y};
+                return SDLDeviceHelper::SDLEventPLoc
+                {
+                    event.motion.x,
+                    event.motion.y,
+                };
             }
         case SDL_MOUSEBUTTONUP:
         case SDL_MOUSEBUTTONDOWN:
             {
-                return {event.button.x, event.button.y};
+                return SDLDeviceHelper::SDLEventPLoc
+                {
+                    event.button.x,
+                    event.button.y,
+                };
             }
         default:
             {
-                return {-1, -1};
+                return {};
             }
     }
 }
@@ -268,6 +277,69 @@ int SDLDeviceHelper::getTextureHeight(SDL_Texture *texture)
     return std::get<1>(getTextureSize(texture));
 }
 
+SDLSoundEffectChannel::SDLSoundEffectChannel(SDLDevice *sdlDevice, int channel)
+    : m_sdlDevice(sdlDevice)
+    , m_channel(channel)
+{
+    fflassert(m_sdlDevice);
+    fflassert(m_channel >= 0, m_channel);
+    fflassert(m_channel < to_d(m_sdlDevice->channelCount()), m_channel, m_sdlDevice->channelCount());
+}
+
+SDLSoundEffectChannel::~SDLSoundEffectChannel()
+{
+    if(m_channel >= 0){
+        if(auto p = m_sdlDevice->m_channelStateList.find(m_channel); p != m_sdlDevice->m_channelStateList.end()){
+            if(const auto hooked = std::exchange(p->second.hooked, false); !hooked){
+                g_log->addLog(LOGTYPE_WARNING, "Sound channel gets unhooked unexpectedly: %d", m_channel);
+            }
+        }
+        else{
+            g_log->addLog(LOGTYPE_WARNING, "Sound channel has no associated state: %d", m_channel);
+        }
+    }
+}
+
+void SDLSoundEffectChannel::halt()
+{
+    if(m_channel >= 0){
+        // SDL_mixer can halt a channel several times, it ignores later halt requests
+        // call Mix_HaltChannel() can trigger SDLDevice::recycleSoundEffectChannel() if channel is not done yet
+        // if channel has reaches its end this function is a nop
+        //
+        // TODO dangerous here
+        //      SDLDevice should make sure a channel shall not get allocated to other sound effect before this->halt() called
+        //      otherwise this function halt same channel playing other sound
+        //
+        // a channel has not called this->halt() must still has a slot in m_channelStateList
+        // because only an explicit this->halt() call unhooks the channel, and makes it avaiable to next play request
+
+        Mix_HaltChannel(m_channel);
+        m_sdlDevice->m_channelStateList.erase(m_channel);
+
+        m_channel = -1;
+    }
+}
+
+void SDLSoundEffectChannel::pause()
+{
+    fflassert(m_channel >= 0);
+    Mix_Pause(m_channel);
+}
+
+void SDLSoundEffectChannel::resume()
+{
+    fflassert(m_channel >= 0);
+    Mix_Resume(m_channel);
+}
+
+void SDLSoundEffectChannel::setPosition(int distance, int angle)
+{
+    fflassert(m_channel >= 0);
+    fflassert(distance >= 0, distance);
+    Mix_SetPosition(m_channel, ((angle % 360) + 360) % 360, std::min<int>(distance, 255));
+}
+
 SDLDevice::SDLDevice()
 {
     if(g_sdlDevice){
@@ -285,10 +357,40 @@ SDLDevice::SDLDevice()
     if((IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG) != IMG_INIT_PNG){
         throw fflerror("initialization failed for SDL2 IMG: %s", IMG_GetError());
     }
+
+    if(!g_clientArgParser->disableAudio){
+        if((Mix_Init(MIX_INIT_MP3) & MIX_INIT_MP3) != MIX_INIT_MP3){
+            throw fflerror("initialization failed for SDL2 MIX: %s", Mix_GetError());
+        }
+
+        if(Mix_OpenAudio(MIX_DEFAULT_FREQUENCY, MIX_DEFAULT_FORMAT, 2, 512)){
+            throw fflerror("initialization failed for SDL2 MIX OpenAudio: %s", Mix_GetError());
+        }
+
+#if defined linux && SDL_VERSION_ATLEAST(2, 0, 8)
+        if(SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0") == SDL_FALSE){
+            throw fflerror("SDL failed to disable compositor bypass");
+        }
+#endif
+
+        if(Mix_AllocateChannels(m_channelCount) != to_d(m_channelCount)){
+            throw fflerror("failed to allocate %zu channels: %s", m_channelCount, Mix_GetError());
+        }
+
+        for(int channel = 0; channel < to_d(m_channelCount); ++channel){
+            m_freeChannelList.insert(channel);
+        }
+        Mix_ChannelFinished(recycleSoundEffectChannel);
+    }
 }
 
 SDLDevice::~SDLDevice()
 {
+    if(!g_clientArgParser->disableAudio){
+        Mix_CloseAudio();
+        Mix_Quit();
+    }
+
     for(auto p: m_fontList){
         TTF_CloseFont(p.second);
     }
@@ -307,19 +409,30 @@ SDLDevice::~SDLDevice()
         SDL_DestroyRenderer(m_renderer);
     }
 
-    SDL_StopTextInput();
     SDL_Quit();
 }
 
 void SDLDevice::setWindowIcon()
 {
-    Uint16 rawData[16 * 16]
+    const static Rawbuf s_winIconBuf
     {
         #include "winicon.inc"
     };
 
-    if(auto surfPtr = SDL_CreateRGBSurfaceFrom(rawData, 16, 16, 16, 16 * 2, 0X0F00, 0X00F0, 0X000F, 0XF000)){
-        SDL_SetWindowIcon(m_window, surfPtr);
+    SDL_RWops   * rwOpsPtr = nullptr;
+    SDL_Surface *  surfPtr = nullptr;
+
+    if((rwOpsPtr = SDL_RWFromConstMem(s_winIconBuf.data(), s_winIconBuf.size()))){
+        if((surfPtr = IMG_LoadPNG_RW(rwOpsPtr))){
+            SDL_SetWindowIcon(m_window, surfPtr);
+        }
+    }
+
+    if(rwOpsPtr){
+        SDL_FreeRW(rwOpsPtr);
+    }
+
+    if(surfPtr){
         SDL_FreeSurface(surfPtr);
     }
 }
@@ -416,6 +529,28 @@ void SDLDevice::drawTexture(SDL_Texture *texPtr, int dstX, int dstY)
     if(texPtr){
         const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
         drawTexture(texPtr, dstX, dstY, 0, 0, texW, texH);
+    }
+}
+
+void SDLDevice::drawTexture(SDL_Texture *texPtr, dir8_t dir, int anchorX, int anchorY)
+{
+    if(texPtr){
+        const auto [dstX, dstY] = [texPtr, dir, anchorX, anchorY]() -> std::tuple<int, int>
+        {
+            const auto [texW, texH] = SDLDeviceHelper::getTextureSize(texPtr);
+            switch(dir){
+                case DIR_UPLEFT   : return {anchorX           , anchorY           };
+                case DIR_UP       : return {anchorX - texW / 2, anchorY           };
+                case DIR_UPRIGHT  : return {anchorX - texW    , anchorY           };
+                case DIR_RIGHT    : return {anchorX - texW    , anchorY - texH / 2};
+                case DIR_DOWNRIGHT: return {anchorX - texW    , anchorY - texH    };
+                case DIR_DOWN     : return {anchorX - texW / 2, anchorY - texH    };
+                case DIR_DOWNLEFT : return {anchorX           , anchorY - texH    };
+                case DIR_LEFT     : return {anchorX           , anchorY - texH / 2};
+                default           : return {anchorX - texW / 2, anchorY - texH / 2};
+            }
+        }();
+        drawTexture(texPtr, dstX, dstY);
     }
 }
 
@@ -524,10 +659,10 @@ void SDLDevice::createMainWindow()
         }
     }();
 
-    m_window = SDL_CreateWindow("MIR2X-V0.1", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 800, 600, winFlag);
+    m_window = SDL_CreateWindow("MIR2X-V0.1", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SYS_WINDOW_MIN_W, SYS_WINDOW_MIN_H, winFlag);
     fflassert(m_window);
 
-    SDL_SetWindowMinimumSize(m_window, 800, 600);
+    SDL_SetWindowMinimumSize(m_window, SYS_WINDOW_MIN_W, SYS_WINDOW_MIN_H);
     m_renderer = SDL_CreateRenderer(m_window, -1, 0);
 
     if(!m_renderer){
@@ -544,8 +679,6 @@ void SDLDevice::createMainWindow()
     if(SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND)){
         throw fflerror("set renderer blend mode failed: %s", SDL_GetError());
     }
-
-    SDL_StartTextInput();
 }
 
 void SDLDevice::drawTextureExt(SDL_Texture *texPtr,
@@ -738,9 +871,341 @@ void SDLDevice::drawWidthRectangle(uint32_t color, size_t frameLineWidth, int nX
     drawWidthRectangle(frameLineWidth, nX, nY, nW, nH);
 }
 
+void SDLDevice::drawHLineFading(uint32_t startColor, uint32_t endColor, int x, int y, int length)
+{
+    if(length){
+        SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND, this);
+        for(int i = 0; i < std::abs(length); ++i){
+            SDLDeviceHelper::EnableRenderColor enableColor(colorf::fadeRGBA(startColor, endColor, i * 1.0f / std::abs(length)), this);
+            SDL_RenderDrawPoint(getRenderer(), x + i * (length > 0 ? 1 : -1), y);
+        }
+    }
+}
+
+void SDLDevice::drawVLineFading(uint32_t startColor, uint32_t endColor, int x, int y, int length)
+{
+    if(length){
+        SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND, this);
+        for(int i = 0; i < std::abs(length); ++i){
+            SDLDeviceHelper::EnableRenderColor enableColor(colorf::fadeRGBA(startColor, endColor, i * 1.0f / std::abs(length)), this);
+            SDL_RenderDrawPoint(getRenderer(), x, y + i * (length > 0 ? 1 : -1));
+        }
+    }
+}
+
+void SDLDevice::drawBoxFading(uint32_t startColor, uint32_t endColor, int x, int y, int w, int h, int start, int length)
+{
+    if((w == 0) || (h == 0) || (length == 0)){
+        return;
+    }
+
+    SDLDeviceHelper::EnableRenderBlendMode enableBlendMode(SDL_BLENDMODE_BLEND, this);
+    if(w < 0){
+        w  = -w;
+        x -=  w;
+    }
+
+    if(h < 0){
+        h  = -h;
+        y -=  h;
+    }
+
+    const auto edgeGridCount = [w, h]() -> int
+    {
+        if(w == 1 && h == 1){
+            return 1;
+        }
+
+        if(w == 1 || h == 1){
+            return std::max<int>(w, h);
+        }
+
+        return (w + h) * 2 - 4;
+    }();
+
+    const auto fnMod = [edgeGridCount](int offset)
+    {
+        return ((offset % edgeGridCount) + edgeGridCount) % edgeGridCount;
+    };
+
+    if(length < 0){
+        start = fnMod(start + length);
+    }
+    else{
+        start = fnMod(start);
+    }
+
+    start = fnMod(start - length + 1);
+    length = std::min<int>(std::abs(length), edgeGridCount);
+
+    // define the direction current x/y increments
+    //
+    //  +------------ start point
+    //  |
+    //  v   2
+    //  <-------A
+    //  |       |
+    // 3|       |1
+    //  |   0   |
+    //  v------->
+    //
+
+    const auto endX = x + w - 1;
+    const auto endY = y + h - 1;
+
+    auto [currX, currY, currDir] = [x, y, w, h, start, endX, endY]() -> std::tuple<int, int, int>
+    {
+        if((w == 1) && (h == 1)){
+            return {x, y, 3};
+        }
+        else if(w == 1){
+            if(start < h){
+                return {x, y + start, 3};
+            }
+            else{
+                return {x, endY - (start - h), 1};
+            }
+        }
+        else if(h == 1){
+            if(start < w){
+                return {x + start, y, 0};
+            }
+            else{
+                return {endX - (start - w), y, 2};
+            }
+        }
+        else if(start < h){
+            return {x, y + start, 3};
+        }
+        else if(start < w + h - 1){
+            return {x + (start - (h - 1)), endY, 0};
+        }
+        else if(start < w + h * 2 - 2){
+            return {endX, endY - (start - (w - 1) - (h - 1)), 1};
+        }
+        else if(start < w * 2 + h * 2 - 3){
+            return {endX - (start - (h - 1) - (w - 1) - (h - 1)), y, 2};
+        }
+        else{
+            throw fflvalue(x, y, w, h, start);
+        }
+    }();
+
+    const auto fnNextPoint = [x, y, w, h, endX, endY](int currX, int currY, int dir) -> std::tuple<int, int, int>
+    {
+        switch(dir){
+            case 0:
+                {
+                    if(currX == endX){
+                        if(h == 1){
+                            return {currX - 1, currY, 2};
+                        }
+                        else{
+                            return {currX, currY - 1, 1};
+                        }
+                    }
+                    else{
+                        return {currX + 1, currY, 0};
+                    }
+                }
+            case 1:
+                {
+                    if(currY == y){
+                        if(w == 1){
+                            return {currX, currY + 1, 3};
+                        }
+                        else{
+                            return {currX - 1, currY, 2};
+                        }
+                    }
+                    else{
+                        return {currX, currY - 1, 1};
+                    }
+                }
+            case 2:
+                {
+                    if(currX == x){
+                        if(h == 1){
+                            return {currX + 1, currY, 0};
+                        }
+                        else{
+                            return {currX, currY + 1, 3};
+                        }
+                    }
+                    else{
+                        return {currX - 1, currY, 2};
+                    }
+                }
+            case 3:
+                {
+                    if(currY == endY){
+                        if(w == 1){
+                            return {currX, currY - 1, 1};
+                        }
+                        else{
+                            return {currX + 1, currY, 0};
+                        }
+                    }
+                    else{
+                        return {currX, currY + 1, 3};
+                    }
+                }
+            default:
+                {
+                    throw fflvalue(dir, currX, currY);
+                }
+        }
+    };
+
+    for(int i = 0; i < length; ++i){
+        SDLDeviceHelper::EnableRenderColor enableColor(colorf::fadeRGBA(startColor, endColor,  1.0 - (1.0 * i / length)), this);
+        SDL_RenderDrawPoint(getRenderer(), currX, currY);
+        std::tie(currX, currY, currDir) = fnNextPoint(currX, currY, currDir);
+    }
+}
+
 void SDLDevice::drawString(uint32_t color, int x, int y, const char *s)
 {
     if(stringRGBA(m_renderer, x, y, s, colorf::R(color), colorf::G(color), colorf::B(color), colorf::A(color))){
         throw fflerror("failed to draw 8x8 string: %s", s);
     }
+}
+
+void SDLDevice::stopBGM()
+{
+    if(g_clientArgParser->disableAudio){
+        return;
+    }
+    Mix_HaltMusic();
+}
+
+void SDLDevice::setBGMVolume(float volume)
+{
+    if(g_clientArgParser->disableAudio){
+        return;
+    }
+    Mix_VolumeMusic(std::lround(mathf::bound<float>(volume, 0.0f, 1.0f) * SDL_MIX_MAXVOLUME));
+}
+
+void SDLDevice::playBGM(Mix_Music *music, size_t repeats)
+{
+    if(g_clientArgParser->disableAudio){
+        return;
+    }
+
+    if(music){
+        if(Mix_PlayMusic(music, (repeats == 0) ? -1 : (to_d(repeats) - 1))){
+            throw fflerror("failed to play music: %s", Mix_GetError());
+        }
+    }
+}
+
+std::shared_ptr<SDLSoundEffectChannel> SDLDevice::playSoundEffect(std::shared_ptr<SoundEffectHandle> handle, int distance, int angle, size_t repeats)
+{
+    if(g_clientArgParser->disableAudio){
+        return {};
+    }
+
+    if(!handle){
+        return {};
+    }
+
+    if(!handle->chunk){
+        return {};
+    }
+
+    if(distance < 0){
+        return {};
+    }
+
+    int pickedChannel = -1;
+    scoped_alloc::svobuf_wrapper<int64_t, 64> idleChannelList; // use int64_t because ASAN reports error: alignment < 8
+    {
+        // clean pending channel
+        // can't delete channel and handle in Mix_ChannelFinished()
+
+        // for channels in m_freeChannelList, their are not playing
+        // but there can still be a SDLSoundEffectChannel hooked to it, and can control it
+        // shall not allocate it to new sound effect before this hooked SDLSoundEffectChannel get released
+
+        const std::lock_guard<std::mutex> lockGuard(m_freeChannelLock);
+        for(const auto channel: m_freeChannelList){
+            if(auto p = m_channelStateList.find(channel); (p != m_channelStateList.end()) && p->second.hooked){
+                continue;
+            }
+            else{
+                idleChannelList.c.push_back(channel);
+            }
+        }
+
+        if(idleChannelList.c.empty()){
+            return {};
+        }
+
+        pickedChannel = to_d(idleChannelList.c.back());
+        m_freeChannelList.erase(pickedChannel);
+    }
+
+    for(const auto idleChannel: idleChannelList.c){
+        m_channelStateList.erase(idleChannel);
+    }
+
+    fflassert(pickedChannel >= 0, pickedChannel);
+    m_channelStateList.try_emplace(pickedChannel, true, handle);
+
+    // Mix_HaltChannel() does nothing if channel has done play
+    // otherwise halt the channel and call SDLDevice::recycleSoundEffectChannel()
+
+    Mix_HaltChannel(pickedChannel);
+    Mix_SetPosition(pickedChannel, ((angle % 360) + 360) % 360, distance);
+    Mix_PlayChannel(pickedChannel, handle->chunk, (repeats == 0) ? -1 : (to_d(repeats) - 1));
+
+    // return shared_ptr that hooks to m_channelStateList[pickedChannel].hooked
+    // p->dtor() or p->halt() shall get called to unhook the flag, otherwise this channel gets hold on forever
+    return std::shared_ptr<SDLSoundEffectChannel>(new SDLSoundEffectChannel
+    {
+        this,
+        pickedChannel,
+    });
+}
+
+void SDLDevice::stopSoundEffect()
+{
+    if(g_clientArgParser->disableAudio){
+        return;
+    }
+    Mix_HaltChannel(-1);
+}
+
+void SDLDevice::setSoundEffectVolume(float volume)
+{
+    if(g_clientArgParser->disableAudio){
+        return;
+    }
+
+    // use post channel to configure the volume
+    // each channel has own volume and may change during playing, like firewall sound changes when MyHero moves
+
+    if(!Mix_SetDistance(MIX_CHANNEL_POST, std::lround((1.0f - mathf::bound<float>(volume, 0.0f, 1.0f)) * 255))){
+        throw fflerror("failed to setup sound effect volume: %s", Mix_GetError());
+    }
+}
+
+void SDLDevice::recycleSoundEffectChannel(int channel)
+{
+    if(g_clientArgParser->disableAudio){
+        throw fflerror("sound effect callback is triggered with audio disabled");
+    }
+
+    // only put the channel to free list
+    // don't call handle.reset() here which may call into Mix_Funcs and is forbidden
+
+    // handle reset is done in next time when channel allocated for new playing
+    // this may cause resouce free delay
+
+    // don't need to lock here even it's called other than main thread
+    // SDL2 mixer calls SDL_LockAudio()/SDL_UnlockAudio()
+
+    const std::lock_guard<std::mutex> lockGuard(g_sdlDevice->m_freeChannelLock);
+    g_sdlDevice->m_freeChannelList.insert(channel);
 }

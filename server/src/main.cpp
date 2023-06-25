@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: main.cpp
- *        Created: 08/31/2015 08:52:57 PM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #include <ctime>
 #include <asio.hpp>
 #include "log.hpp"
@@ -79,7 +62,12 @@ int main(int argc, char *argv[])
                 std::printf("%s", s.c_str());
             });
         });
+
         g_mainWindow->showAll();
+        if(g_serverArgParser->autoLaunch){
+            g_monoServer = new MonoServer();
+            g_monoServer->Launch();
+        }
 
         while(Fl::wait() > 0){
             switch((uintptr_t)(Fl::thread_message())){

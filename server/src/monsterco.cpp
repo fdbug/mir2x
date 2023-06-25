@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: monsterco.cpp
- *        Created: 03/19/2019 06:43:21
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "uidf.hpp"
 #include "pathf.hpp"
 #include "corof.hpp"
@@ -82,7 +64,7 @@ corof::eval_awaiter<bool> Monster::coro_moveForward()
         }
 
         corof::async_variable<bool> done;
-        p->requestMove(nextX, nextY, p->MoveSpeed(), false, false, [&done](){ done.assign(true); }, [&done](){ done.assign(false); });
+        p->requestMove(nextX, nextY, p->moveSpeed(), false, false, [&done](){ done.assign(true); }, [&done](){ done.assign(false); });
         co_return (co_await done);
     };
     return fnwait(this).to_awaiter<bool>();

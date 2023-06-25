@@ -3,29 +3,37 @@
 #include "fflerror.hpp"
 #include "sdldevice.hpp"
 #include "pngtexdb.hpp"
+#include "bgmusicdb.hpp"
+#include "soundeffectdb.hpp"
 #include "pngtexoffdb.hpp"
+#include "imeboard.hpp"
 #include "processcreatechar.hpp"
 
 extern Client *g_client;
 extern SDLDevice *g_sdlDevice;
+extern IMEBoard *g_imeBoard;
+extern BGMusicDB *g_bgmDB;
+extern SoundEffectDB *g_seffDB;
 extern PNGTexDB *g_progUseDB;
 extern PNGTexOffDB *g_selectCharDB;
 
 ProcessCreateChar::ProcessCreateChar()
     : Process()
-    , m_warrior(DIR_UPLEFT, 339, 539, {0X0D000030, 0X0D000031, 0X0D000032}, nullptr, nullptr, [this](){ m_job = JOB_WARRIOR; })
-    , m_wizard (DIR_UPLEFT, 381, 539, {0X0D000040, 0X0D000041, 0X0D000042}, nullptr, nullptr, [this](){ m_job = JOB_WIZARD ; })
-    , m_taoist (DIR_UPLEFT, 424, 539, {0X0D000050, 0X0D000051, 0X0D000052}, nullptr, nullptr, [this](){ m_job = JOB_TAOIST ; })
-    , m_submit (DIR_UPLEFT, 512, 549, {0X0D000010, 0X0D000011, 0X0D000012}, nullptr, nullptr, [this](){ onSubmit(); }, 0, 0, 0, 0, true, false)
-    , m_exit   (DIR_UPLEFT, 554, 549, {0X0D000020, 0X0D000021, 0X0D000022}, nullptr, nullptr, [this](){ onExit();   }, 0, 0, 0, 0, true, false)
+    , m_warrior(DIR_UPLEFT, 339, 539, {0X0D000030, 0X0D000031, 0X0D000032}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ m_job = JOB_WARRIOR; })
+    , m_wizard (DIR_UPLEFT, 381, 539, {0X0D000040, 0X0D000041, 0X0D000042}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ m_job = JOB_WIZARD ; })
+    , m_taoist (DIR_UPLEFT, 424, 539, {0X0D000050, 0X0D000051, 0X0D000052}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ m_job = JOB_TAOIST ; })
+    , m_submit (DIR_UPLEFT, 512, 549, {0X0D000010, 0X0D000011, 0X0D000012}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ onSubmit(); }, 0, 0, 0, 0, true, false)
+    , m_exit   (DIR_UPLEFT, 554, 549, {0X0D000020, 0X0D000021, 0X0D000022}, {SYS_U32NIL, SYS_U32NIL, 0X01020000 + 105}, nullptr, nullptr, [this](){ onExit();   }, 0, 0, 0, 0, true, false)
 
-    , m_nameLine
+    , m_nameBox
       {
           DIR_UPLEFT,
           355,
           520,
           85,
           15,
+
+          true,
 
           1,
           12,
@@ -56,12 +64,29 @@ ProcessCreateChar::ProcessCreateChar()
           5000,
           10,
       }
-{}
+{
+    g_sdlDevice->playBGM(g_bgmDB->retrieve(0X00040001));
+    g_imeBoard->dropFocus();
+}
+
+ProcessCreateChar::~ProcessCreateChar()
+{
+    g_sdlDevice->stopBGM();
+    g_sdlDevice->stopSoundEffect();
+}
 
 void ProcessCreateChar::update(double fUpdateTime)
 {
     m_aniTime += fUpdateTime;
     m_notifyBoard.update(fUpdateTime);
+    g_imeBoard->update(fUpdateTime);
+
+    if(const uint32_t frameCount = charFrameCount(m_job, m_activeGender); frameCount > 0){
+        if(const auto currAbsFrame = absFrame(); ((currAbsFrame % frameCount) == 0) && (m_lastStartAbsFrame != currAbsFrame)){
+            playMagicSoundEffect();
+            m_lastStartAbsFrame = currAbsFrame;
+        }
+    }
 }
 
 void ProcessCreateChar::draw() const
@@ -80,7 +105,7 @@ void ProcessCreateChar::draw() const
     }
 
     g_sdlDevice->fillRectangle(colorf::RGBA(  0,   0,   0, 255), 355, 520, 90, 15);
-    m_nameLine.draw();
+    m_nameBox.draw();
     g_sdlDevice->drawRectangle(colorf::RGBA(231, 231, 189, 100), 355, 520, 90, 15);
 
     if(auto texPtr = g_progUseDB->retrieve(0X0D000001)){
@@ -93,6 +118,8 @@ void ProcessCreateChar::draw() const
 
     m_submit.draw();
     m_exit  .draw();
+
+    g_imeBoard->draw();
 
     const int notifX = (800 - m_notifyBoard.pw()) / 2;
     const int notifY = (600 - m_notifyBoard. h()) / 2;
@@ -108,15 +135,31 @@ void ProcessCreateChar::draw() const
 void ProcessCreateChar::processEvent(const SDL_Event &event)
 {
     bool tookEvent = false;
-    tookEvent |= m_warrior .processEvent(event, !tookEvent);
-    tookEvent |= m_wizard  .processEvent(event, !tookEvent);
-    tookEvent |= m_taoist  .processEvent(event, !tookEvent);
-    tookEvent |= m_submit  .processEvent(event, !tookEvent);
-    tookEvent |= m_exit    .processEvent(event, !tookEvent);
-    tookEvent |= m_nameLine.processEvent(event, !tookEvent);
+    tookEvent |= g_imeBoard->processEvent(event, !tookEvent);
+    tookEvent |= m_warrior  .processEvent(event, !tookEvent);
+    tookEvent |= m_wizard   .processEvent(event, !tookEvent);
+    tookEvent |= m_taoist   .processEvent(event, !tookEvent);
+    tookEvent |= m_submit   .processEvent(event, !tookEvent);
+    tookEvent |= m_exit     .processEvent(event, !tookEvent);
+    tookEvent |= m_nameBox  .processEvent(event, !tookEvent);
 
     if(!tookEvent){
         switch(event.type){
+        case SDL_KEYDOWN:
+            {
+                switch(event.key.keysym.sym){
+                    case SDLK_TAB:
+                        {
+                            m_nameBox.setFocus(true);
+                            break;
+                        }
+                    default:
+                        {
+                            break;
+                        }
+                }
+                break;
+            }
             case SDL_MOUSEBUTTONDOWN:
                 {
                     const auto [px, py] = SDLDeviceHelper::getMousePLoc();
@@ -126,6 +169,9 @@ void ProcessCreateChar::processEvent(const SDL_Event &event)
                     else if(mathf::pointInRectangle(px, py, 510, 310, 90, 260)){
                         m_activeGender = false;
                     }
+
+                    m_aniTime = 0.0;
+                    m_lastStartAbsFrame = UINT32_MAX; // force playing sound effect when switching chars
                     break;
                 }
             default:
@@ -174,7 +220,7 @@ void ProcessCreateChar::onSubmit()
 {
     CMCreateChar cmCC;
     std::memset(&cmCC, 0, sizeof(cmCC));
-    const auto nameStr = m_nameLine.getRawString();
+    const auto nameStr = m_nameBox.getRawString();
 
     if(nameStr.empty() || nameStr.size() >= cmCC.name.capacity()){
         m_notifyBoard.addLog(u8"无效的角色名");
@@ -195,12 +241,12 @@ void ProcessCreateChar::onExit()
 
 void ProcessCreateChar::setGUIActive(bool active)
 {
-    m_warrior .active(active);
-    m_wizard  .active(active);
-    m_taoist  .active(active);
-    m_submit  .active(active);
-    m_exit    .active(active);
-    m_nameLine.active(active);
+    m_warrior.setActive(active);
+    m_wizard .setActive(active);
+    m_taoist .setActive(active);
+    m_submit .setActive(active);
+    m_exit   .setActive(active);
+    m_nameBox.setActive(active);
 }
 
 void ProcessCreateChar::drawChar(bool gender, int drawX, int drawY) const
@@ -247,4 +293,17 @@ void ProcessCreateChar::drawChar(bool gender, int drawX, int drawY) const
         fnDrawTexture(frameIndex);
         fnDrawTexture(frameIndex | magicMask);
     }
+}
+
+void ProcessCreateChar::playMagicSoundEffect()
+{
+    const int offGender = to_d(m_activeGender);
+    const int offJob = m_job - JOB_BEGIN;
+
+    const uint32_t seffID = UINT32_C(0X00010000) // base
+        | (to_u32(offGender) << 4)               //
+        | (to_u32(offJob   ) << 8)               //
+        | (to_u32(0        ) << 0);              // 0 for create, 1 for select
+
+    g_sdlDevice->playSoundEffect(g_seffDB->retrieve(seffID));
 }

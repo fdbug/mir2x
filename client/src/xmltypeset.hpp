@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: xmltypeset.hpp
- *        Created: 12/11/2018 04:40:11
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <tuple>
 #include "token.hpp"
@@ -309,7 +291,7 @@ class XMLTypeset // means XMLParagraph typeset
         std::string getText(bool) const;
 
     public:
-        std::pair<const char *, const char *> leafEvent(int leafID) const
+        const auto leafEvent(int leafID) const
         {
             return m_paragraph.leafRef(leafID).hasEvent();
         }

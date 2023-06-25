@@ -1,23 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: monoserver.hpp
- *        Created: 02/27/2016 16:45:49
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
-
 #include <mutex>
 #include <queue>
 #include <vector>
@@ -102,7 +83,7 @@ class MonoServer final
         void addCWLogString(uint32_t, int, const char *, const char *);
 
     public:
-        void addLog(const std::array<std::string, 4> &, const char *, ...);
+        void addLog(const Log::LogTypeLoc &, const char *, ...);
 
     private:
         void StartNetwork();
@@ -121,7 +102,13 @@ class MonoServer final
                 bool);                  // use strict loc
 
     public:
-        bool addNPChar(const char *);
+        bool addNPChar(const char *,    // NPC name
+                uint16_t,               // look id
+                uint32_t,               // map id
+                int,                    // map x
+                int,                    // map y
+                int,                    // NPC gfx dir, may not be 8-dir
+                const char *);          // NPC script full name
 
     public:
         uint32_t getCurrTick() const

@@ -1,96 +1,58 @@
-/*
- * =====================================================================================
- *
- *       Filename: delaycommand.hpp
- *        Created: 05/04/2016 14:13:04
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
-#include <queue>
+#include <map>
 #include <utility>
 #include <cstdint>
 #include <functional>
-#include "fflerror.hpp"
+#include "raiitimer.hpp"
 
-class DelayCommand final
-{
-    private:
-        uint64_t m_tick;
-        uint64_t m_index; // to stablize heap sort
-
-    private:
-        std::function<void()> m_cmd;
-
-    public:
-        DelayCommand(uint64_t tick, uint64_t index, std::function<void()> cmd)
-            : m_tick(tick)
-            , m_index(index)
-            , m_cmd(std::move(cmd))
-        {
-            fflassert(m_cmd);
-        }
-
-        bool operator < (const DelayCommand &other) const
-        {
-            if(m_tick != other.m_tick){
-                return m_tick > other.m_tick;
-            }
-            return m_index > other.m_index;
-        }
-
-        uint32_t tick() const
-        {
-            return m_tick;
-        }
-
-    public:
-        void operator () () const
-        {
-            m_cmd();
-        }
-};
-
-// to support ServerObject::addDelay()
-// if use std::priority_queue directly then I can not support nested addDelay():
-//
-//     addDelay(100, []()
-//     {
-//         ...
-//         addDelay(15, []()
-//         {
-//             ...
-//         });
-//     });
-//
-// reason is when we calling the outer addDelay, it's accessing std::priority_queue::top()
-// then if we call the inner addDelay, it changes the priority_queue while it's top() is being accessed
-//
 class DelayCommandQueue final
 {
     private:
-        uint64_t m_delayCmdIndex = 0;
+        uint64_t m_delayCmdIndex = 1; // 0 used as invalid key
 
     private:
-        std::vector<DelayCommand> m_addedCmdQ;
-        std::priority_queue<DelayCommand> m_delayCmdQ;
+        std::map<std::pair<uint64_t, uint64_t>, std::function<void()>> m_delayCmdQ;
 
     public:
         DelayCommandQueue() = default;
 
     public:
-        void addDelay(uint32_t, std::function<void()>);
+        std::pair<uint64_t, uint64_t> addDelay(uint64_t delayTick, std::function<void()> fnCmd)
+        {
+            if(fnCmd){
+                return m_delayCmdQ.insert(std::make_pair(std::make_pair(delayTick + hres_tstamp().to_msec(), m_delayCmdIndex++), std::move(fnCmd))).first->first;
+            }
+            return {0, 0};
+        }
+
+        void removeDelay(const std::pair<uint64_t, uint64_t> &key)
+        {
+            m_delayCmdQ.erase(key);
+        }
 
     public:
-        void exec();
+        void exec()
+        {
+            while(!m_delayCmdQ.empty()){
+                auto topiter = m_delayCmdQ.begin();
+                if(hres_tstamp().to_msec() < topiter->first.first){
+                    return;
+                }
+
+                // need to use an iterator instead of begin() when deleting
+                // because addDelay can support nested addDelay() which may be returned by next begin()
+                //
+                //     addDelay(100, []()
+                //     {
+                //         ...
+                //         addDelay(15, []()
+                //         {
+                //             ...
+                //         });
+                //     });
+
+                topiter->second();
+                m_delayCmdQ.erase(topiter);
+            }
+        }
 };

@@ -1,22 +1,5 @@
-/*
- * =====================================================================================
- *
- *       Filename: commandinput.cpp
- *        Created: 06/04/2017 13:01:35
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "totype.hpp"
+#include "flwrapper.hpp"
 #include "monoserver.hpp"
 #include "threadpool.hpp"
 #include "commandinput.hpp"
@@ -85,8 +68,8 @@ int CommandInput::handle(int event)
                             if(true && m_window
                                     && m_window->getLuaModule()){
 
-                                // 1. print current command for echo
-                                //    should give method to disable the echo
+                                // print current command for echo
+                                // should give method to disable the echo
 
                                 // won't use CommandWindow::AddLog() directly
                                 // use MonoServer::AddCWLog() for thread-safe access
@@ -118,7 +101,8 @@ int CommandInput::handle(int event)
                                         // remove the enter and print it
                                         g_monoServer->addCWLogString(cwid, 0, fnGetPrompt(), currCmdStr.substr(currLoc, enterLoc - currLoc).c_str());
                                         currLoc = enterLoc + 1;
-                                    }else{
+                                    }
+                                    else{
                                         // can't find a enter
                                         // we done here for the whole string
                                         g_monoServer->addCWLogString(cwid, 0, fnGetPrompt(), currCmdStr.substr(currLoc).c_str());
@@ -126,38 +110,44 @@ int CommandInput::handle(int event)
                                     }
                                 }
 
-                                // 2. put a task in the LuaModule::TaskHub
-                                //    and return immediately for current thread
+                                // put a task in the thread pool
+                                // and return immediately for current thread, don't block GUI logic
 
                                 deactivate();
                                 m_worker->addTask([this, cwid, currCmdStr](int)
                                 {
-                                    const DisableFlWidget disable(this);
-                                    auto callResult = m_window->getLuaModule()->getLuaState().script(currCmdStr.c_str(), [](lua_State *, sol::protected_function_result result)
-                                    {
-                                        // default handler
-                                        // do nothing and let the call site handle the errors
-                                        return result;
-                                    });
+                                    try{
+                                        if(const auto callResult = m_window->getLuaModule()->execRawString(currCmdStr.c_str()); callResult.valid()){
+                                            // default nothing printed
+                                            // can put information here to show call succeeds
+                                        }
+                                        else{
+                                            sol::error err = callResult;
+                                            std::stringstream errStream(err.what());
 
-                                    if(callResult.valid()){
-                                        // default nothing printed
-                                        // we can put information here to show call succeeds
-                                        // or we can unlock the input widget to allow next command
-                                    }
-                                    else{
-                                        sol::error err = callResult;
-                                        std::stringstream errStream(err.what());
+                                            // need to handle here
+                                            // error message could be more than one line
 
-                                        // need to handle here
-                                        // error message could be more than one line
-
-                                        std::string errLine;
-                                        while(std::getline(errStream, errLine, '\n')){
-                                            g_monoServer->addCWLogString(cwid, 2, ">>> ", errLine.c_str());
+                                            std::string errLine;
+                                            while(std::getline(errStream, errLine, '\n')){
+                                                g_monoServer->addCWLogString(cwid, 2, ">>> ", errLine.c_str());
+                                            }
                                         }
                                     }
-                                    m_window->redrawAll();
+                                    catch(const std::exception &e){
+                                        g_monoServer->addCWLogString(cwid, 2, ">>> ", e.what());
+                                    }
+                                    catch(...){
+                                        g_monoServer->addCWLogString(cwid, 2, ">>> ", "unknown error");
+                                    }
+
+                                    // need to protect any FLTK widget access by Fl::lock() and Fl::unlock()
+                                    // check FLTK manual for multithreading: https://www.fltk.org/doc-1.3/advanced.html
+                                    fl_wrapper::mtcall([this]()
+                                    {
+                                        activate();
+                                        m_window->redrawAll();
+                                    });
                                 });
 
                                 // to inform fltk that we have handled this event

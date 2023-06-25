@@ -1,21 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: clientdualaxeskeleton.cpp
- *        Created: 07/31/2021 08:26:19
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include "pathf.hpp"
 #include "fflerror.hpp"
 #include "processrun.hpp"
 #include "clientdualaxeskeleton.hpp"
@@ -35,7 +18,7 @@ ClientDualAxeSkeleton::ClientDualAxeSkeleton(uint64_t uid, ProcessRun *proc, con
                 m_currMotion.reset(new MotionNode
                 {
                     .type = MOTION_MON_STAND,
-                    .direction = directionValid(action.type) ? to_d(action.type) : DIR_BEGIN,
+                    .direction = pathf::dirValid(action.type) ? to_d(action.type) : DIR_BEGIN,
                     .x = action.x,
                     .y = action.y,
                 });
@@ -85,7 +68,7 @@ bool ClientDualAxeSkeleton::onActionAttack(const ActionNode &action)
             // an dual-axe-skeleton can throw dual-axe-magic and die immediately, which makes *this* dangling
 
             if(auto coPtr = proc->findUID(targetUID)){
-                coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"掷斧骷髅_掷斧", u8"结束")));
+                coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"掷斧骷髅_掷斧", u8"裂解")));
             }
         });
         return true;

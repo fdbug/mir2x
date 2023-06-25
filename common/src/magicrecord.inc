@@ -42,6 +42,7 @@
 },
 
 {   .name = u8"魔法特效_护身符",
+    .seffBase = 13,
     .gfxList
     {
         {
@@ -86,6 +87,7 @@
 },
 
 {   .name = u8"魔法特效_召唤骷髅",
+    .seffBase = 17,
     .gfxList
     {
         {
@@ -98,7 +100,7 @@
         },
 
         {
-            .stage = u8"开始",
+            .stage = u8"运行",
             .type  = u8"固定",
             .gfxID = 0X000002EE,
             .frameCount = 10,
@@ -108,6 +110,7 @@
 },
 
 {   .name = u8"魔法特效_雷电术",
+    .seffBase = 11,
     .gfxList
     {
         {
@@ -120,6 +123,7 @@
 },
 
 {   .name = u8"魔法特效_火球术",
+    .seffBase = 1,
     .gfxList
     {
         {
@@ -153,7 +157,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000244,
             .frameCount = 10,
@@ -162,6 +166,7 @@
 },
 
 {   .name = u8"魔法特效_大火球",
+    .seffBase = 5,
     .gfxList
     {
         {
@@ -204,7 +209,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000708,
             .frameCount = 10,
@@ -213,17 +218,18 @@
 },
 
 {   .name = u8"魔法特效_瞬息移动",
+    .seffBase = 21,
     .gfxList
     {
         {
-            .stage = u8"开始",
+            .stage = u8"运行",
             .type  = u8"固定",  // don't use 附着
             .gfxID = 0X0000006E,
             .frameCount = 10,
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000938,
             .frameCount = 10,
@@ -269,12 +275,14 @@
         .level = {16, 18, 20},
         .train = {40, 50, 60},
         .job = u8"法师",
+        .prior = u8"霹雳掌",
     },
     .coolDown = 800,
     .mp = 7,
     .mpInc = 6,
     .power = {15, 19},
     .addPower = {7, 11},
+    .seffBase = 11,
     .gfxList
     {
         {
@@ -302,10 +310,12 @@
         .level = {29, 31, 33},
         .train = {90, 100, 110},
         .job = u8"法师",
+        .prior = u8"抗拒火环",
     },
     .coolDown = 100,
     .mp = 20,
     .mpInc = 30,
+    .seffBase = 31,
     .gfxList
     {
         {
@@ -317,7 +327,7 @@
         },
 
         {
-            .stage = u8"开始",
+            .stage = u8"运行",
             .type  = u8"附着",
             .gfxID = 0X00000347,
             .frameCount = 10,
@@ -365,7 +375,7 @@
             .ref
             {
                 .name  = u8"魔法特效_召唤骷髅",
-                .stage = u8"开始",
+                .stage = u8"运行",
             },
         },
     },
@@ -408,7 +418,7 @@
             .ref
             {
                 .name = u8"魔法特效_火球术",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },
@@ -421,6 +431,7 @@
         .level = {15, 17, 19},
         .train = {40, 50, 60},
         .job = u8"法师",
+        .prior = u8"火球术",
     },
     .coolDown = 700,
     .checkGround = 1,
@@ -450,7 +461,7 @@
             .ref
             {
                 .name = u8"魔法特效_大火球",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },
@@ -468,6 +479,7 @@
     .mp = 7,
     .mpInc = 2,
     .power = {11, 15},
+    .seffBase = 2,
     .gfxList
     {
         {
@@ -516,6 +528,7 @@
     .coolDown = 600,
     .mp = 10,
     .mpInc = 5,
+    .seffBase = 6,
     .gfxList
     {
         {
@@ -541,6 +554,7 @@
         .level = {14, 16, 18},
         .train = {30, 40, 50},
         .job = u8"战士",
+        .prior = u8"基本剑术",
     },
     .gfxList
     {
@@ -562,11 +576,13 @@
         .level = {12, 14, 16},
         .train = {20, 30, 40},
         .job = u8"法师",
+        .prior = u8"风掌",
     },
     .coolDown = 600,
     .mp = 8,
     .mpInc = 1,
     .power = {0, 2},
+    .seffBase = 8,
     .gfxList
     {
         {
@@ -586,12 +602,14 @@
         .level = {21, 23, 25},
         .train = {50, 60, 70},
         .job = u8"法师",
+        .prior = u8"雷电术",
     },
     .coolDown = 800,
     .mp = 12,
     .mpInc = 15,
     .power = {14, 14},
     .addPower = {12, 16},
+    .seffBase = 10,
     .gfxList
     {
         {
@@ -620,6 +638,7 @@
         .level = {19, 21, 23},
         .train = {40, 50, 60},
         .job = u8"战士",
+        .prior = u8"攻杀剑术",
     },
     .gfxList
     {
@@ -641,6 +660,7 @@
         .level = {13, 15, 17},
         .train = {20, 30, 40},
         .job = u8"道士",
+        .prior = u8"隐身术",
     },
     .coolDown = 500,
     .checkGround = 1,
@@ -648,6 +668,7 @@
     .mpInc = 3,
     .power = {6, 10},
     .addPower = {3, 3},
+    .seffBase = 13,
     .gfxList
     {
         {
@@ -667,7 +688,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000474,
             .frameCount = 10,
@@ -682,10 +703,12 @@
         .level = {21, 23, 25},
         .train = {50, 60, 70},
         .job = u8"道士",
+        .prior = u8"困魔咒",
     },
     .coolDown = 700,
     .mp = 10,
     .mpInc = 5,
+    .seffBase = 14,
     .gfxList
     {
         {
@@ -705,7 +728,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X000000C8,
             .frameCount = 10,
@@ -720,10 +743,12 @@
         .level = {25, 27, 29},
         .train = {70, 80, 90},
         .job = u8"道士",
+        .prior = u8"幽灵盾",
     },
     .coolDown = 700,
     .mp = 10,
     .mpInc = 5,
+    .seffBase = 15,
     .gfxList
     {
         {
@@ -743,7 +768,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X000000AA,
             .frameCount = 10,
@@ -758,10 +783,12 @@
         .level = {27, 29, 31},
         .train = {80, 90, 100},
         .job = u8"道士",
+        .prior = u8"施毒术",
     },
     .coolDown = 1000,
     .mp = 15,
     .mpInc = 10,
+    .seffBase = 16,
     .gfxList
     {
         {
@@ -788,10 +815,12 @@
         .level = {20, 22, 24},
         .train = {50, 60, 70},
         .job = u8"道士",
+        .prior = u8"施毒术",
     },
     .coolDown = 700,
     .mp = 5,
     .mpInc = 5,
+    .seffBase = 18,
     .gfxList
     {
         {
@@ -811,6 +840,7 @@
         .level = {23, 25, 27},
         .train = {60, 70, 80},
         .job = u8"道士",
+        .prior = u8"隐身术",
     },
     .coolDown = 700,
     .mp = 10,
@@ -834,7 +864,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000334,
             .frameCount = 10,
@@ -853,6 +883,7 @@
     .coolDown = 600,
     .mp = 3,
     .mpInc = 3,
+    .seffBase = 20,
     .gfxList
     {
         {
@@ -889,7 +920,7 @@
             .ref
             {
                 .name = u8"魔法特效_瞬息移动",
-                .stage = u8"开始",
+                .stage = u8"运行",
             },
         },
 
@@ -897,7 +928,7 @@
             .ref
             {
                 .name = u8"魔法特效_瞬息移动",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },
@@ -910,12 +941,14 @@
         .level = {24, 26, 28},
         .train = {60, 70, 80},
         .job = u8"法师",
+        .prior = u8"地狱火",
     },
     .coolDown = 1000,
     .mp = 22,
     .mpInc = 30,
     .power = {2, 9},
     .addPower = {1, 6},
+    .seffBase = 22,
     .gfxList
     {
         {
@@ -945,12 +978,14 @@
         .level = {20, 22, 24},
         .train = {50, 60, 70},
         .job = u8"法师",
+        .prior = u8"大火球",
     },
     .coolDown = 800,
     .mp = 11,
     .mpInc = 15,
     .power = {14, 18},
     .addPower = {12, 16},
+    .seffBase = 9,
     .gfxList
     {
         {
@@ -981,12 +1016,14 @@
         .level = {32, 34, 36},
         .train = {100, 110, 120},
         .job = u8"法师",
+        .prior = u8"地狱火",
     },
     .coolDown = 900,
     .mp = 15,
     .mpInc = 20,
     .power = {14, 18},
     .addPower = {14, 18},
+    .seffBase = 23,
     .gfxList
     {
         {
@@ -1015,12 +1052,14 @@
         .level = {33, 35, 37},
         .train = {100, 110, 120},
         .job = u8"法师",
+        .prior = u8"疾光电影",
     },
     .coolDown = 900,
     .mp = 17,
     .mpInc = 20,
     .power = {14, 18},
     .addPower = {14, 18},
+    .seffBase = 24,
     .gfxList
     {
         {
@@ -1047,6 +1086,7 @@
         .level = {24, 26, 28},
         .train = {60, 70, 80},
         .job = u8"战士",
+        .prior = u8"刺杀剑术",
     },
     .mpInc = 3,
     .gfxList
@@ -1068,6 +1108,7 @@
         .level = {32, 34, 36},
         .train = {100, 110, 120},
         .job = u8"战士",
+        .prior = u8"半月弯刀",
     },
     .mp = 2,
     .mpInc = 7,
@@ -1090,6 +1131,7 @@
         .level = {27, 29, 31},
         .train = {70, 80, 90},
         .job = u8"战士",
+        .prior = u8"基本剑术",
     },
     .mp = 20,
 },
@@ -1101,12 +1143,14 @@
         .level = {31, 33, 35},
         .train = {100, 110, 120},
         .job = u8"道士",
+        .prior = u8"治愈术",
     },
     .coolDown = 400,
     .mp = 10,
     .mpInc = 20,
     .power = {8, 12},
     .addPower = {4, 4},
+    .seffBase = 29,
     .gfxList
     {
         {
@@ -1133,10 +1177,12 @@
         .level = {30, 32, 34},
         .train = {90, 100, 110},
         .job = u8"道士",
+        .prior = u8"召唤骷髅",
     },
     .coolDown = 2000,
     .mp = 15,
     .mpInc = 15,
+    .seffBase = 30,
     .gfxList
     {
         {
@@ -1157,10 +1203,12 @@
         .level = {26, 28, 30},
         .train = {70, 80, 90},
         .job = u8"法师",
+        .prior = u8"诱惑之光",
     },
     .coolDown = 1000,
     .mp = 30,
     .mpInc = 30,
+    .seffBase = 32,
     .gfxList
     {
         {
@@ -1187,12 +1235,14 @@
         .level = {34, 36, 38},
         .train = {100, 110, 120},
         .job = u8"法师",
+        .prior = u8"冰沙掌",
     },
     .coolDown = 900,
     .mp = 19,
     .mpInc = 20,
     .power = {12, 16},
     .addPower = {14, 18},
+    .seffBase = 33,
     .gfxList
     {
         {
@@ -1220,6 +1270,7 @@
         .level = {38, 40, 42},
         .train = {100, 110, 120},
         .job = u8"战士",
+        .prior = u8"烈火剑法",
     },
     .mp = 3,
     .mpInc = 9,
@@ -1242,6 +1293,7 @@
         .level = {35, 37, 39},
         .train = {100, 110, 120},
         .job = u8"战士",
+        .prior = u8"半月弯刀",
     },
     .mp = 2,
     .mpInc = 8,
@@ -1277,6 +1329,7 @@
         .level = {28, 30, 32},
         .train = {90, 100, 110},
         .job = u8"道士",
+        .prior = u8"精神力战法",
     },
     .coolDown = 800,
     .mp = 20,
@@ -1290,12 +1343,14 @@
         .level = {14, 16, 18},
         .train = {30, 40, 50},
         .job = u8"道士",
+        .prior = u8"治愈术",
     },
     .coolDown = 500,
     .mp = 6,
     .mpInc = 3,
     .power = {6, 10},
     .addPower = {3, 3},
+    .seffBase = 37,
     .gfxList
     {
         {
@@ -1323,7 +1378,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000D0C,
             .frameCount = 10,
@@ -1339,11 +1394,13 @@
         .level = {24, 26, 28},
         .train = {60, 70, 80},
         .job = u8"道士",
+        .prior = u8"月魂断玉",
     },
     .mp = 8,
     .mpInc = 4,
     .power = {8, 12},
     .addPower = {7, 7},
+    .seffBase = 38,
     .gfxList
     {
         {
@@ -1371,7 +1428,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000D7A,
             .frameCount = 10,
@@ -1394,6 +1451,7 @@
     .mpInc = 1,
     .power = {4, 8},
     .addPower = {0, 4},
+    .seffBase = 39,
     .gfxList
     {
         {
@@ -1436,7 +1494,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000B2C,
             .frameCount = 10,
@@ -1451,6 +1509,7 @@
         .level = {17, 19, 21},
         .train = {40, 50, 60},
         .job = u8"法师",
+        .prior = u8"冰月神掌",
     },
     .coolDown = 700,
     .checkGround = 1,
@@ -1458,6 +1517,7 @@
     .mpInc = 6,
     .power = {13, 17},
     .addPower = {7, 11},
+    .seffBase = 40,
     .gfxList
     {
         {
@@ -1484,7 +1544,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000B9A,
             .frameCount = 10,
@@ -1505,6 +1565,7 @@
     .mpInc = 1,
     .power = {6, 10},
     .addPower = {0, 4},
+    .seffBase = 41,
     .gfxList
     {
         {
@@ -1547,7 +1608,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X00000C9E,
             .frameCount = 10,
@@ -1563,6 +1624,7 @@
         .level = {22, 24, 26},
         .train = {50, 60, 70},
         .job = u8"法师",
+        .prior = u8"冰月震天",
     },
     .coolDown = 800,
     .checkGround = 1,
@@ -1570,6 +1632,7 @@
     .mpInc = 15,
     .power = {12, 16},
     .addPower = {12, 16},
+    .seffBase = 53,
     .gfxList
     {
         {
@@ -1603,6 +1666,7 @@
     .mpInc = 1,
     .power = {5, 9},
     .addPower = {0, 4},
+    .seffBase = 67,
     .gfxList
     {
         {
@@ -1647,7 +1711,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X0100024E,
             .modColor = colorf::RGBA(255, 255, 255, 120),
@@ -1664,12 +1728,14 @@
         .level = {35, 37, 39},
         .train = {100, 110, 120},
         .job = u8"法师",
+        .prior = u8"风震天",
     },
     .coolDown = 900,
     .mp = 18,
     .mpInc = 20,
     .power = {13, 17},
     .addPower = {14, 18},
+    .seffBase = 72,
     .gfxList
     {
         {
@@ -1698,12 +1764,14 @@
         .level = {23, 25, 27},
         .train = {60, 70, 80},
         .job = u8"法师",
+        .prior = u8"击风",
     },
     .coolDown = 800,
     .mp = 13,
     .mpInc = 15,
     .power = {13, 17},
     .addPower = {12, 16},
+    .seffBase = 73,
     .gfxList
     {
         // 击风 and 风震天 are actually using same gfx
@@ -1718,7 +1786,7 @@
         },
 
         {
-            .stage = u8"开始",
+            .stage = u8"运行",
             .type  = u8"固定",
             .gfxID = 0X010007BC,
             .frameCount = 10,
@@ -1734,7 +1802,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"固定",
             .gfxID = 0X010007D0,
             .frameCount = 10,
@@ -1750,12 +1818,14 @@
         .level = {18, 20, 22},
         .train = {40, 50, 60},
         .job = u8"法师",
+        .prior = u8"风掌",
     },
     .coolDown = 800,
     .mp = 6,
     .mpInc = 6,
     .power = {14, 18},
     .addPower = {7, 11},
+    .seffBase = 74,
     .gfxList
     {
         {
@@ -1776,7 +1846,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"固定",
             .gfxID = 0X010007D0,
             .frameCount = 10,
@@ -1792,10 +1862,12 @@
         .level = {35, 37, 39},
         .train = {50, 60, 70},
         .job = u8"道士",
+        .prior = u8"群体治愈术",
     },
     .coolDown = 5000,
     .mp = 100,
     .mpInc = 100,
+    .seffBase = 77,
     .gfxList
     {
         {
@@ -1822,10 +1894,12 @@
         .level = {29, 31, 33},
         .train = {90, 100, 110},
         .job = u8"道士",
+        .prior = u8"神圣战甲术",
     },
     .coolDown = 700,
     .mp = 10,
     .mpInc = 5,
+    .seffBase = 89,
     .gfxList
     {
         {
@@ -1845,7 +1919,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X0100074E,
             .frameCount = 10,
@@ -1860,10 +1934,12 @@
         .level = {34, 36, 38},
         .train = {100, 110, 120},
         .job = u8"道士",
+        .prior = u8"强魔震法",
     },
     .coolDown = 700,
     .mp = 10,
     .mpInc = 5,
+    .seffBase = 94,
     .gfxList
     {
         {
@@ -1883,7 +1959,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X0100008C,
             .frameCount = 10,
@@ -1897,12 +1973,14 @@
         .level = {44, 47, 50},
         .train = {1000, 2000, 3000},
         .job = u8"战士",
+        .prior = u8"乾坤大挪移",
     },
     .coolDown = 1000,
     .mp = 40,
     .mpInc = 20,
     .power = {2, 4},
     .addPower = {3, 5},
+    .seffBase = 102,
     .gfxList
     {
         {
@@ -1923,6 +2001,7 @@
         .level = {40, 43, 46},
         .train = {500, 800, 1000},
         .job = u8"战士",
+        .prior = u8"翔空剑法",
     },
     .mpInc = 7,
     .gfxList
@@ -1945,17 +2024,19 @@
         .level = {27, 29, 31},
         .train = {80, 90, 100},
         .job = u8"法师",
+        .prior = u8"瞬息移动",
     },
     .coolDown = 2500,
     .mp = 20,
     .mpInc = 20,
+    .seffBase = 104,
     .gfxList
     {
         {
             .ref
             {
                 .name = u8"魔法特效_瞬息移动",
-                .stage = u8"开始",
+                .stage = u8"运行",
             },
         },
 
@@ -1963,7 +2044,7 @@
             .ref
             {
                 .name = u8"魔法特效_瞬息移动",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },
@@ -1976,10 +2057,12 @@
         .level = {33, 35, 37},
         .train = {100, 110, 120},
         .job = u8"道士",
+        .prior = u8"召唤神兽",
     },
     .coolDown = 2000,
     .mp = 20,
     .mpInc = 25,
+    .seffBase = 105,
     .gfxList
     {
         {
@@ -1994,7 +2077,7 @@
             .ref
             {
                 .name  = u8"魔法特效_召唤骷髅",
-                .stage = u8"开始",
+                .stage = u8"运行",
             },
         },
     },
@@ -2006,12 +2089,14 @@
         .level = {48, 51, 54},
         .train = {1000, 2000, 3000},
         .job = u8"战士",
+        .prior = u8"斗转星移",
     },
     .coolDown = 2000,
     .mp = 100,
     .mpInc = 100,
     .power = {2, 4},
     .addPower = {3, 5},
+    .seffBase = 106,
     .gfxList
     {
         {
@@ -2032,10 +2117,12 @@
         .level = {42, 45, 48},
         .train = {500, 800, 1000},
         .job = u8"战士",
+        .prior = u8"野蛮冲撞",
     },
     .coolDown = 200,
     .mp = 40,
     .mpInc = 10,
+    .seffBase = 107,
     .gfxList
     {
         {
@@ -2063,10 +2150,12 @@
         .level = {46, 49, 52},
         .train = {500, 800, 1000},
         .job = u8"战士",
+        .prior = u8"铁布衫",
     },
     .coolDown = 200,
     .mp = 40,
     .mpInc = 20,
+    .seffBase = 108,
     .gfxList
     {
         {
@@ -2086,12 +2175,14 @@
         .level = {38, 41, 44},
         .train = {500, 800, 1000},
         .job = u8"法师",
+        .prior = u8"冰咆哮",
     },
     .coolDown = 100,
     .mp = 20,
     .mpInc = 20,
     .power = {16, 20},
     .addPower = {16, 20},
+    .seffBase = 110,
     .gfxList
     {
         {
@@ -2112,12 +2203,14 @@
         .level = {40, 42, 44},
         .train = {500, 800, 1000},
         .job = u8"法师",
+        .prior = u8"地狱雷光",
     },
     .coolDown = 100,
     .mp = 40,
     .mpInc = 30,
     .power = {20, 40},
     .addPower = {20, 30},
+    .seffBase = 111,
     .gfxList
     {
         {
@@ -2145,12 +2238,14 @@
         .level = {46, 48, 50},
         .train = {1000, 2000, 3000},
         .job = u8"法师",
+        .prior = u8"圣言术",
     },
     .coolDown = 100,
     .mp = 60,
     .mpInc = 10,
     .power = {6, 2},
     .addPower = {1, 1},
+    .seffBase = 112,
     .gfxList
     {
         {
@@ -2170,12 +2265,14 @@
         .level = {43, 45, 47},
         .train = {1000, 2000, 3000},
         .job = u8"法师",
+        .prior = u8"大火球",
     },
     .coolDown = 100,
     .mp = 32,
     .mpInc = 20,
     .power = {32, 40},
     .addPower = {14, 22},
+    .seffBase = 113,
     .gfxList
     {
         {
@@ -2198,7 +2295,7 @@
             .ref
             {
                 .name = u8"魔法特效_大火球",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },
@@ -2211,10 +2308,12 @@
         .level = {38, 41, 44},
         .train = {500, 800, 1000},
         .job = u8"道士",
+        .prior = u8"月魂灵波",
     },
     .coolDown = 100,
     .mp = 20,
     .mpInc = 10,
+    .seffBase = 120,
     .gfxList
     {
         {
@@ -2241,10 +2340,12 @@
         .level = {43, 45, 47},
         .train = {1000, 2000, 3000},
         .job = u8"道士",
+        .prior = u8"集体隐身术",
     },
     .coolDown = 100,
     .mp = 120,
     .mpInc = 80,
+    .seffBase = 121,
     .gfxList
     {
         {
@@ -2264,10 +2365,12 @@
         .level = {46, 48, 50},
         .train = {1000, 2000, 3000},
         .job = u8"道士",
+        .prior = u8"云寂术",
     },
     .coolDown = 200,
     .mp = 60,
     .mpInc = 50,
+    .seffBase = 122,
     .gfxList
     {
         {
@@ -2280,7 +2383,7 @@
         },
 
         {
-            .stage = u8"开始",
+            .stage = u8"运行",
             .type  = u8"附着",
             .gfxID = 0X02000122,
             .modColor = colorf::RGBA(255, 255, 255, 100),
@@ -2290,7 +2393,7 @@
         {
             .stage = u8"运行",
             .type  = u8"附着",
-            .gfxID = 0X0200012A, // use special gfx, this one uses last frame of 阴阳法环:开始
+            .gfxID = 0X0200012A, // use special gfx, this one uses last frame of 阴阳法环:运行
             .modColor = colorf::RGBA(255, 255, 255, 100),
             .frameCount = 1,
             .loop = 1,
@@ -2313,12 +2416,14 @@
         .level = {40, 42, 44},
         .train = {500, 800, 1000},
         .job = u8"道士",
+        .prior = u8"超强召唤骷髅",
     },
     .coolDown = 200,
     .mp = 40,
     .mpInc = 30,
     .power = {4, 8},
     .addPower = {3, 4},
+    .seffBase = 123,
     .gfxList
     {
         {
@@ -2444,7 +2549,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X010003A2,
             .frameCount = 6,
@@ -2492,7 +2597,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X010003A2,
             .frameCount = 6,
@@ -2523,7 +2628,7 @@
             .ref
             {
                 .name = u8"魔法特效_火球术",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },
@@ -2737,7 +2842,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X010003A2,
             .frameCount = 6,
@@ -2804,7 +2909,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X010003A2,
             .frameCount = 6,
@@ -3015,7 +3120,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X0100033E,
             .frameCount = 6,
@@ -3040,6 +3145,7 @@
             {
                 .name = u8"魔法特效_雷电术",
                 .stage = u8"运行",
+                .modColor = colorf::YELLOW + colorf::A_SHF(127),
             },
         },
     },
@@ -3077,7 +3183,7 @@
         },
 
         {
-            .stage = u8"结束",
+            .stage = u8"裂解",
             .type  = u8"附着",
             .gfxID = 0X01000316,
             .frameCount = 6,
@@ -3109,7 +3215,7 @@
             .ref
             {
                 .name = u8"魔法特效_火球术",
-                .stage = u8"结束",
+                .stage = u8"裂解",
             },
         },
     },

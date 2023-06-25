@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: npcchatboard.cpp
- *        Created: 04/12/2020 19:03:35
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <string_view>
 #include "uidf.hpp"
 #include "totype.hpp"
@@ -24,9 +6,11 @@
 #include "sdldevice.hpp"
 #include "processrun.hpp"
 #include "npcchatboard.hpp"
+#include "clientargparser.hpp"
 
 extern PNGTexDB *g_progUseDB;
 extern SDLDevice *g_sdlDevice;
+extern ClientArgParser *g_clientArgParser;
 
 NPCChatBoard::NPCChatBoard(ProcessRun *proc, Widget *pwidget, bool autoDelete)
     : Widget(DIR_UPLEFT, 0, 0, 386, 204, pwidget, autoDelete)
@@ -54,10 +38,20 @@ NPCChatBoard::NPCChatBoard(ProcessRun *proc, Widget *pwidget, bool autoDelete)
           0,
           0,
 
-          [this](const char *id, const char *arg, int oldEvent, int newEvent)
+          [this](const std::unordered_map<std::string, std::string> &attrList, int oldEvent, int newEvent)
           {
               if(oldEvent == BEVENT_DOWN && newEvent == BEVENT_ON){
-                  onClickEvent(id, arg);
+                  const auto fnFindAttrValue = [&attrList](const char *key, const char *valDefault) -> const char *
+                  {
+                      if(auto p = attrList.find(key); p != attrList.end() && str_haschar(p->second)){
+                          return p->second.c_str();
+                      }
+                      return valDefault;
+                  };
+
+                  if(const auto id = fnFindAttrValue("id", nullptr)){
+                      onClickEvent(fnFindAttrValue("path", m_eventPath.c_str()), id, fnFindAttrValue("arg", nullptr));
+                  }
               }
           },
           this,
@@ -67,14 +61,19 @@ NPCChatBoard::NPCChatBoard(ProcessRun *proc, Widget *pwidget, bool autoDelete)
           DIR_UPLEFT,
           100,
           100,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
-              m_process->sendNPCEvent(m_NPCUID, SYS_NPCDONE);
+              setShow(false);
+              m_process->sendNPCEvent(m_npcUID, m_eventPath, SYS_EXIT);
           },
 
           0,
@@ -106,7 +105,7 @@ NPCChatBoard::NPCChatBoard(ProcessRun *proc, Widget *pwidget, bool autoDelete)
     fnAssertImage(0X00000052, 386,  20);
     fnAssertImage(0X00000053, 386,  44);
     fnAssertImage(0X00000054, 386,  44);
-    show(false);
+    setShow(false);
 }
 
 void NPCChatBoard::drawWithNPCFace() const
@@ -158,13 +157,14 @@ void NPCChatBoard::drawEx(int, int, int, int, int, int) const
     }
 }
 
-void NPCChatBoard::loadXML(uint64_t uid, const char *xmlString)
+void NPCChatBoard::loadXML(uint64_t uid, const char *eventPath, const char *xmlString)
 {
-    if(uidf::getUIDType(uid) != UID_NPC){
-        throw fflerror("invalid uid type: %s", uidf::getUIDTypeCStr(uid));
-    }
+    fflassert(uidf::isNPChar(uid), uidf::getUIDString(uid));
+    fflassert(str_haschar(eventPath));
+    fflassert(str_haschar(xmlString));
 
-    m_NPCUID = uid;
+    m_npcUID = uid;
+    m_eventPath = eventPath;
     m_chatBoard.clear();
 
     if(auto texPtr = g_progUseDB->retrieve(getNPCFaceKey())){
@@ -187,20 +187,17 @@ void NPCChatBoard::loadXML(uint64_t uid, const char *xmlString)
     }
 }
 
-void NPCChatBoard::onClickEvent(const char *id, const char *arg)
+void NPCChatBoard::onClickEvent(const char *path, const char *id, const char *arg)
 {
-    m_process->addCBLog(CBLOG_SYS, u8"clickEvent: id = %s, arg = %s", to_cstr(id), to_cstr(arg));
+    if(g_clientArgParser->debugClickEvent){
+        m_process->addCBLog(CBLOG_SYS, u8"clickEvent: path = %s, id = %s, arg = %s", to_cstr(path), to_cstr(id), to_cstr(arg));
+    }
 
     fflassert(str_haschar(id));
-    if(arg){
-        m_process->sendNPCEvent(m_NPCUID, id, arg);
-    }
-    else{
-        m_process->sendNPCEvent(m_NPCUID, id);
-    }
+    m_process->sendNPCEvent(m_npcUID, path, id, arg ? std::make_optional<std::string>(arg) : std::nullopt);
 
-    if(std::string_view(id).ends_with(SYS_NPCDONE)){
-        show(false);
+    if(std::string_view(id).ends_with(SYS_EXIT)){
+        setShow(false);
     }
 }
 

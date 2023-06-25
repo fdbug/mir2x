@@ -1,32 +1,18 @@
-/*
- * =====================================================================================
- *
- *       Filename: sdldevice.hpp
- *        Created: 03/07/2016 23:57:04
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <array>
 #include <vector>
 #include <algorithm>
 #include <unordered_map>
+#include <mutex>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <SDL2/SDL_mixer.h>
 #include <SDL2/SDL2_gfxPrimitives.h>
 #include "totype.hpp"
+#include "protocoldef.hpp"
 #include "fflerror.hpp"
 #include "fpsmonitor.hpp"
+#include "soundeffecthandle.hpp"
 
 class SDLDevice;
 namespace SDLDeviceHelper
@@ -43,8 +29,8 @@ namespace SDLDeviceHelper
             Uint8 m_a;
 
         public:
-            EnableRenderColor(uint32_t, SDLDevice * = nullptr);
-           ~EnableRenderColor();
+            /* ctor */  EnableRenderColor(uint32_t, SDLDevice * = nullptr);
+            /* dtor */ ~EnableRenderColor();
     };
 
     struct EnableRenderBlendMode
@@ -56,8 +42,8 @@ namespace SDLDeviceHelper
             SDL_BlendMode m_blendMode;
 
         public:
-            EnableRenderBlendMode(SDL_BlendMode, SDLDevice * = nullptr);
-           ~EnableRenderBlendMode();
+            /* ctor */  EnableRenderBlendMode(SDL_BlendMode, SDLDevice * = nullptr);
+            /* dtor */ ~EnableRenderBlendMode();
     };
 
     class RenderNewFrame final
@@ -66,8 +52,8 @@ namespace SDLDeviceHelper
             SDLDevice *m_device;
 
         public:
-            RenderNewFrame(SDLDevice * = nullptr);
-           ~RenderNewFrame();
+            /* ctor */  RenderNewFrame(SDLDevice * = nullptr);
+            /* dtor */ ~RenderNewFrame();
     };
 
     class EnableTextureBlendMode final
@@ -79,8 +65,8 @@ namespace SDLDeviceHelper
             SDL_Texture *m_texPtr;
 
         public:
-            EnableTextureBlendMode(SDL_Texture *, SDL_BlendMode);
-           ~EnableTextureBlendMode();
+            /* ctor */  EnableTextureBlendMode(SDL_Texture *, SDL_BlendMode);
+            /* dtor */ ~EnableTextureBlendMode();
     };
 
     class EnableTextureModColor final
@@ -95,33 +81,82 @@ namespace SDLDeviceHelper
             SDL_Texture *m_texPtr;
 
         public:
-            EnableTextureModColor(SDL_Texture *, uint32_t);
-           ~EnableTextureModColor();
+            /* ctor */  EnableTextureModColor(SDL_Texture *, uint32_t);
+            /* dtor */ ~EnableTextureModColor();
     };
 
     struct SDLEventPLoc final
     {
-        const int x = -1;
-        const int y = -1;
-
-        operator bool () const
-        {
-            return x >= 0 && y >= 0;
-        }
+        const int x = 0;
+        const int y = 0;
     };
 
     char getKeyChar(const SDL_Event &, bool);
 
     SDLEventPLoc getMousePLoc();
-    SDLEventPLoc getEventPLoc(const SDL_Event &);
+    std::tuple<int, int, Uint32> getMouseState();
+
+    std::optional<SDLEventPLoc> getEventPLoc(const SDL_Event &);
 
     std::tuple<int, int> getTextureSize(SDL_Texture *);
     int getTextureWidth (SDL_Texture *);
     int getTextureHeight(SDL_Texture *);
 }
 
+class SDLDevice;
+class SDLSoundEffectChannel // controller of sound effect and channl playing it
+{
+    private:
+        friend class SDLDevice;
+
+    private:
+        SDLDevice *m_sdlDevice;
+
+    private:
+        int m_channel;
+
+    private:
+        SDLSoundEffectChannel(SDLDevice *, int);
+
+    private:
+        SDLSoundEffectChannel              (      SDLSoundEffectChannel &&) = delete;
+        SDLSoundEffectChannel              (const SDLSoundEffectChannel  &) = delete;
+        SDLSoundEffectChannel & operator = (      SDLSoundEffectChannel &&) = delete;
+        SDLSoundEffectChannel & operator = (const SDLSoundEffectChannel  &) = delete;
+
+    public:
+        virtual ~SDLSoundEffectChannel();
+
+    public:
+        // returns true if this->halt() get called
+        // channel may have stopped before this->halt() because of finished playing or errors
+        bool halted() const
+        {
+            return m_channel < 0;
+        }
+
+    public:
+        void halt();
+        void pause();
+        void resume();
+        void setPosition(int, int);
+};
+
 class SDLDevice final
 {
+    private:
+        friend class SDLSoundEffectChannel;
+
+    private:
+        struct SoundChannelHookState
+        {
+            bool hooked = false;
+            std::shared_ptr<SoundEffectHandle> handle {};
+        };
+
+    private:
+        const size_t m_channelCount = 128;
+
     private:
         SDL_Window   *m_window   = nullptr;
         SDL_Renderer *m_renderer = nullptr;
@@ -136,11 +171,13 @@ class SDLDevice final
        std::unordered_map<uint8_t, TTF_Font *> m_fontList;
 
     private:
-       // for sound
+       std::mutex m_freeChannelLock;
+       std::unordered_set<int> m_freeChannelList;
+       std::unordered_map<int, SoundChannelHookState> m_channelStateList;
 
     public:
-        SDLDevice();
-       ~SDLDevice();
+       /* ctor */  SDLDevice();
+       /* dtor */ ~SDLDevice();
 
     public:
        SDL_Texture *loadPNGTexture(const void *, size_t);
@@ -148,6 +185,9 @@ class SDLDevice final
     public:
        void setWindowIcon();
        void toggleWindowFullscreen();
+
+    public:
+       void drawTexture(SDL_Texture *, dir8_t, int, int);
 
     public:
        void drawTexture(SDL_Texture *, int, int);
@@ -232,6 +272,13 @@ class SDLDevice final
     public:
        void drawWidthRectangle(          size_t, int, int, int, int);
        void drawWidthRectangle(uint32_t, size_t, int, int, int, int);
+
+    public:
+       void drawHLineFading(uint32_t, uint32_t, int, int, int);
+       void drawVLineFading(uint32_t, uint32_t, int, int, int);
+
+    public:
+       void drawBoxFading(uint32_t, uint32_t, int, int, int, int, int, int);
 
     public:
        SDL_Renderer *getRenderer()
@@ -320,4 +367,36 @@ class SDLDevice final
 
     public:
        void drawString(uint32_t, int, int, const char *);
+
+    public:
+       void stopBGM();
+       void setBGMVolume(float); // by initial max volume
+       void playBGM(Mix_Music *, size_t repeats = 0); // by default repeats forever
+
+    public:
+       size_t channelCount() const
+       {
+           return m_channelCount;
+       }
+
+       // repeats : 0 : plays forever
+       //           N : repeat N times
+       //
+       // distance:    0 : overlaps with listener
+       //            255 : far enough but may not be competely silent
+       //          > 255 : culled, will not play
+       //
+       // angle:   0 : north
+       //         90 : east
+       //        180 : south
+       //        270 : west
+       //
+       // return   empty : no channel allocated for playing
+       //      non-empty : playing channel, channel can not get reused before halt() or dtor() called
+       std::shared_ptr<SDLSoundEffectChannel> playSoundEffect(std::shared_ptr<SoundEffectHandle>, int distance = 0, int angle = 0, size_t repeats = 1);
+       void stopSoundEffect();
+       void setSoundEffectVolume(float);
+
+    private:
+       static void recycleSoundEffectChannel(int);
 };

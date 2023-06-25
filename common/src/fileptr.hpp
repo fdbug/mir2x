@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: fileptr.hpp
- *        Created: 11/29/2018 08:25:27
- *    Description: give a little automation to file operations
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdio>
 #include <memory>
@@ -43,7 +25,7 @@ inline auto make_fileptr_helper(const char *path, const char *mode)
         // avoid pass standard lib's function pointer
         return std::unique_ptr<std::FILE, decltype(fileptr_deleter)>(fp, fileptr_deleter);
     }
-    throw fflerror("failed to open file: [%p]%s, mode: [%p]%s: %s", to_cvptr(path), to_cstr(path), to_cvptr(mode), to_cstr(mode), std::strerror(errno));
+    throw fflerror("failed to open file: [%p] \"%s\", mode: [%p] \"%s\", errno: [%d] \"%s\"", to_cvptr(path), to_cstr(path), to_cvptr(mode), to_cstr(mode), to_d(errno), std::strerror(errno));
 }
 
 inline auto make_fileptr(const char *path, const char *mode)

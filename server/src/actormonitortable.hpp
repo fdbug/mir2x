@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: actormonitortable.hpp
- *        Created: 12/04/2018 23:03:26
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <vector>
 #include <string>
@@ -32,7 +14,7 @@ class ActorMonitorTable: public Fl_TableImpl
             size_t maxAvgDelay = 0;
             size_t maxMessageDone = 0;
             size_t maxMessagePending = 0;
-            std::array<size_t, UID_MAX> uidTypeCountList;
+            std::array<size_t, UID_END> uidTypeCountList;
 
             ActorMonitorDrawHelper()
             {

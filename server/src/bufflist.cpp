@@ -6,12 +6,10 @@
 std::tuple<uint32_t, uint32_t> BuffList::rollAttackModifier()
 {
     scoped_alloc::svobuf_wrapper<BaseBuffActAttackModifier *, 16> amodList;
-    for(auto &p: m_buffList){
-        for(auto &actr: p.second->m_runList){
-            if(actr.ptr->getBAR().isAttackModifier()){
-                auto pmodifier = dynamic_cast<BaseBuffActAttackModifier *>(actr.ptr.get());
-                fflassert(pmodifier);
-                amodList.c.push_back(pmodifier);
+    for(auto &elemp: m_buffList){
+        for(auto &actPtr: elemp.second->m_actList){
+            if(actPtr->getBAR().isAttackModifier()){
+                amodList.c.push_back(dynamic_cast<BaseBuffActAttackModifier *>(actPtr.get()));
             }
         }
     }
@@ -35,32 +33,18 @@ std::tuple<uint32_t, uint32_t> BuffList::rollAttackModifier()
     return {buffID, modifierID};
 }
 
-void BuffList::updateAura(uint64_t targetUID)
-{
-    // 1. send auras to targetUID if needed
-    // 2. check if any auras from targetUID should be removed
-
-    sendAura(targetUID);
-    for(auto &p: m_buffList){
-        if(p.second->fromUID() == targetUID){
-        }
-    }
-}
-
 #define _decl_func_has_buff_act(T, F, isT) std::vector<T *> F(const char8_t *name) \
 { \
     fflassert(str_haschar(name)); \
     std::vector<T *> result; \
  \
-    for(auto &p: m_buffList){ \
-        for(auto &[tpsCount, ptr]: p.second->m_runList){ \
+    for(auto &elemp: m_buffList){ \
+        for(auto &actPtr: elemp.second->m_actList){ \
             const auto &bar = DBCOM_BUFFACTRECORD(name); \
             fflassert(bar); \
  \
             if(bar.isT() && bar.isBuffAct(name)){ \
-                auto actp = dynamic_cast<T *>(ptr.get()); \
-                fflassert(actp); \
-                result.push_back(actp); \
+                result.push_back(dynamic_cast<T *>(actPtr.get())); \
             } \
         } \
     } \

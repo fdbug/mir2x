@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: npcchatboard.hpp
- *        Created: 04/12/2020 18:56:22
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
 #include "widget.hpp"
@@ -34,7 +16,8 @@ class NPCChatBoard: public Widget
         TritexButton m_buttonClose;
 
     private:
-        uint64_t m_NPCUID;
+        uint64_t m_npcUID;
+        std::string m_eventPath;
 
     public:
         NPCChatBoard(ProcessRun *, Widget *pwidget = nullptr, bool autoDelete = false);
@@ -50,10 +33,10 @@ class NPCChatBoard: public Widget
         void drawWithNPCFace() const;
 
     public:
-        void loadXML(uint64_t, const char *);
+        void loadXML(uint64_t, const char *, const char *);
 
     private:
-        void onClickEvent(const char *, const char *);
+        void onClickEvent(const char *, const char *, const char *);
 
     private:
         int getMiddleCount() const;
@@ -61,6 +44,6 @@ class NPCChatBoard: public Widget
     private:
         uint32_t getNPCFaceKey() const
         {
-            return 0X50000000 | uidf::getLookID(m_NPCUID);
+            return 0X50000000 | uidf::getNPCID(m_npcUID);
         }
 };

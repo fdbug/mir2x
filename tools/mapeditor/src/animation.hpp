@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: animation.hpp
- *        Created: 06/20/2021 19:41:08
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <tuple>
 #include <memory>
@@ -44,7 +26,7 @@ class Animation
     public:
         Animation(std::initializer_list<std::tuple<int, int, std::initializer_list<uint8_t>>> ilist)
         {
-            for(const auto [dx, dy, data]: ilist){
+            for(const auto &[dx, dy, data]: ilist){
                 const Rawbuf imgData(data);
                 m_frameList.push_back(InnFrame
                 {

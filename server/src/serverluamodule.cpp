@@ -1,26 +1,10 @@
-/*
- * =====================================================================================
- *
- *       Filename: serverluamodule.cpp
- *        Created: 12/19/2017 20:16:03
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include "uidf.hpp"
 #include "dbpod.hpp"
 #include "dbcomid.hpp"
 #include "mapbindb.hpp"
 #include "actorpool.hpp"
 #include "monoserver.hpp"
+#include "serverargparser.hpp"
 #include "serverluamodule.hpp"
 #include "serverconfigurewindow.hpp"
 
@@ -28,12 +12,28 @@ extern DBPod *g_dbPod;
 extern MapBinDB *g_mapBinDB;
 extern ActorPool *g_actorPool;
 extern MonoServer *g_monoServer;
+extern ServerArgParser *g_serverArgParser;
 extern ServerConfigureWindow *g_serverConfigureWindow;
 
 ServerLuaModule::ServerLuaModule()
     : LuaModule()
 {
-    m_luaState.script(str_printf("package.path = package.path .. ';%s/?.lua'", []() -> std::string
+    pfrCheck(execString(
+            R"###( g_serverArgParser = rotable({    )###"
+            R"###(     disableMapScript    = %s,    )###"
+            R"###(     disablePetSpawn     = %s,    )###"
+            R"###(     disableGuardSpawn   = %s,    )###"
+            R"###(     disableMonsterSpawn = %s,    )###"
+            R"###(     disableNPCSpawn     = %s,    )###"
+            R"###( })                               )###",
+
+            to_boolcstr(g_serverArgParser->disableMapScript   ),
+            to_boolcstr(g_serverArgParser->disablePetSpawn    ),
+            to_boolcstr(g_serverArgParser->disableGuardSpawn  ),
+            to_boolcstr(g_serverArgParser->disableMonsterSpawn),
+            to_boolcstr(g_serverArgParser->disableNPCSpawn    )));
+
+    pfrCheck(execString("package.path = package.path .. ';%s/?.lua'", []() -> std::string
     {
         if(const auto cfgScriptPath = g_serverConfigureWindow->getConfig().scriptPath; cfgScriptPath.empty()){
             return "script";
@@ -43,12 +43,17 @@ ServerLuaModule::ServerLuaModule()
         }
     }().c_str()));
 
-    m_luaState.set_function("isUIDAlive", [](std::string uidString)
+    bindFunction("uidAlive", [](uint64_t uid)
     {
-        return g_actorPool->checkUIDValid(uidf::toUIDEx(uidString));
+        return g_actorPool->checkUIDValid(uid);
     });
 
-    m_luaState.set_function("randMapGLoc", [](std::string mapName)
+    bindFunction("getServiceCoreUID", []() -> uint64_t
+    {
+        return uidf::getServiceCoreUID();
+    });
+
+    bindFunction("randMapGLoc", [](std::string mapName)
     {
         const auto fnGetRandGLoc = [](const auto dataCPtr) -> std::array<int, 2>
         {
@@ -76,19 +81,19 @@ ServerLuaModule::ServerLuaModule()
         }
     });
 
-    m_luaState.set_function("hasDatabase", [](std::string dbName) -> bool
+    bindFunction("hasDatabase", [](std::string dbName) -> bool
     {
         fflassert(!dbName.empty());
         return g_dbPod->createQuery(u8R"###(select name from sqlite_master where type='table' and name='%s')###", to_cstr(dbName)).executeStep();
     });
 
-    m_luaState.set_function("dbExecString", [](std::string cmd)
+    bindFunction("dbExecString", [](std::string cmd)
     {
         fflassert(!cmd.empty());
         g_dbPod->exec(to_cstr(cmd));
     });
 
-    m_luaState.set_function("dbQueryString", [](std::string query, sol::this_state s)
+    bindFunction("dbQueryString", [](std::string query, sol::this_state s)
     {
         fflassert(!query.empty());
         auto queryStatement = g_dbPod->createQuery(to_cstr(query));
@@ -131,9 +136,9 @@ ServerLuaModule::ServerLuaModule()
         return sol::nested<decltype(queryResult)>(std::move(queryResult));
     });
 
-    m_luaState.script(INCLUA_BEGIN(char)
+    pfrCheck(execRawString(BEGIN_LUAINC(char)
 #include "serverluamodule.lua"
-    INCLUA_END());
+    END_LUAINC()));
 }
 
 void ServerLuaModule::addLogString(int nLogType, const char8_t *logInfo)

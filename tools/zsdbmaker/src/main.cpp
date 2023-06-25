@@ -1,19 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: main.cpp
- *        Created: 07/20/2017 00:34:13
- *    Description: 
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *
- * =====================================================================================
- */
 #include <regex>
 #include <cstdio>
 #include <fstream>
@@ -140,7 +124,7 @@ static void cmd_list(const arg_parser &cmd)
                 continue;
             }
         }
-        std::printf("%32s %8zu %8llu\n", entry.fileName, entry.length, to_llu(entry.attribute));
+        std::printf("%-32s %8zu %8llu\n", entry.fileName, entry.length, to_llu(entry.attribute));
     }
 }
 
@@ -178,7 +162,7 @@ static void cmd_uncomp_db(const arg_parser &cmd)
             if(std::fwrite(readBuf.data(), readBuf.size(), 1, fptr.get()) != 1){
                 throw fflerror("failed to write to file: %s, err = %s", fileName, std::strerror(errno));
             }
-            std::printf("%32s %8zu -> %8zu [%3d%%] %8llu\n", entry.fileName, entry.length, readBuf.size(), to_d(entry.length * 100 / readBuf.size()), to_llu(entry.attribute));
+            std::printf("%-32s %8zu -> %8zu [%3d%%] %8llu\n", entry.fileName, entry.length, readBuf.size(), to_d(entry.length * 100 / readBuf.size()), to_llu(entry.attribute));
         }
     }
 }

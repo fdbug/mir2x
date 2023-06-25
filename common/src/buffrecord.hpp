@@ -1,10 +1,60 @@
 #pragma once
 #include <string>
 #include <cstdint>
+#include <variant>
 #include <string_view>
 #include <initializer_list>
 #include "sysconst.hpp"
 #include "protocoldef.hpp"
+
+// BuffRecord liternal argument container
+// gcc errors out when using:
+//
+//   .arg
+//   {
+//       std::in_place_type_t<long>(),
+//       123,
+//   },
+//
+// needs to initialize as
+//
+//   .arg = std::variant<long, double, ...>
+//   {
+//       std::in_place_type_t<long>(),
+//       123
+//   }
+//
+// better just user helper function buffArgWrapper<T>(...) and do
+//
+//   .arg = buffArgWrapper<long>(123),
+//
+// user need to be pre-acknowledged for the exact type in the std::variant<...>
+
+struct BuffValuePercentage final
+{
+    int value = 0;
+    int percentage = 0;
+
+    int gain(int base) const
+    {
+        return value + std::lround(base * percentage / 100.0);
+    }
+};
+
+using BuffArgType = std::variant<std::monostate,
+      int,
+      long,
+      uint32_t,
+      uint64_t,
+      float,
+      double,
+      std::u8string_view,
+      BuffValuePercentage>;
+
+template<typename T, typename ... Args> constexpr BuffArgType buffArgWrapper(Args && ... args)
+{
+    return BuffArgType{std::in_place_type_t<T>(), T{std::forward<Args>(args)...}}; // gcc fails if without T{...}, wired
+}
 
 enum BuffActTriggerType: int
 {
@@ -17,6 +67,12 @@ enum BuffActTriggerType: int
     BATGR_HITTED = 1 << 3,
 
     BATGR_END,
+};
+
+enum BuffActDurationType: int
+{
+    BADUR_UNLIMITED = -1, // never finish until user cancel the buff
+    BADUR_INSTANT   =  0, // effect immediately take place in BuffAct::ctor() and BuffAct::done() always return true
 };
 
 constexpr bool validBuffActTrigger(int btgr)
@@ -50,7 +106,9 @@ struct BuffActRecord
     const struct BuffActAuraParam
     {
         const char8_t * const buff = nullptr;
-        const int self = 0;
+
+        const int self    : 2 = 0; // adds buff to the holder of aura him/her-self
+        const int outlive : 2 = 0; // child buff outlives when parent buff gets done
     }
     aura {};
 
@@ -140,20 +198,23 @@ struct BuffRecord
 {
     const char8_t * const name = nullptr;
 
-    const int duration    : 20 = 0; // in seconds
-    const int favor       :  2 = 0; // debuff: -1, neutral: 0, buff: 1
-    const int dispellable :  2 = 0;
+    const int favor        : 2 = 0; // -1: debuff, 0: neutral, 1: buff
+    const int dispellable  : 2 = 0;
+
+    const int stackCount   : 8 = 0; // 0: can not stack extra same buff, max count(buff) = 1
+    const int stackReplace : 2 = 0;
 
     const struct IconParam
     {
         const int show : 2 = 0;
-        const uint32_t gfxID = SYS_TEXNIL;
+        const uint32_t gfxID = SYS_U32NIL;
     }
     icon {};
 
     struct BuffActRecordRef
     {
         const char8_t * const name = nullptr;
+        const int duration = BADUR_UNLIMITED;
 
         const struct BuffActAuraParam
         {
@@ -176,6 +237,7 @@ struct BuffRecord
         {
             const int on = 0;
             const int tps = 0;
+            const BuffArgType arg = {};
         }
         trigger {};
 
@@ -192,8 +254,7 @@ struct BuffRecord
 
         const struct BuffActAttributeModifierParam
         {
-            const int value = 0;
-            const int percentage = 0;
+            const BuffArgType arg;
         }
         attributeModifier {};
 

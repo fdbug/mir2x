@@ -1,22 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: controlboard.hpp
- *        Created: 08/21/2016 04:12:57
- *    Description: main control pannel for running client
- *                 try support dynamically allocated control board
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -28,7 +9,7 @@
 #include "acbutton.hpp"
 #include "sdldevice.hpp"
 #include "inputline.hpp"
-#include "texvslider.hpp"
+#include "texslider.hpp"
 #include "layoutboard.hpp"
 #include "texaniboard.hpp"
 #include "wmdaniboard.hpp"
@@ -47,11 +28,11 @@ class ProcessRun;
 class ControlBoard: public Widget
 {
     private:
-        class WidgetMiddleGroup: public WidgetGroup
+        class WidgetMiddleGroup: public WidgetContainer
         {
             public:
                 WidgetMiddleGroup(int x, int y, int w, int h, Widget *parent = nullptr, bool autoDelete = false)
-                    : WidgetGroup(DIR_UPLEFT, x, y, w, h, parent, autoDelete)
+                    : WidgetContainer(DIR_UPLEFT, x, y, w, h, parent, autoDelete)
                 {}
 
             public:
@@ -74,8 +55,8 @@ class ControlBoard: public Widget
     private:
         // define group for widget moving
         // but will not call widgetGroup::drawEx, we still draw manually
-        WidgetGroup m_left;
-        WidgetGroup m_right;
+        WidgetContainer m_left;
+        WidgetContainer m_right;
 
     private:
         WidgetMiddleGroup m_middle;
@@ -102,7 +83,7 @@ class ControlBoard: public Widget
         TritexButton m_buttonTeam;
         TritexButton m_buttonTask;
         TritexButton m_buttonHorse;
-        TritexButton m_buttonEnvConfig;
+        TritexButton m_buttonRuntimeConfig;
         TritexButton m_buttonSysMessage;
 
     private:
@@ -121,13 +102,16 @@ class ControlBoard: public Widget
         TexAniBoard m_arcAniBoard;
 
     private:
-        TexVSlider m_slider;
+        TexSlider m_slider;
 
     private:
         InputLine m_cmdLine;
 
     private:
         LayoutBoard m_logBoard;
+
+    private:
+        double m_accuTime = 0.0;
 
     public:
         ControlBoard(

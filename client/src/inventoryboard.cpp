@@ -1,29 +1,13 @@
-/*
- * =====================================================================================
- *
- *       Filename: inventoryboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "luaf.hpp"
 #include "pngtexdb.hpp"
 #include "sdldevice.hpp"
+#include "soundeffectdb.hpp"
 #include "processrun.hpp"
 #include "inventoryboard.hpp"
 
 extern PNGTexDB *g_progUseDB;
 extern PNGTexDB *g_itemDB;
+extern SoundEffectDB *g_seffDB;
 extern SDLDevice *g_sdlDevice;
 
 InventoryBoard::InventoryBoard(int nX, int nY, ProcessRun *pRun, Widget *pwidget, bool autoDelete)
@@ -41,10 +25,11 @@ InventoryBoard::InventoryBoard(int nX, int nY, ProcessRun *pRun, Widget *pwidget
           DIR_UPLEFT,
           410,
           64,
-
+          5,
           367,
-          2,
 
+          false,
+          0,
           nullptr,
           this,
       }
@@ -54,7 +39,12 @@ InventoryBoard::InventoryBoard(int nX, int nY, ProcessRun *pRun, Widget *pwidget
           DIR_UPLEFT,
           374,
           12,
-          {SYS_TEXNIL, 0X000000C0, 0X000000C1},
+          {SYS_U32NIL, 0X000000C0, 0X000000C1},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -78,13 +68,18 @@ InventoryBoard::InventoryBoard(int nX, int nY, ProcessRun *pRun, Widget *pwidget
           DIR_UPLEFT,
           394,
           498,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
+              setShow(false);
               m_sdInvOp.clear();
           },
 
@@ -109,6 +104,12 @@ InventoryBoard::InventoryBoard(int nX, int nY, ProcessRun *pRun, Widget *pwidget
               0X000000B4,
           },
 
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
+
           nullptr,
           nullptr,
           [this]()
@@ -128,7 +129,7 @@ InventoryBoard::InventoryBoard(int nX, int nY, ProcessRun *pRun, Widget *pwidget
 
     , m_processRun(pRun)
 {
-    show(false);
+    setShow(false);
     auto texPtr = g_progUseDB->retrieve(0X0000001B);
     if(!texPtr){
         throw fflerror("no valid inventory frame texture");
@@ -266,8 +267,7 @@ void InventoryBoard::drawEx(int dstX, int dstY, int, int, int, int) const
 bool InventoryBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        focus(false);
-        return false;
+        return consumeFocus(false);
     }
 
     if(!show()){
@@ -294,6 +294,21 @@ bool InventoryBoard::processEvent(const SDL_Event &event, bool valid)
     }
 
     switch(event.type){
+        case SDL_KEYDOWN:
+            {
+                switch(event.key.keysym.sym){
+                    case SDLK_ESCAPE:
+                        {
+                            setShow(false);
+                            setFocus(false);
+                            return true;
+                        }
+                    default:
+                        {
+                            return consumeFocus(false);
+                        }
+                }
+            }
         case SDL_MOUSEMOTION:
             {
                 if((event.motion.state & SDL_BUTTON_LMASK) && (in(event.motion.x, event.motion.y) || focus())){
@@ -304,9 +319,9 @@ bool InventoryBoard::processEvent(const SDL_Event &event, bool valid)
                     const int newX = std::max<int>(0, std::min<int>(maxX, x() + event.motion.xrel));
                     const int newY = std::max<int>(0, std::min<int>(maxY, y() + event.motion.yrel));
                     moveBy(newX - x(), newY - y());
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
         case SDL_MOUSEBUTTONDOWN:
             {
@@ -344,13 +359,12 @@ bool InventoryBoard::processEvent(const SDL_Event &event, bool valid)
                                         const auto &selectedItem = invPackRef.getPackBinList().at(selectedPackIndex);
 
                                         if(m_sdInvOp.hasType(DBCOM_ITEMRECORD(selectedItem.item.itemID).type)){
-                                            m_processRun->sendNPCEvent(m_sdInvOp.uid, m_sdInvOp.queryTag.c_str(), str_printf("%d:%d", to_d(selectedItem.item.itemID), to_d(selectedItem.item. seqID)).c_str());
+                                            m_processRun->sendNPCEvent(m_sdInvOp.uid, {}, m_sdInvOp.queryTag.c_str(), str_printf("%d:%d", to_d(selectedItem.item.itemID), to_d(selectedItem.item. seqID)).c_str());
                                         }
                                         else{
                                             m_processRun->addCBLog(CBLOG_ERR, u8"只能维修%s", to_cstr(typeListString(m_sdInvOp.typeList)));
                                             m_selectedIndex = -1;
                                             m_invOpCost = -1;
-                                            
                                         }
                                     }
                                     else{
@@ -358,23 +372,24 @@ bool InventoryBoard::processEvent(const SDL_Event &event, bool valid)
                                         m_invOpCost = -1;
                                     }
                                 }
-                                return focusConsume(this, true);
+                                return consumeFocus(true);
                             }
-                            return focusConsume(this, false);
+                            return consumeFocus(false);
                         }
                     case SDL_BUTTON_RIGHT:
                         {
                             if(in(event.button.x, event.button.y)){
                                 if(const int selectedPackIndex = getPackBinIndex(event.button.x, event.button.y); selectedPackIndex >= 0){
-                                    packBinConsume(invPackRef.getPackBinList().at(selectedPackIndex));
+                                    const auto &packBin = invPackRef.getPackBinList().at(selectedPackIndex);
+                                    packBinConsume(packBin);
                                 }
-                                return focusConsume(this, true);
+                                return consumeFocus(true);
                             }
-                            return focusConsume(this, false);
+                            return consumeFocus(false);
                         }
                     default:
                         {
-                            return focusConsume(this, false);
+                            return consumeFocus(false);
                         }
                 }
             }
@@ -384,15 +399,15 @@ bool InventoryBoard::processEvent(const SDL_Event &event, bool valid)
                 if(mathf::pointInRectangle<int>(mousePX, mousePY, x() + m_invGridX0, y() + m_invGridY0, SYS_INVGRIDGW * SYS_INVGRIDPW, SYS_INVGRIDGH * SYS_INVGRIDPH)){
                     const auto rowCount = getRowCount();
                     if(rowCount > SYS_INVGRIDGH){
-                        m_slider.addValue((event.wheel.y > 0 ? -1.0 : 1.0) / (rowCount - SYS_INVGRIDGH));
+                        m_slider.addValue((event.wheel.y > 0 ? -1.0 : 1.0) / (rowCount - SYS_INVGRIDGH), false);
                     }
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
                 return false;
             }
         default:
             {
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
     }
 }
@@ -561,19 +576,63 @@ void InventoryBoard::drawItemHoverText(const PackBin &bin) const
     const auto textBoxW = std::max<int>(hoverTextBoard.w(), 200) + 20;
     const auto textBoxH = hoverTextBoard.h() + 20;
 
-    g_sdlDevice->fillRectangle(colorf::RGBA(  0,   0,   0, 200), mousePX, mousePY, textBoxW, textBoxH, 5);
-    g_sdlDevice->drawRectangle(colorf::RGBA(231, 231, 189, 200), mousePX, mousePY, textBoxW, textBoxH, 5);
-    hoverTextBoard.drawAt(DIR_UPLEFT, mousePX + 10, mousePY + 10);
+    const auto drawBoardPX = mathf::bound<int>(mousePX, 0, g_sdlDevice->getRendererWidth () - textBoxW);
+    const auto drawBoardPY = mathf::bound<int>(mousePY, 0, g_sdlDevice->getRendererHeight() - textBoxH);
+
+    g_sdlDevice->fillRectangle(colorf::RGBA(  0,   0,   0, 200), drawBoardPX, drawBoardPY, textBoxW, textBoxH, 5);
+    g_sdlDevice->drawRectangle(colorf::RGBA(231, 231, 189, 200), drawBoardPX, drawBoardPY, textBoxW, textBoxH, 5);
+    hoverTextBoard.drawAt(DIR_UPLEFT, drawBoardPX + 10, drawBoardPY + 10);
 }
 
 void InventoryBoard::packBinConsume(const PackBin &bin)
 {
     const auto &ir = DBCOM_ITEMRECORD(bin.item.itemID);
+    fflassert(ir);
+
+    // play item consuming sound effect without server confirmation
+    // because for some items like 药水, server won't send back confirmation message
+
     if(false
             || to_u8sv(ir.type) == u8"恢复药水"
             || to_u8sv(ir.type) == u8"强化药水"
             || to_u8sv(ir.type) == u8"技能书"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
         m_processRun->requestConsumeItem(bin.item.itemID, bin.item.seqID, 1);
+    }
+
+    else if(to_u8sv(ir.type) == u8"头盔"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_HELMET);
+    }
+
+    else if(to_u8sv(ir.type) == u8"武器"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_WEAPON);
+    }
+
+    else if(to_u8sv(ir.type) == u8"衣服"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_DRESS);
+    }
+
+    else if(to_u8sv(ir.type) == u8"鞋"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_SHOES);
+    }
+
+    else if(to_u8sv(ir.type) == u8"项链"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_NECKLACE);
+    }
+
+    else if(to_u8sv(ir.type) == u8"手镯"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_ARMRING0);
+    }
+
+    else if(to_u8sv(ir.type) == u8"戒指"){
+        InvPack::playItemSoundEffect(bin.item.itemID, true);
+        m_processRun->requestEquipWear(bin.item.itemID, bin.item.seqID, WLG_RING0);
     }
 }
 
@@ -681,7 +740,7 @@ void InventoryBoard::commitInvOp()
         return;
     }
 
-    m_processRun->sendNPCEvent(m_sdInvOp.uid, m_sdInvOp.commitTag.c_str(), str_printf("%d:%d", to_d(selectedItem.item.itemID), to_d(selectedItem.item.seqID)).c_str());
+    m_processRun->sendNPCEvent(m_sdInvOp.uid, {}, m_sdInvOp.commitTag.c_str(), str_printf("%d:%d", to_d(selectedItem.item.itemID), to_d(selectedItem.item.seqID)).c_str());
 }
 
 void InventoryBoard::removeItem(uint32_t itemID, uint32_t seqID, size_t count)

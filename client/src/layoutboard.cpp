@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: layoutboard.cpp
- *        Created: 03/25/2020 22:29:47
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "colorf.hpp"
 #include "fflerror.hpp"
 #include "fontexdb.hpp"
@@ -348,8 +330,8 @@ bool LayoutBoard::processEvent(const SDL_Event &event, bool valid)
                     const auto leafID = node->tpset->getToken(tokenX, tokenY)->leaf;
 
                     const auto oldEvent = node->tpset->markLeafEvent(leafID, newEvent);
-                    if(const auto [id, arg] = node->tpset->leafEvent(leafID); id && m_eventCB){
-                        m_eventCB(id, arg, oldEvent, newEvent);
+                    if(const auto attrListPtr = node->tpset->leafEvent(leafID); attrListPtr && m_eventCB){
+                        m_eventCB(*attrListPtr, oldEvent, newEvent);
                     }
                     node->tpset->clearEvent(leafID);
                     return true;
@@ -370,15 +352,19 @@ bool LayoutBoard::processEvent(const SDL_Event &event, bool valid)
                     const auto leafID = node->tpset->getToken(tokenX, tokenY)->leaf;
 
                     const auto oldEvent = node->tpset->markLeafEvent(leafID, newEvent);
-                    if(const auto [id, arg] = node->tpset->leafEvent(leafID); id && m_eventCB){
-                        m_eventCB(id, arg, oldEvent, newEvent);
+                    if(const auto attrListPtr = node->tpset->leafEvent(leafID); attrListPtr && m_eventCB){
+                        m_eventCB(*attrListPtr, oldEvent, newEvent);
                     }
                     node->tpset->clearEvent(leafID);
                     return true;
                 }
             default:
                 {
-                    node->tpset->clearEvent(-1);
+                    // layout board only handle mouse motion/click events
+                    // ignore any other unexcepted events
+
+                    // for GNOME3 I found sometimes here comes SDL_KEYMAPCHANGED after SDL_MOUSEBUTTONDOWN
+                    // need to ignore this event, don't call clearEvent()
                     return false;
                 }
         }

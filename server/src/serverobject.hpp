@@ -11,7 +11,6 @@ class ServerObject
 {
     private:
         const uint64_t m_UID;
-        const std::string m_UIDName;
 
     protected:
         ActorPod *m_actorPod = nullptr;
@@ -39,11 +38,6 @@ class ServerObject
             return m_UID;
         }
 
-        const char *UIDName() const
-        {
-            return hasActorPod() ? m_UIDName.c_str() : "UID_INACTIVE";
-        }
-
     public:
         uint64_t activate(double metronomeFreq = 10.0, uint64_t expireTime = 3600ULL * 1000 * 10000 * 1000);
 
@@ -63,9 +57,14 @@ class ServerObject
         virtual void operateAM(const ActorMsgPack &) = 0;
 
     public:
-        void addDelay(uint32_t delayTick, std::function<void()> cmd)
+        auto addDelay(uint64_t delayTick, std::function<void()> cmd)
         {
-            m_delayCmdQ.addDelay(delayTick, std::move(cmd));
+            return m_delayCmdQ.addDelay(delayTick, std::move(cmd));
+        }
+
+        void removeDelay(const std::pair<uint32_t, uint64_t> &key)
+        {
+            m_delayCmdQ.removeDelay(key);
         }
 
     protected:

@@ -1,21 +1,24 @@
 #include <string>
 #include <cstring>
+#include "quest.hpp"
 #include "player.hpp"
 #include "totype.hpp"
+#include "filesys.hpp"
 #include "actorpod.hpp"
 #include "mapbindb.hpp"
+#include "serdesmsg.hpp"
 #include "monoserver.hpp"
-#include "dbcomrecord.hpp"
 #include "servicecore.hpp"
 #include "serverargparser.hpp"
+#include "serverconfigurewindow.hpp"
 
 extern MapBinDB *g_mapBinDB;
 extern MonoServer *g_monoServer;
 extern ServerArgParser *g_serverArgParser;
+extern ServerConfigureWindow *g_serverConfigureWindow;
 
 ServiceCore::ServiceCore()
     : ServerObject(uidf::getServiceCoreUID())
-    , m_mapList()
 {}
 
 void ServiceCore::operateAM(const ActorMsgPack &rstMPK)
@@ -29,6 +32,11 @@ void ServiceCore::operateAM(const ActorMsgPack &rstMPK)
         case AM_METRONOME:
             {
                 on_AM_METRONOME(rstMPK);
+                break;
+            }
+        case AM_REGISTERQUEST:
+            {
+                on_AM_REGISTERQUEST(rstMPK);
                 break;
             }
         case AM_ADDCO:
@@ -54,6 +62,21 @@ void ServiceCore::operateAM(const ActorMsgPack &rstMPK)
         case AM_LOADMAP:
             {
                 on_AM_LOADMAP(rstMPK);
+                break;
+            }
+        case AM_MODIFYQUESTTRIGGERTYPE:
+            {
+                on_AM_MODIFYQUESTTRIGGERTYPE(rstMPK);
+                break;
+            }
+        case AM_QUERYQUESTTRIGGERLIST:
+            {
+                on_AM_QUERYQUESTTRIGGERLIST(rstMPK);
+                break;
+            }
+        case AM_QUERYQUESTUID:
+            {
+                on_AM_QUERYQUESTUID(rstMPK);
                 break;
             }
         default:
@@ -126,6 +149,21 @@ void ServiceCore::onActivate()
             g_monoServer->addLog(LOGTYPE_INFO, "Preload %s successfully", to_cstr(DBCOM_MAPRECORD(mapID).name));
         }
     }
+
+    if(!g_serverArgParser->disableQuestScript){
+        const auto cfgScriptPath = g_serverConfigureWindow->getConfig().scriptPath;
+        const auto scriptPath = cfgScriptPath.empty() ? std::string("script/quest") : (cfgScriptPath + "/quest");
+
+        for(uint32_t questID = 1; const auto &fileName: filesys::getFileList(scriptPath.c_str(), false, R"#(.*\.lua)#")){
+            if(auto questPtr = new Quest(SDInitQuest
+            {
+                .questID = questID++,
+                .fullScriptName = scriptPath + "/" + fileName,
+            })){
+                questPtr->activate();
+            }
+        }
+    }
 }
 
 void ServiceCore::loadMap(uint32_t mapID)
@@ -134,17 +172,15 @@ void ServiceCore::loadMap(uint32_t mapID)
         return;
     }
 
-    if(m_mapList.count(mapID)){
-        return;
-    }
-
     if(!g_mapBinDB->retrieve(mapID)){
         return;
     }
 
-    auto mapPtr = new ServerMap(mapID);
-    mapPtr->activate();
-    m_mapList[mapID] = mapPtr;
+    if(m_mapList.contains(mapID)){
+        return;
+    }
+
+    m_mapList.insert_or_assign(mapID, new ServerMap(mapID)).first->second->activate();
 }
 
 const ServerMap *ServiceCore::retrieveMap(uint32_t mapID)
@@ -153,7 +189,7 @@ const ServerMap *ServiceCore::retrieveMap(uint32_t mapID)
         return nullptr;
     }
 
-    if(!m_mapList.count(mapID)){
+    if(!m_mapList.contains(mapID)){
         loadMap(mapID);
     }
 

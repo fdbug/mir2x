@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: passwordbox.hpp
- *        Created: 07/16/2017 19:06:25
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #pragma once
 #include <string>
 #include <functional>
@@ -43,10 +26,11 @@ class PasswordBox: public InputLine
                 int      cursorWidth = 2,
                 uint32_t cursorColor = colorf::WHITE + colorf::A_SHF(255),
 
-                std::function<void()>  fnOnTab    = nullptr,
-                std::function<void()>  fnOnReturn = nullptr,
-                Widget                *parent     = nullptr,
-                bool                   autoDelete = false)
+                std::function<void()> fnOnTab    = nullptr,
+                std::function<void()> fnOnReturn = nullptr,
+
+                Widget *parent     = nullptr,
+                bool    autoDelete = false)
             : InputLine
               {
                   dir,
@@ -54,6 +38,8 @@ class PasswordBox: public InputLine
                   y,
                   w,
                   h,
+
+                  false,
 
                   font,
                   fontSize,

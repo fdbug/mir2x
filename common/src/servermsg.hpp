@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: servermsg.hpp
- *        Created: 01/24/2016 19:30:45
- *    Description: net message used by client and mono-server
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
 #include <unordered_map>
@@ -43,7 +25,7 @@ enum SMType: uint8_t
     SM_ONLINEOK,
     SM_ONLINEERROR,
     SM_STARTGAMESCENE,
-    SM_RUNTIMECONFIG,
+    SM_PLAYERCONFIG,
     SM_LEARNEDMAGICLIST,
     SM_PLAYERWLDESP,
     SM_ACTION,
@@ -89,6 +71,9 @@ enum SMType: uint8_t
     SM_GRABBELT,
     SM_GRABBELTERROR,
     SM_SHOWSECUREDITEMLIST,
+    SM_TEAMMEMBERLIST,
+    SM_TEAMCANDIDATE,
+    SM_TEAMERROR,
     SM_END,
 };
 
@@ -134,6 +119,13 @@ struct SMCreateCharError
 struct SMDeleteCharError
 {
     uint8_t error;
+};
+
+struct SMOnlineOK
+{
+    uint64_t uid;
+    uint32_t mapID;
+    ActionNode action;
 };
 
 struct SMOnlineError
@@ -263,13 +255,6 @@ struct SMStrikeGrid
     uint32_t y;
 };
 
-struct SMPlayerName
-{
-    uint64_t uid;
-    char name[128];
-    uint32_t nameColor;
-};
-
 struct SMBuildVersion
 {
     FixedBuf<128> version;
@@ -326,6 +311,17 @@ struct SMGrabBeltError
 {
     uint16_t error;
 };
+
+struct SMTeamMemberLeft
+{
+    uint64_t uid;
+};
+
+struct SMTeamError
+{
+    uint8_t error;
+};
+
 #pragma pack(pop)
 
 class ServerMsg final: public MsgBase
@@ -357,10 +353,10 @@ class ServerMsg final: public MsgBase
                 _add_server_msg_type_case(SM_CREATECHARERROR,     1, sizeof(SMCreateCharError)    )
                 _add_server_msg_type_case(SM_DELETECHAROK,        0, 0                            )
                 _add_server_msg_type_case(SM_DELETECHARERROR,     1, sizeof(SMDeleteCharError)    )
-                _add_server_msg_type_case(SM_ONLINEOK,            3, 0                            )
+                _add_server_msg_type_case(SM_ONLINEOK,            1, sizeof(SMOnlineOK)           )
                 _add_server_msg_type_case(SM_ONLINEERROR,         1, sizeof(SMOnlineError)        )
                 _add_server_msg_type_case(SM_STARTGAMESCENE,      3, 0                            )
-                _add_server_msg_type_case(SM_RUNTIMECONFIG,       3, 0                            )
+                _add_server_msg_type_case(SM_PLAYERCONFIG,        3, 0                            )
                 _add_server_msg_type_case(SM_LEARNEDMAGICLIST,    3, 0                            )
                 _add_server_msg_type_case(SM_QUERYCHAROK,         1, sizeof(SMQueryCharOK)        )
                 _add_server_msg_type_case(SM_QUERYCHARERROR,      1, sizeof(SMQueryCharError)     )
@@ -388,7 +384,7 @@ class ServerMsg final: public MsgBase
                 _add_server_msg_type_case(SM_STRIKEGRID,          1, sizeof(SMStrikeGrid)         )
                 _add_server_msg_type_case(SM_SELLITEMLIST,        3, 0                            )
                 _add_server_msg_type_case(SM_TEXT,                3, 0                            )
-                _add_server_msg_type_case(SM_PLAYERNAME,          1, sizeof(SMPlayerName)         )
+                _add_server_msg_type_case(SM_PLAYERNAME,          3, 0                            )
                 _add_server_msg_type_case(SM_BUILDVERSION,        1, sizeof(SMBuildVersion)       )
                 _add_server_msg_type_case(SM_INVENTORY,           3, 0                            )
                 _add_server_msg_type_case(SM_BELT,                3, 0                            )
@@ -408,6 +404,9 @@ class ServerMsg final: public MsgBase
                 _add_server_msg_type_case(SM_GRABBELT,            3, 0                            )
                 _add_server_msg_type_case(SM_GRABBELTERROR,       1, sizeof(SMGrabBeltError)      )
                 _add_server_msg_type_case(SM_SHOWSECUREDITEMLIST, 3, 0                            )
+                _add_server_msg_type_case(SM_TEAMMEMBERLIST,      3, 0                            )
+                _add_server_msg_type_case(SM_TEAMCANDIDATE,       3, 0                            )
+                _add_server_msg_type_case(SM_TEAMERROR,           1, sizeof(SMTeamError)          )
 #undef _add_server_msg_type_case
             };
 
@@ -429,6 +428,7 @@ class ServerMsg final: public MsgBase
                     || std::is_same_v<T, SMDeleteCharError>
                     || std::is_same_v<T, SMQueryCharOK>
                     || std::is_same_v<T, SMQueryCharError>
+                    || std::is_same_v<T, SMOnlineOK>
                     || std::is_same_v<T, SMOnlineError>
                     || std::is_same_v<T, SMAction>
                     || std::is_same_v<T, SMCORecord>
@@ -441,7 +441,6 @@ class ServerMsg final: public MsgBase
                     || std::is_same_v<T, SMOffline>
                     || std::is_same_v<T, SMRemoveGroundItem>
                     || std::is_same_v<T, SMInvOpCost>
-                    || std::is_same_v<T, SMPlayerName>
                     || std::is_same_v<T, SMBuildVersion>
                     || std::is_same_v<T, SMRemoveItem>
                     || std::is_same_v<T, SMRemoveSecuredItem>
@@ -453,7 +452,10 @@ class ServerMsg final: public MsgBase
                     || std::is_same_v<T, SMEquipWearError>
                     || std::is_same_v<T, SMGrabWearError>
                     || std::is_same_v<T, SMEquipBeltError>
-                    || std::is_same_v<T, SMGrabBeltError>);
+                    || std::is_same_v<T, SMGrabBeltError>
+                    || std::is_same_v<T, SMTeamError>
+                    || std::is_same_v<T, SMTeamMemberLeft>
+                    );
 
             if(bufLen && bufLen != sizeof(T)){
                 throw fflerror("invalid buffer length");

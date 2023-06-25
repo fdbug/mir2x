@@ -4,7 +4,6 @@
 #include "idstrf.hpp"
 #include "dbcomid.hpp"
 #include "netdriver.hpp"
-#include "dbcomrecord.hpp"
 #include "servermap.hpp"
 #include "monoserver.hpp"
 #include "dispatcher.hpp"
@@ -42,7 +41,7 @@ void ServiceCore::net_CM_LOGIN(uint32_t channID, uint8_t, const uint8_t *buf, si
     const auto dbid = check_cast<uint32_t, unsigned>(queryAccount.getColumn("fld_dbid"));
     fflassert(dbid);
 
-    for(const auto [existChannID, existDBID]: m_dbidList){
+    for(const auto &[existChannID, existDBID]: m_dbidList){
         if(existChannID == channID){
             throw fflerror("internal error: channID reused before recycle: %d", to_d(channID));
         }
@@ -350,7 +349,7 @@ void ServiceCore::net_CM_DELETECHAR(uint32_t channID, uint8_t, const uint8_t *bu
                 to_llu(item.duration[1]));
     }
 
-    const auto emptyAttrBuf = cerealf::serialize<SDItemExtAttrList>({});
+    const auto emptyAttrBuf = cerealf::serialize<std::unordered_map<int, std::string>>({});
     if(insertedBeltItemCount > 0){
         insertQueryBeltString += u8";";
         auto insertQuery = g_dbPod->createQuery(insertQueryBeltString.c_str());
@@ -449,7 +448,7 @@ void ServiceCore::net_CM_CREATECHAR(uint32_t channID, uint8_t, const uint8_t *bu
 
             to_llu(dbidOpt.value().first),
             to_cstr(cmCC.name),
-            to_cstr(jobName(cmCC.job)),
+            to_cstr(jobf::jobName(cmCC.job)),
             to_d(DBCOM_MAPID(u8"道馆_1")),
             405,
             120,

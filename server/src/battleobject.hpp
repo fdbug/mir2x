@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include "pathf.hpp"
 #include "scopedalloc.hpp"
 #include "charobject.hpp"
 #include "damagenode.hpp"
@@ -17,13 +18,14 @@ class BattleObject: public CharObject
 {
     public:
         friend class CharObject;
+        friend class BaseBuff;
         friend class BaseBuffActAura;
         friend class BaseBuffActTrigger;
         friend class BaseBuffActAttributeModifier;
         template<uint32_t> friend class BuffActTrigger;
 
     protected:
-        class BOPathFinder final: public AStarPathFinder
+        class BOPathFinder final: public pathf::AStarPathFinder
         {
             private:
                 friend class BattleObject;
@@ -42,7 +44,7 @@ class BattleObject: public CharObject
                 /* dtor */ ~BOPathFinder() = default;
 
             private:
-                int GetGrid(int, int) const;
+                int getGrid(int, int) const;
         };
 
     protected:
@@ -117,7 +119,7 @@ class BattleObject: public CharObject
     protected:
         void dispatchHealth();
         void dispatchHealth(uint64_t);
-        void dispatchAttackDamage(uint64_t, int);
+        void dispatchAttackDamage(uint64_t, int, int);
 
     protected:
         virtual std::optional<std::tuple<int, int, int>> oneStepReach(int, int) const;
@@ -172,21 +174,21 @@ class BattleObject: public CharObject
         virtual bool dcValid(int, bool) = 0;
 
     protected:
-        virtual DamageNode getAttackDamage(int) const = 0;
+        virtual DamageNode getAttackDamage(int, int) const = 0;
 
     protected:
-        virtual bool struckDamage(const DamageNode &) = 0;
+        virtual bool struckDamage(uint64_t, const DamageNode &) = 0;
 
     protected:
         void addMonster(uint32_t, int, int, bool);
 
     protected:
-        virtual int MaxStep() const
+        virtual int maxStep() const
         {
             return 1;
         }
 
-        virtual int MoveSpeed()
+        virtual int moveSpeed()
         {
             return SYS_DEFSPEED;
         }
@@ -213,21 +215,16 @@ class BattleObject: public CharObject
             return SYS_DEFSPEED;
         }
 
-        int Horse() const
-        {
-            return 0;
-        }
+    protected:
+        std::array <pathf::PathNode, 3>   getChaseGrid(int, int, int) const;
+        std::vector<pathf::PathNode> getValidChaseGrid(int, int, int) const;
 
     protected:
-        std::array<PathFind::PathNode, 3>    GetChaseGrid(int, int, int) const;
-        std::vector<PathFind::PathNode> GetValidChaseGrid(int, int, int) const;
+        void getValidChaseGrid(int, int, int, scoped_alloc::svobuf_wrapper<pathf::PathNode, 3> &) const;
 
     protected:
-        void GetValidChaseGrid(int, int, int, scoped_alloc::svobuf_wrapper<PathFind::PathNode, 3> &) const;
-
-    protected:
-        int CheckPathGrid(int, int) const;
-        double OneStepCost(const BattleObject::BOPathFinder *, int, int, int, int, int) const;
+        int checkPathGrid(int, int) const;
+        std::optional<double> oneStepCost(const BattleObject::BOPathFinder *, int, int, int, int, int, int) const;
 
     protected:
         virtual void checkFriend(uint64_t, std::function<void(int)>) = 0;
@@ -250,10 +247,14 @@ class BattleObject: public CharObject
         }
 
     protected:
-        std::tuple<int, BaseBuff *> addBuff(uint64_t, uint32_t);
+        void removeBuff(uint64_t, bool);
+        void removeFromBuff(uint64_t, uint64_t, bool);
 
     protected:
-        void sendBuff(uint64_t, uint32_t);
+        BaseBuff *addBuff(uint64_t, uint64_t, uint32_t);
+
+    protected:
+        void sendBuff(uint64_t, uint64_t, uint32_t);
 
     protected:
         void dispatchBuffIDList();
@@ -273,4 +274,9 @@ class BattleObject: public CharObject
                 uint32_t,   // buffActID
                 int,        // percentage
                 int);       // value
+    public:
+        const auto &getHealth() const
+        {
+            return m_sdHealth;
+        }
 };

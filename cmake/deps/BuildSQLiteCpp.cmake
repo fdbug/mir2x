@@ -1,19 +1,3 @@
-#=======================================================================================
-#
-#        Filename: BuildG3Log.cmake
-#         Created: 05/03/2016 13:19:07
-#     Description: required: MIR2X_3RD_PARTY_DIR
-#
-#         Version: 1.0
-#        Revision: none
-#        Compiler: cmake
-#
-#          Author: ANHONG
-#           Email: anhonghe@gmail.com
-#    Organization: USTC
-#
-#=======================================================================================
-
 INCLUDE(ExternalProject)
 
 # for the CMAKE_ARGS, the author recommends -DCPACK_PACKAGING_INSTALL_PREFIX=xxx
@@ -39,7 +23,7 @@ ExternalProject_Add(
 )
 
 SET(SQLITECPP_INCLUDE_DIRS "${MIR2X_3RD_PARTY_DIR}/SQLiteCpp/build/install/include")
-SET(SQLITECPP_LIBRARIES    "${CMAKE_STATIC_LIBRARY_PREFIX}SQLiteCpp${CMAKE_STATIC_LIBRARY_SUFFIX}")
+SET(SQLITECPP_LIBRARIES    "${CMAKE_STATIC_LIBRARY_PREFIX}SQLiteCpp${CMAKE_STATIC_LIBRARY_SUFFIX}" "${CMAKE_STATIC_LIBRARY_PREFIX}sqlite3${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
 INCLUDE_DIRECTORIES(SYSTEM ${SQLITECPP_INCLUDE_DIRS})
 LINK_DIRECTORIES(${MIR2X_3RD_PARTY_DIR}/SQLiteCpp/build/install/lib)

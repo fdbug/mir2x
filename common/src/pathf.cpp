@@ -1,26 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename: pathf.cpp
- *        Created: 03/28/2017 17:04:54
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cfloat>
 #include "pathf.hpp"
 #include "mathf.hpp"
+#include "logprof.hpp"
 #include "fflerror.hpp"
-#include "dbcomrecord.hpp"
 
 namespace
 {
@@ -76,12 +58,12 @@ namespace
         // normalization of (x, y) is optional
         // just for better stablity
 
-        const double len = std::sqrt(to_df(x * x + y * y));
+        const double len = mathf::LDistance<double>(0, 0, x, y);
         const double xnorm = to_df(x) / len;
         const double ynorm = to_df(y) / len;
 
         for(size_t i = 0; i < N; ++i){
-            if(const double curr = (d[i][0] - xnorm) * (d[i][0] - xnorm) + (d[i][1] - ynorm) * (d[i][1] - ynorm); distance > curr){
+            if(const double curr = mathf::LDistance2<double>(d[i][0], d[i][1], xnorm, ynorm); distance > curr){
                 index = i;
                 distance = curr;
             }
@@ -178,7 +160,359 @@ bool pathf::inDCCastRange(const DCCastRange &r, int x0, int y0, int x1, int y1)
             }
         default:
             {
-                throw fflreach();
+                throw fflvalue(r.type);
             }
     }
+}
+
+// shortest but not most efficient Dijkstra path search template:
+//
+//     priority_queue pq;                                               ( 1)
+//     unordered_map found;                                             ( 2)
+//     unordered_map parent;                                            ( 3)
+//                                                                      ( 4)
+//     pq.push(start_point);                                            ( 5)
+//     while(!pq.empty()){                                              ( 6)
+//         const auto [prev, curr, cost] = pq.top();                    ( 7)
+//         if(found.has(curr)){                                         ( 8)
+//             continue;                                                ( 9)
+//         }                                                            (10)
+//                                                                      (11)
+//         found[curr] = cost;                                          (12)
+//         parent[curr] = prev;                                         (13)
+//                                                                      (14)
+//         for(next: neighbor_list(curr)){                              (15)
+//             pq.push({curr, next, step_cost(curr, next)})             (16)
+//         }                                                            (17)
+//     }                                                                (18)
+//                                                                      (19)
+//     for(auto curr: found){                                           (20)
+//         std::cout << curr << parent.at(curr) << cost << std::endl;   (21)
+//     }                                                                (22)
+//
+// (note-1). always drop a pq node if it's already found at line-9, this means if a path to v is found, it must be the shortest path
+// (note-2). we only update found[v] when it's on top of the pq at line-12, we didn't update at line-15 then update the value if get better path
+// (note-3). at line-15 we didn't check if the hop-path is better than what's already in found map, because of (note-1)
+
+// but for a practical Dijkstra algoritm used in this game
+// (note-1). we always update found map immediately, although it can be a suboptimal path, then if we run out of searchCount, we still get a path
+// (note-2). we check at line-16, only push when newly found path is smaller than what we already have, this decrese the pq size
+// (note-3). we pop out worse path on top of pq, this is needed for the stop criteria: top_f + top_r < u
+
+void pathf::AStarPathFinder::expand_f()
+{
+    // search direction: ---------------->---------------
+    // moving direction: prevNode -> currNode -> nextNode
+
+    const auto currNode = m_cost_PQ_f.pick();
+    const auto prevNode = [&currNode, this]() -> std::optional<pathf::AStarPathFinder::InnNode>
+    {
+        if(currNode.node.eq(m_srcNode.x, m_srcNode.y)){
+            return {};
+        }
+
+        if(const auto p = m_parentSet_f.find(currNode.node); p != m_parentSet_f.end()){
+            return p->second;
+        }
+        throw fflerror("intermiediate node has no parent: (%d, %d, %s)", currNode.node.x, currNode.node.y, pathf::dirName(currNode.node.dir));
+    }();
+
+    while(!m_cost_PQ_f.empty()){
+        if(auto p = m_cost_f.find(m_cost_PQ_f.top().node); p != m_cost_f.end() && p->second < m_cost_PQ_f.top().cost){
+            m_cost_PQ_f.pop();
+        }
+        else{
+            break;
+        }
+    }
+
+    for(const auto stepSize: m_stepSizeList){
+        for(const auto d: getDirDiffList(8)){
+            // always use currNode.node.dir to calculate nextDir for 1 hop
+            // when checkTurn is zero, you can not know which direction exactly currNode is
+            const auto nextDir = pathf::getNextDir(currNode.node.dir, d);
+            const auto [nextX, nextY] = pathf::getFrontGLoc(currNode.node.x, currNode.node.y, nextDir, stepSize);
+            fflassert(checkGLoc(nextX, nextY, nextDir), nextX, nextY, nextDir);
+
+            const pathf::AStarPathFinder::InnNode nextNode
+            {
+                .x   = nextX,
+                .y   = nextY,
+                .dir = ((m_checkTurn == 0) ? DIR_BEGIN : nextDir),
+            };
+
+            if(prevNode.has_value() && prevNode.value() == nextNode){
+                continue; // don't go back
+            }
+
+            const auto hopCost = m_oneStepCost(currNode.node.x, currNode.node.y, m_checkTurn == 0 ? nextDir : currNode.node.dir, nextNode.x, nextNode.y);
+            if(!hopCost.has_value()){
+                continue; // can not reach
+            }
+
+            fflassert(hopCost.value() >= 0.0, hopCost.value());
+            const auto reducedCost = hopCost.value() - pf(currNode.node.x, currNode.node.y) + pf(nextNode.x, nextNode.y);
+
+            fflassert(reducedCost >= 0.0, reducedCost);
+            if(auto p = m_cost_f.find(nextNode); p == m_cost_f.end() || currNode.cost + reducedCost < p->second){
+                if(p == m_cost_f.end()){
+                    m_cost_f.try_emplace(nextNode, currNode.cost + reducedCost);
+                }
+                else{
+                    p->second = currNode.cost + reducedCost;
+                }
+
+                m_parentSet_f[nextNode] = currNode.node;
+                m_cost_PQ_f.push(pathf::AStarPathFinder::InnPQNode
+                {
+                    .node = nextNode,
+                    .cost = currNode.cost + reducedCost,
+                });
+            }
+
+            if(const auto p = m_cost_r.find(nextNode); p != m_cost_r.end()){
+                updateDoneCost(nextNode, currNode.cost + reducedCost + p->second);
+            }
+        }
+    }
+}
+
+void pathf::AStarPathFinder::expand_r()
+{
+    // search direction: ----------------<---------------
+    // moving direction: fromNode -> currNode -> prevNode
+
+    const auto currNode = m_cost_PQ_r.pick();
+    const auto prevNode = [&currNode, this]() -> std::optional<pathf::AStarPathFinder::InnNode>
+    {
+        if(currNode.node.eq(m_dstX, m_dstY)){
+            return {};
+        }
+
+        if(const auto p = m_parentSet_r.find(currNode.node); p != m_parentSet_r.end()){
+            return p->second;
+        }
+        throw fflerror("intermiediate node has no parent: (%d, %d, %s)", currNode.node.x, currNode.node.y, pathf::dirName(currNode.node.dir));
+    }();
+
+    while(!m_cost_PQ_r.empty()){
+        if(auto p = m_cost_r.find(m_cost_PQ_r.top().node); p != m_cost_r.end() && p->second < m_cost_PQ_r.top().cost){
+            m_cost_PQ_r.pop();
+        }
+        else{
+            break;
+        }
+    }
+
+    for(const auto stepSize: m_stepSizeList){
+        for(const auto dFrom: getDirDiffList(m_checkTurn == 0 ? 8 : 1)){
+            // need to match from direction
+            // if ignore turn completely, all 8 directions can be used
+            //
+            // always use currNode.node.dir to calculate nextDir for 1 hop
+            // when checkTurn is zero, you can not know which direction exactly currNode is
+            const auto fromDir = pathf::getNextDir(currNode.node.dir, dFrom);
+            const auto [fromX, fromY] = pathf::getBackGLoc(currNode.node.x, currNode.node.y, fromDir, stepSize);
+
+            checkGLoc(fromX, fromY);
+            for(const auto d: getDirDiffList(m_checkTurn == 0 ? 1 : 8)){
+                const pathf::AStarPathFinder::InnNode fromNode
+                {
+                    .x   = fromX,
+                    .y   = fromY,
+                    .dir = ((m_checkTurn == 0) ? DIR_BEGIN : pathf::getNextDir(currNode.node.dir, d)),
+                };
+
+                if(prevNode.has_value() && prevNode.value() == fromNode){
+                    continue; // don't go back
+                }
+
+                const auto hopCost = m_oneStepCost(fromNode.x, fromNode.y, (m_checkTurn == 0) ? fromDir : fromNode.dir, currNode.node.x, currNode.node.y);
+                if(!hopCost.has_value()){
+                    continue; // can not reach
+                }
+
+                fflassert(hopCost.value() >= 0.0, hopCost.value());
+                const auto reducedCost = hopCost.value() - pr(currNode.node.x, currNode.node.y) + pr(fromNode.x, fromNode.y);
+
+                fflassert(reducedCost >= 0.0, reducedCost);
+                if(auto p = m_cost_r.find(fromNode); p == m_cost_r.end() || currNode.cost + reducedCost < p->second){
+                    if(p == m_cost_r.end()){
+                        m_cost_r.try_emplace(fromNode, currNode.cost + reducedCost);
+                    }
+                    else{
+                        p->second = currNode.cost + reducedCost;
+                    }
+
+                    m_parentSet_r[fromNode] = currNode.node;
+                    m_cost_PQ_r.push(pathf::AStarPathFinder::InnPQNode
+                    {
+                        .node = fromNode,
+                        .cost = currNode.cost + reducedCost,
+                    });
+                }
+
+                if(const auto p = m_cost_f.find(fromNode); p != m_cost_f.end()){
+                    updateDoneCost(fromNode, currNode.cost + reducedCost + p->second);
+                }
+            }
+        }
+    }
+}
+
+pathf::AStarPathFinder::PathFindResult pathf::AStarPathFinder::search(int srcX, int srcY, int srcDir, int dstX, int dstY, size_t searchCount)
+{
+    logProfiler();
+
+    fflassert(checkGLoc(srcX, srcY, srcDir), srcX, srcY, srcDir);
+    fflassert(checkGLoc(dstX, dstY), dstX, dstY);
+
+    m_srcNode = pathf::AStarPathFinder::InnNode
+    {
+        .x   = srcX,
+        .y   = srcY,
+        .dir = ((m_checkTurn == 0) ? DIR_BEGIN : srcDir),
+    };
+
+    fflassert(!m_srcNode.eq(dstX, dstY), srcX, srcY, srcDir, dstX, dstY);
+
+    m_dstX = dstX;
+    m_dstY = dstY;
+
+    m_pi_f_s = pi(m_srcNode.x, m_srcNode.y, m_dstX     , m_dstY     );
+    m_pi_r_t = pi(m_dstX     , m_dstY     , m_srcNode.x, m_srcNode.y);
+
+    m_parentSet_f.clear();
+    m_parentSet_r.clear();
+
+    m_cost_PQ_f.clear();
+    m_cost_PQ_r.clear();
+
+    m_doneCost.reset();
+    m_doneNode.reset();
+
+    for(const auto d: getDirDiffList(m_checkTurn == 1 ? 8 : 1)){
+        const pathf::AStarPathFinder::InnNode firstNode
+        {
+            .x   = m_srcNode.x,
+            .y   = m_srcNode.y,
+            .dir = pathf::getNextDir(m_srcNode.dir, d),
+        };
+
+        m_cost_f[firstNode] = 0.0;
+        m_cost_PQ_f.push(pathf::AStarPathFinder::InnPQNode
+        {
+            .node = firstNode,
+            .cost = 0.0,
+        });
+    }
+
+    for(const auto d: getDirDiffList(m_checkTurn == 0 ? 1 : 8)){
+        const pathf::AStarPathFinder::InnNode lastNode
+        {
+            .x   = m_dstX,
+            .y   = m_dstY,
+            .dir = pathf::getNextDir(m_srcNode.dir, d),
+        };
+
+        m_cost_r[lastNode] = 0.0;
+        m_cost_PQ_r.push(pathf::AStarPathFinder::InnPQNode
+        {
+            .node = lastNode,
+            .cost = 0.0,
+        });
+    }
+
+    const auto fnCheckStop = [this]() -> bool
+    {
+        return m_cost_PQ_f.top().cost + m_cost_PQ_r.top().cost >= m_doneCost.value_or(DBL_MAX);
+    };
+
+    for(size_t c = 0; (searchCount <= 0 || c < searchCount) && !m_cost_PQ_f.empty() && !m_cost_PQ_r.empty(); ++c){
+        expand_f();
+        if(m_cost_PQ_f.empty()){
+            return {hasPath(), true};
+        }
+
+        if(fnCheckStop()){
+            return {hasPath(), true};
+        }
+
+        expand_r();
+        if(m_cost_PQ_r.empty()){
+            return {hasPath(), true};
+        }
+
+        if(fnCheckStop()){
+            return {hasPath(), true};
+        }
+    }
+
+    return {hasPath(), m_cost_PQ_f.empty() || m_cost_PQ_r.empty()};
+}
+
+std::vector<pathf::PathNode> pathf::AStarPathFinder::getPathNode() const
+{
+    fflassert(hasPath());
+    const auto fnAppendParentNode = [](const auto &startNode, int stopNodeX, int stopNodeY, const auto &parentSet, auto &result)
+    {
+        if(startNode.eq(stopNodeX, stopNodeY)){
+            return;
+        }
+
+        auto currNode = startNode;
+        for(auto p = parentSet.find(currNode); p != parentSet.end(); p = parentSet.find(currNode)){
+            result.push_back(pathf::PathNode
+            {
+                .X = to_d(p->second.x),
+                .Y = to_d(p->second.y),
+            });
+
+            if(p->second.eq(stopNodeX, stopNodeY)){
+                return;
+            }
+
+            currNode = p->second;
+        }
+
+        throw fflerror("intermiediate node has no parent: (%d, %d, %s)", currNode.x, currNode.y, pathf::dirName(currNode.dir));
+    };
+
+    std::vector<pathf::PathNode> result;
+    fnAppendParentNode(m_doneNode.value(), m_srcNode.x, m_srcNode.y, m_parentSet_f, result);
+
+    std::reverse(result.begin(), result.end());
+    result.push_back(pathf::PathNode
+    {
+        .X = to_d(m_doneNode.value().x),
+        .Y = to_d(m_doneNode.value().y),
+    });
+
+    fnAppendParentNode(m_doneNode.value(), m_dstX, m_dstY, m_parentSet_r, result);
+    return result;
+}
+
+bool pathf::AStarPathFinder::checkGLoc(int x, int y) const
+{
+    return checkGLoc(x, y, DIR_BEGIN);
+}
+
+bool pathf::AStarPathFinder::checkGLoc(int x, int y, int dir) const
+{
+    if(pathf::dirValid(dir)){
+        const pathf::AStarPathFinder::InnNode node
+        {
+            .x   = x,
+            .y   = y,
+            .dir = dir,
+        };
+
+        if(true
+                && node.x == x
+                && node.y == y
+                && node.dir == dir){
+            return true;
+        }
+    }
+    return false;
 }

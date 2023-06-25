@@ -1,22 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: tritexbutton.hpp
- *        Created: 08/26/2016 13:20:23
- *    Description: button with three texture, it has a position shift when
- *                 state changes.
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -25,7 +6,7 @@
 class TritexButton: public ButtonBase
 {
     private:
-        uint32_t m_texID[3];
+        uint32_t m_texIDList[3];
 
     private:
         const bool m_alterColor;
@@ -36,7 +17,8 @@ class TritexButton: public ButtonBase
                 int argX,
                 int argY,
 
-                const uint32_t (&texID)[3],
+                const uint32_t (& texIDList)[3],
+                const uint32_t (&seffIDList)[3],
 
                 std::function<void()> fnOnOverIn  = nullptr,
                 std::function<void()> fnOnOverOut = nullptr,
@@ -47,10 +29,11 @@ class TritexButton: public ButtonBase
                 int offXOnClick = 0,
                 int offYOnClick = 0,
 
-                bool    onClickDone = true,
-                bool    alterColor  = true,
-                Widget *widgetPtr   = nullptr,
-                bool    autoDelete  = false)
+                bool onClickDone = true,
+                bool alterColor  = true,
+
+                Widget *widgetPtr  = nullptr,
+                bool    autoDelete = false)
             : ButtonBase
               {
                   argDir,
@@ -63,6 +46,10 @@ class TritexButton: public ButtonBase
                   std::move(fnOnOverOut),
                   std::move(fnOnClick),
 
+                  seffIDList[0],
+                  seffIDList[1],
+                  seffIDList[2],
+
                   offXOnOver,
                   offYOnOver,
                   offXOnClick,
@@ -72,11 +59,11 @@ class TritexButton: public ButtonBase
                   widgetPtr,
                   autoDelete,
               }
-            , m_texID
+            , m_texIDList
               {
-                  texID[0],
-                  texID[1],
-                  texID[2],
+                  texIDList[0],
+                  texIDList[1],
+                  texIDList[2],
               }
             , m_alterColor(alterColor)
         {
@@ -96,10 +83,10 @@ class TritexButton: public ButtonBase
         void initButtonSize();
 
     public:
-        void setTexID(const uint32_t (&texID)[3])
+        void setTexID(const uint32_t (&texIDList)[3])
         {
             for(int i: {0, 1, 2}){
-                m_texID[i] = texID[i];
+                m_texIDList[i] = texIDList[i];
             }
         }
 };

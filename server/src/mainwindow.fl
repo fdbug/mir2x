@@ -14,11 +14,13 @@ decl {\#include <string>} {public global
 decl {\#include <mutex>} {private local
 }
 
+decl {\#include "serverargparser.hpp"} {private local
+}
+
 decl {class CommandWindow;} {public global
 }
 
-class MainWindow {open
-} {
+class MainWindow {} {
   Function {MainWindow()} {} {
     Fl_Window m_window {
       label MonoServer
@@ -34,14 +36,16 @@ class MainWindow {open
           label Server
           xywh {0 0 62 20} labelfont 4
         } {
-          MenuItem {} {
+          MenuItem m_launchMenu {
             label {Launch        }
             callback {{
 	extern MonoServer *g_monoServer;
 	delete g_monoServer;
-	
+
 	g_monoServer = new MonoServer();
 	g_monoServer->Launch();
+
+	m_launchMenu->deactivate();
 }}
             xywh {0 0 30 20} shortcut 0x4006c labelfont 4 divider
             code0 {\#include "monoserver.hpp"}
@@ -587,7 +591,8 @@ class MainWindow {open
 // to retrieve the created windows, use cwid to find it
 {
     if(CreateCommandWindow() > 0){
-    }else{
+    }
+    else{
         fl_alert("%s", "Create command window failed");
     }
 }}
@@ -603,7 +608,8 @@ class MainWindow {open
 
     if(bOpen){
         bOpen = false;
-    }else{
+    }
+    else{
         bOpen = true;
     }
 
@@ -612,7 +618,8 @@ class MainWindow {open
             if(bOpen){
                 pCW->showAll();
                 (m_menuItemFirstCW + (nIndex - 1))->deactivate();
-            }else{
+            }
+            else{
                 pCW->hideAll();
                 (m_menuItemFirstCW + (nIndex - 1))->activate();
             }
@@ -943,6 +950,11 @@ class MainWindow {open
         pMenuItem->callback((Fl_Callback *)(fnCallback), (void *)((intptr_t)(nIndex)));
         pMenuItem->show();
     }
+
+    extern ServerArgParser *g_serverArgParser;
+    if(g_serverArgParser->autoLaunch){
+        m_launchMenu->deactivate();
+    }
 }} {}
   }
   Function {showAll()} {} {
@@ -1011,7 +1023,8 @@ class MainWindow {open
             && (m_menuItemFirstCW + (nCWID - 1) <= m_menuItemLastCW)
             && (m_menuItemFirstCW + (nCWID - 1))->visible()){
         return (CommandWindow *)((m_menuItemFirstCW + (nCWID - 1))->user_data());
-    }else{
+    }
+    else{
         return nullptr;
     }
 }} {}
@@ -1027,13 +1040,15 @@ class MainWindow {open
         // it's very important to make sure all command window menu item are hidden
         if(pMenuItem->visible()){
             continue;
-        }else{
+        }
+        else{
             // we find a valid slot
             // won't create new command window if it contains one
             CommandWindow *pCW = nullptr;
             if(pMenuItem->user_data()){
                 pCW = (CommandWindow *)(pMenuItem->user_data());
-            }else{
+            }
+            else{
                 pCW = new CommandWindow();
                 pMenuItem->user_data(pCW);
             }
@@ -1139,7 +1154,7 @@ class MainWindow {open
     }
 }} {}
   }
-  Function {getGUIFont()} {open return_type int
+  Function {getGUIFont()} {return_type int
   } {
     code {{
     return to_d(m_browser->textfont());

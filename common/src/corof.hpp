@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: corof.hpp
- *        Created: 03/07/2020 12:36:32
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <any>
 #include <optional>
@@ -263,7 +245,7 @@ namespace corof
             template<typename U = T> void assign(U && u)
             {
                 fflassert(!m_var.has_value());
-                m_var = std::move(u);
+                m_var = std::make_optional<T>(std::move(u));
             }
 
         public:

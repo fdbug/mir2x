@@ -1,27 +1,30 @@
-/*
- * =====================================================================================
- *
- *       Filename: flwrapper.hpp
- *        Created: 02/11/2019 21:54:22
- *    Description: 
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
+#include <FL/Fl.H>
 #include <FL/fl_draw.H>
+#include <FL/Fl_Menu_Item.H>
+#include "threadpool.hpp"
 
 namespace fl_wrapper
 {
+    // wrapper of Fl_Menu_Item
+    // gcc gives -Werror=missing-field-initializers for tailing fields in Fl_Menu_Item
+    struct menu_item: public Fl_Menu_Item
+    {
+        menu_item(
+                const char  *text       = nullptr,
+                ulong        shortcut   = 0,
+                Fl_Callback *callback   = nullptr,
+                void        *user_data  = nullptr,
+                int          flags      = 0,
+                uchar        labeltype  = 0,
+                uchar        labelfont  = 0,
+                uchar        labelsize  = 0,
+                uchar        labelcolor = 0)
+            : Fl_Menu_Item(text, shortcut, callback, user_data, flags, labeltype, labelfont, labelsize, labelcolor)
+        {}
+    };
+
     class enable_color final
     {
         private:
@@ -79,5 +82,12 @@ namespace fl_wrapper
             return s_table[index];
         }
         return FL_BLACK;
+    }
+
+    template<typename Callable> void mtcall(Callable &&f)
+    {
+        Fl::lock();
+        const threadPool::scopeGuard lockGuard([](){ Fl::unlock(); });
+        f();
     }
 }

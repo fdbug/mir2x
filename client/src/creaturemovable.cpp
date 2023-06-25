@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: creaturemovable.cpp
- *        Created: 04/25/2020 22:25:23
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <vector>
 #include "log.hpp"
 #include "pathf.hpp"
@@ -25,7 +7,7 @@
 #include "creaturemovable.hpp"
 
 extern Log *g_log;
-std::vector<PathFind::PathNode> CreatureMovable::parseMovePath(int x0, int y0, int x1, int y1, bool checkGround, int checkCreature)
+std::vector<pathf::PathNode> CreatureMovable::parseMovePath(int x0, int y0, int x1, int y1, bool checkGround, int checkCreature)
 {
     if(!m_processRun->canMove(true, 0, x0, y0)){
         return {};
@@ -121,10 +103,11 @@ std::vector<PathFind::PathNode> CreatureMovable::parseMovePath(int x0, int y0, i
                 // the complex path solver
                 // we can always use this solver only
 
-                ClientPathFinder stPathFinder(checkGround, checkCreature, nMaxStep);
-                if(stPathFinder.Search(x0, y0, x1, y1)){
-                    return stPathFinder.GetPathNode();
-                }else{
+                ClientPathFinder stPathFinder(m_processRun, checkGround, checkCreature, nMaxStep);
+                if(stPathFinder.search(x0, y0, currMotion()->direction, x1, y1).hasPath()){
+                    return stPathFinder.getPathNode();
+                }
+                else{
                     // we can't find a path
                     // return the starting point only
                     return {{x0, y0}};
@@ -146,7 +129,7 @@ std::deque<std::unique_ptr<MotionNode>> CreatureMovable::makeWalkMotionQueue(int
             {
                 // 0 means error
                 // 1 means can't find a path here since we know LDistance2 != 0
-                throw fflerror("Can't find a path: (%d, %d) -> (%d, %d)", startX, startY, endX, endY);
+                throw fflerror("Can't find a path: (%d, %d) -> (%d, %d): uid = %s", startX, startY, endX, endY, to_cstr(uidf::getUIDString(UID())));
             }
         default:
             {
@@ -187,9 +170,16 @@ bool CreatureMovable::motionQueueValid() const
         }
         else{
             g_log->addLog(LOGTYPE_WARNING, "Invalid motion queue:");
-            m_currMotion->print();
+            m_currMotion->print([](const std::string &s)
+            {
+                g_log->addLog(LOGTYPE_WARNING, "%s", s.c_str());
+            });
+
             for(auto &node: m_motionQueue){
-                node->print();
+                node->print([](const std::string &s)
+                {
+                    g_log->addLog(LOGTYPE_WARNING, "%s", s.c_str());
+                });
             }
             return false;
         }

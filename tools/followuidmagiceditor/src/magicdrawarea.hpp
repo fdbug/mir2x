@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: magicdrawarea.hpp
- *        Created: 07/26/2015 04:27:57
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <map>
 #include <memory>
@@ -26,7 +8,7 @@
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Image.H>
 #include "magicframedb.hpp"
-#include "dbcomrecord.hpp"
+#include "dbcomid.hpp"
 
 class MagicDrawArea: public Fl_Box
 {
@@ -90,6 +72,6 @@ class MagicDrawArea: public Fl_Box
     private:
         int magicDirCount() const
         {
-            return DBCOM_MAGICRECORD(m_magicID).getGfxEntry(u8"运行").first.gfxDirType;
+            return DBCOM_MAGICGFXENTRY(m_magicID, u8"运行").first->gfxDirType;
         }
 };

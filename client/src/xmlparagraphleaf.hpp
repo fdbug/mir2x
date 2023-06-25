@@ -1,23 +1,7 @@
-/*
- * =====================================================================================
- *
- *       Filename: xmlparagraphleaf.hpp
- *        Created: 12/22/2018 07:38:04
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
+#include <cctype>
 #include <vector>
+#include <memory>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -53,10 +37,11 @@ class XMLParagraphLeaf
         int m_type;
 
     private:
-        uint64_t m_U64Key;
+        uint64_t m_u64Key;
 
     private:
-        std::vector<int> m_UTF8CharOff;
+        std::vector<int> m_utf8CharOff;
+        std::optional<std::unordered_map<std::string, std::string>> m_attrListOpt;
 
     private:
         std::optional<uint32_t> m_fontColor;
@@ -98,11 +83,11 @@ class XMLParagraphLeaf
                 throw fflerror("leaf is not an utf8 string");
             }
 
-            if(m_UTF8CharOff.empty()){
+            if(m_utf8CharOff.empty()){
                 throw fflerror("utf8 token off doesn't initialized");
             }
 
-            return m_UTF8CharOff;
+            return m_utf8CharOff;
         }
 
         std::vector<int> &utf8CharOffRef()
@@ -123,7 +108,7 @@ class XMLParagraphLeaf
             if(type() != LEAF_IMAGE){
                 throw fflerror("leaf is not an image");
             }
-            return m_U64Key;
+            return m_u64Key;
         }
 
         uint32_t emojiU32Key() const
@@ -131,7 +116,7 @@ class XMLParagraphLeaf
             if(type() != LEAF_EMOJI){
                 throw fflerror("leaf is not an emoji");
             }
-            return m_U64Key;
+            return m_u64Key;
         }
 
         uint32_t peekUTF8Code(int) const;
@@ -157,22 +142,8 @@ class XMLParagraphLeaf
             return reinterpret_cast<xmlLeafData *>(m_node->GetUserData());
         }
 
-        std::pair<const char *, const char *> hasEvent() const
+        const std::unordered_map<std::string, std::string> *hasEvent() const
         {
-            if(type() == LEAF_UTF8GROUP){
-                if(auto par = m_node->Parent(); par && par->ToElement() && (std::strcmp(par->ToElement()->Name(), "event") == 0)){
-                    return
-                    {
-                        par->ToElement()->Attribute("id"),
-                        par->ToElement()->Attribute("arg"),
-                    };
-                }
-            }
-
-            return
-            {
-                nullptr,
-                nullptr,
-            };
+            return m_attrListOpt.has_value() ? std::addressof(m_attrListOpt.value()) : nullptr;
         }
 };

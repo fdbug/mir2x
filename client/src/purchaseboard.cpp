@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: purchaseboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "totype.hpp"
 #include "client.hpp"
 #include "pngtexdb.hpp"
@@ -47,13 +29,18 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           257,
           183,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
+              setShow(false);
               setExtendedItemID(0);
           },
 
@@ -73,7 +60,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           105,
           185,
-          {SYS_TEXNIL, 0X08000003, 0X08000004},
+          {SYS_U32NIL, 0X08000003, 0X08000004},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -100,7 +92,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           448,
           159,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -125,7 +122,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           315,
           163,
-          {SYS_TEXNIL, 0X08000007, 0X08000008},
+          {SYS_U32NIL, 0X08000007, 0X08000008},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -150,7 +152,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           357,
           163,
-          {SYS_TEXNIL, 0X08000005, 0X08000006},
+          {SYS_U32NIL, 0X08000005, 0X08000006},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -178,7 +185,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           405,
           163,
-          {SYS_TEXNIL, 0X08000009, 0X0800000A},
+          {SYS_U32NIL, 0X08000009, 0X0800000A},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -208,7 +220,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           474,
           56,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -233,7 +250,12 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           366,
           60,
-          {SYS_TEXNIL, 0X0800000B, 0X0800000C},
+          {SYS_U32NIL, 0X0800000B, 0X0800000C},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -285,16 +307,17 @@ PurchaseBoard::PurchaseBoard(ProcessRun *runPtr, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           266,
           27,
-
+          5,
           123,
-          2,
 
+          false,
+          0,
           nullptr,
           this,
       }
     , m_processRun(runPtr)
 {
-    show(false);
+    setShow(false);
     if(auto texPtr = g_progUseDB->retrieve(0X08000000)){
         std::tie(m_w, m_h) = SDLDeviceHelper::getTextureSize(texPtr);
     }
@@ -356,11 +379,11 @@ void PurchaseBoard::drawEx(int dstX, int dstY, int, int, int, int) const
 bool PurchaseBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(!show()){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(m_closeButton.processEvent(event, valid)){
@@ -403,7 +426,7 @@ bool PurchaseBoard::processEvent(const SDL_Event &event, bool valid)
 
                 if(m_selectExt2Button.processEvent(event, valid)){
                     if(m_processRun->getWidget("InputStringBoard")->focus()){
-                        focus(false);
+                        setFocus(false);
                     }
                     return false;
                 }
@@ -440,7 +463,7 @@ bool PurchaseBoard::processEvent(const SDL_Event &event, bool valid)
                 const auto [mousePX, mousePY] = SDLDeviceHelper::getMousePLoc();
                 if(mathf::pointInRectangle<int>(mousePX - x(), mousePY - y(), 19, 15, 252 - 19, 15 + (57 - 15) * 4)){
                     if(m_itemList.size() > 4){
-                        m_slider.addValue((event.wheel.y > 0 ? -1.0 : 1.0) / (m_itemList.size() - 4));
+                        m_slider.addValue((event.wheel.y > 0 ? -1.0 : 1.0) / (m_itemList.size() - 4), false);
                     }
                 }
                 else if(extendedBoardGfxID() == 1 && extendedPageCount() > 0 && mathf::pointInRectangle<int>(mousePX - x(), mousePY - y(), 313, 41, 152, 114)){

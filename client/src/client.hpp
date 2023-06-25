@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: client.hpp
- *        Created: 08/12/2015 09:59:15
- *    Description: public API for class client only
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <atomic>
 #include <string>
@@ -27,7 +9,6 @@
 #include "message.hpp"
 #include "sdldevice.hpp"
 #include "raiitimer.hpp"
-#include "cachequeue.hpp"
 
 class ProcessRun;
 class Client final
@@ -68,11 +49,16 @@ class Client final
         std::unique_ptr<Process> m_currentProcess;
 
     private:
+        std::optional<SMOnlineOK> m_smOOK;
+
+    private:
         std::string m_clipboardBuf;
 
     public:
         Client();
-       ~Client();
+
+    public:
+        ~Client();
 
     public:
         void mainLoop();
@@ -143,6 +129,12 @@ class Client final
                 return p;
             }
             throw fflerror("not in process run");
+        }
+
+    public:
+        void setOnlineOK(const SMOnlineOK &smOOK)
+        {
+            m_smOOK = smOOK;
         }
 
     private:

@@ -25,6 +25,24 @@ BaseBuffAct::BaseBuffAct(BaseBuff *argBuff, size_t argBuffActOff)
       }())
 {}
 
+bool BaseBuffAct::done() const
+{
+    switch(getBAREF().duration){
+        case BADUR_UNLIMITED:
+            {
+                return false;
+            }
+        case BADUR_INSTANT:
+            {
+                return true;
+            }
+        default:
+            {
+                return std::lround(m_buff->accuTime()) >= getBAREF().duration;
+            }
+    }
+}
+
 BaseBuffAct *BaseBuffAct::createBuffAct(BaseBuff *argBuff, size_t argBuffActOff)
 {
     fflassert(argBuff);
@@ -46,6 +64,14 @@ BaseBuffAct *BaseBuffAct::createBuffAct(BaseBuff *argBuff, size_t argBuffActOff)
 
     if(bar.isAttributeModifier()){
         return BaseBuffActAttributeModifier::createAttributeModifier(argBuff, argBuffActOff);
+    }
+
+    if(bar.isAttackModifier()){
+        return BaseBuffActAttackModifier::createAttackModifier(argBuff, argBuffActOff);
+    }
+
+    if(bar.isTrigger()){
+        return BaseBuffActTrigger::createTrigger(argBuff, argBuffActOff);
     }
 
     throw fflvalue(argBuff, argBuffActOff, uidf::getUIDString(argBuff->getBO()->UID()), argBuff->getBR().name, argBuff->getBR().actList.begin()[argBuffActOff].name);

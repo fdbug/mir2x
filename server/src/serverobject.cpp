@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: serverobject.cpp
- *        Created: 04/28/2016 20:51:29
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cinttypes>
 #include "actorpod.hpp"
 #include "serverargparser.hpp"
@@ -30,7 +12,6 @@ extern ServerArgParser *g_serverArgParser;
 
 ServerObject::ServerObject(uint64_t uid)
     : m_UID(uid)
-    , m_UIDName(uidf::getUIDString(uid))
 {
     m_stateTrigger.install([this]() -> bool
     {
@@ -38,7 +19,7 @@ ServerObject::ServerObject(uint64_t uid)
         return false;
     });
 
-    if(g_serverArgParser->traceActorMessage){
+    if(g_serverArgParser->traceActorMessageCount){
         m_stateTrigger.install([this, lastCheckTick = to_u32(0)]() mutable -> bool
         {
             if(const auto currTick = g_monoServer->getCurrTick(); lastCheckTick + 1000 < currTick){
@@ -73,6 +54,8 @@ uint64_t ServerObject::activate(double metronomeFreq, uint64_t expireTime)
     m_actorPod = new ActorPod
     {
         m_UID,
+        this,
+
         [this]()
         {
             m_stateTrigger.run();

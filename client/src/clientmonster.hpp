@@ -1,27 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename: clientmonster.hpp
- *        Created: 08/31/2015 08:26:19
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <optional>
 #include "uidf.hpp"
+#include "pathf.hpp"
 #include "client.hpp"
 #include "clientmsg.hpp"
-#include "dbcomrecord.hpp"
 #include "protocoldef.hpp"
 #include "creaturemovable.hpp"
 
@@ -56,7 +38,7 @@ class ClientMonster: public CreatureMovable
                         m_currMotion.reset(new MotionNode
                         {
                             .type = MOTION_MON_DIE,
-                            .direction = directionValid(action.direction) ? to_d(action.direction) : DIR_UP,
+                            .direction = pathf::dirValid(action.direction) ? to_d(action.direction) : DIR_UP,
                             .x = action.x,
                             .y = action.y,
                         });
@@ -75,7 +57,7 @@ class ClientMonster: public CreatureMovable
                         m_currMotion.reset(new MotionNode
                         {
                             .type = MOTION_MON_STAND,
-                            .direction = directionValid(action.direction) ? to_d(action.direction) : DIR_UP,
+                            .direction = pathf::dirValid(action.direction) ? to_d(action.direction) : DIR_UP,
                             .x = action.x,
                             .y = action.y,
                         });
@@ -113,6 +95,9 @@ class ClientMonster: public CreatureMovable
         {
             return getMR().lookID;
         }
+
+    public:
+        uint32_t getSeffID(int) const;
 
     public:
         int getFrameCount(int motion, int direction) const override

@@ -1,21 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: controlboard.cpp
- *        Created: 08/21/2016 04:12:57
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include <cmath>
 #include <stdexcept>
 #include <algorithm>
 #include <functional>
@@ -27,9 +10,9 @@
 #include "sdldevice.hpp"
 #include "imageboard.hpp"
 #include "processrun.hpp"
-#include "dbcomrecord.hpp"
 #include "controlboard.hpp"
 #include "clientmonster.hpp"
+#include "teamstateboard.hpp"
 
 // for texture 0X00000012 and 0X00000013
 // I split it into many parts to fix different screen size
@@ -113,14 +96,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           148,
           2,
-          {SYS_TEXNIL, 0X0B000000, 0X0B000001},
+          {SYS_U32NIL, 0X0B000000, 0X0B000001},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("QuickAccessBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -139,7 +127,12 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           8,
           72,
-          {SYS_TEXNIL, 0X0000001E, 0X0000001F},
+          {SYS_U32NIL, 0X0000001E, 0X0000001F},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -163,7 +156,12 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           109,
           72,
-          {SYS_TEXNIL, 0X00000020, 0X00000021},
+          {SYS_U32NIL, 0X00000020, 0X00000021},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -266,14 +264,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           48,
           33,
-          {SYS_TEXNIL, 0X00000030, 0X00000031},
+          {SYS_U32NIL, 0X00000030, 0X00000031},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -292,14 +295,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           77,
           31,
-          {SYS_TEXNIL, 0X00000033, 0X00000032},
+          {SYS_U32NIL, 0X00000033, 0X00000032},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("PlayerStateBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -318,14 +326,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           105,
           33,
-          {SYS_TEXNIL, 0X00000035, 0X00000034},
+          {SYS_U32NIL, 0X00000035, 0X00000034},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("SkillBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -344,14 +357,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           40,
           11,
-          {SYS_TEXNIL, 0X00000036, 0X00000037},
+          {SYS_U32NIL, 0X00000036, 0X00000037},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -370,14 +388,28 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           72,
           8,
-          {SYS_TEXNIL, 0X00000038, 0X00000039},
+          {SYS_U32NIL, 0X00000038, 0X00000039},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+              auto boardPtr = dynamic_cast<TeamStateBoard *>(m_processRun->getWidget("TeamStateBoard"));
+              auto  heroPtr = m_processRun->getMyHero();
+
+              if(heroPtr->hasTeam()){
+                  boardPtr->flipShow();
+                  if(boardPtr->show()){
+                      boardPtr->refresh();
+                  }
+              }
+              else{
+                  m_processRun->setCursor(ProcessRun::CURSOR_TEAMFLAG);
               }
           },
 
@@ -396,14 +428,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           108,
           11,
-          {SYS_TEXNIL, 0X0000003A, 0X0000003B},
+          {SYS_U32NIL, 0X0000003A, 0X0000003B},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -422,14 +459,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           40,
           61,
-          {SYS_TEXNIL, 0X0000003C, 0X0000003D},
+          {SYS_U32NIL, 0X0000003C, 0X0000003D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -443,19 +485,24 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           &m_right,
       }
 
-    , m_buttonEnvConfig
+    , m_buttonRuntimeConfig
       {
           DIR_UPLEFT,
           72,
           72,
-          {SYS_TEXNIL, 0X0000003E, 0X0000003F},
+          {SYS_U32NIL, 0X0000003E, 0X0000003F},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+              if(auto p = m_processRun->getWidget("RuntimeConfigBoard")){
+                  p->flipShow();
               }
           },
 
@@ -474,14 +521,19 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           108,
           61,
-          {SYS_TEXNIL, 0X00000040, 0X00000041},
+          {SYS_U32NIL, 0X00000040, 0X00000041},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               if(auto p = m_processRun->getWidget("InventoryBoard")){
-                  flipShow(p);
+                  p->flipShow();
               }
           },
 
@@ -530,7 +582,12 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           boardW - 178 - 181,
           3,
-          {SYS_TEXNIL, 0X00000028, 0X00000029},
+          {SYS_U32NIL, 0X00000028, 0X00000029},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -554,7 +611,12 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           boardW - 178 - 260,
           87,
-          {SYS_TEXNIL, 0X00000023, 0X00000024},
+          {SYS_U32NIL, 0X00000023, 0X00000024},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -575,7 +637,12 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           boardW - 178 - 220,
           87,
-          {SYS_TEXNIL, 0X00000025, 0X00000026},
+          {SYS_U32NIL, 0X00000025, 0X00000026},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -647,9 +714,11 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           DIR_UPLEFT,
           boardW - 178 - 176,
           40,
-
+          5,
           60,
-          0,
+
+          false,
+          2,
           nullptr,
 
           &m_middle,
@@ -662,6 +731,8 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
           105,
           343 + (boardW - 800),
           17,
+
+          true,
 
           1,
           12,
@@ -737,6 +808,7 @@ ControlBoard::ControlBoard(int boardW, int startY, ProcessRun *proc, Widget *pwi
 
 void ControlBoard::update(double fUpdateTime)
 {
+    m_accuTime += fUpdateTime;
     m_cmdLine.update(fUpdateTime);
     m_logBoard.update(fUpdateTime);
     m_arcAniBoard.update(fUpdateTime);
@@ -776,8 +848,8 @@ void ControlBoard::drawLeft() const
                 const auto nLostHPH = to_d(std::lround(nHPH * fLostHPRatio));
                 const auto nLostMPH = to_d(std::lround(nMPH * fLostMPRatio));
 
-                g_sdlDevice->drawTexture(pHP, 33, nY0 + 9 + nLostHPH, 0, nLostHPH, nHPW, nHPH - nLostHPH);
-                g_sdlDevice->drawTexture(pMP, 73, nY0 + 9 + nLostMPH, 0, nLostMPH, nMPW, nMPH - nLostMPH);
+                g_sdlDevice->drawTexture(pHP, 33, nY0 + 8 + nLostHPH, 0, nLostHPH, nHPW, nHPH - nLostHPH);
+                g_sdlDevice->drawTexture(pMP, 73, nY0 + 8 + nLostMPH, 0, nLostMPH, nMPW, nMPH - nLostMPH);
             }
         }
     }
@@ -809,7 +881,7 @@ void ControlBoard::drawRight() const
     m_buttonTeam.draw();
     m_buttonTask.draw();
     m_buttonHorse.draw();
-    m_buttonEnvConfig.draw();
+    m_buttonRuntimeConfig.draw();
     m_buttonSysMessage.draw();
 
     m_buttonAC.draw();
@@ -1005,27 +1077,27 @@ bool ControlBoard::processEvent(const SDL_Event &event, bool valid)
 {
     bool takeEvent = false;
 
-    takeEvent |= m_levelBox         .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_slider           .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_cmdLine          .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonClose      .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonMinize     .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonQuickAccess.processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonExchange   .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonMiniMap    .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonMagicKey   .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonGuild      .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonTeam       .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonTask       .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonHorse      .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonEnvConfig  .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonSysMessage .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonAC         .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonDC         .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonInventory  .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonHeroState  .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonHeroMagic  .processEvent(event, valid && !takeEvent);
-    takeEvent |= m_buttonSwitchMode .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_levelBox           .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_slider             .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_cmdLine            .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonClose        .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonMinize       .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonQuickAccess  .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonExchange     .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonMiniMap      .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonMagicKey     .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonGuild        .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonTeam         .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonTask         .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonHorse        .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonRuntimeConfig.processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonSysMessage   .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonAC           .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonDC           .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonInventory    .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonHeroState    .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonHeroMagic    .processEvent(event, valid && !takeEvent);
+    takeEvent |= m_buttonSwitchMode   .processEvent(event, valid && !takeEvent);
 
     if(m_expand){
         takeEvent |= m_buttonEmoji.processEvent(event, valid && !takeEvent);
@@ -1042,8 +1114,7 @@ bool ControlBoard::processEvent(const SDL_Event &event, bool valid)
                 switch(event.key.keysym.sym){
                     case SDLK_RETURN:
                         {
-                            m_cmdLine.focus(true);
-                            return true;
+                            return m_cmdLine.consumeFocus(true);
                         }
                     default:
                         {
@@ -1068,7 +1139,7 @@ void ControlBoard::inputLineDone()
     const std::string realInput = (inputPos == std::string::npos) ? "" : fullInput.substr(inputPos);
 
     m_cmdLine.clear();
-    m_cmdLine.focus(false);
+    m_cmdLine.setFocus(false);
 
     if(realInput.empty()){
         return;
@@ -1146,7 +1217,7 @@ void ControlBoard::addLog(int logType, const char *log)
     tinyxml2::XMLPrinter printer;
     xmlDoc.Print(&printer);
     m_logBoard.addParXML(m_logBoard.parCount(), {0, 0, 0, 0}, printer.CStr());
-    m_slider.setValue(1.0f);
+    m_slider.setValue(1.0f, false);
 }
 
 bool ControlBoard::CheckMyHeroMoved()
@@ -1399,13 +1470,34 @@ void ControlBoard::drawFocusFace() const
             const auto &br = DBCOM_BUFFRECORD(id);
             fflassert(br);
 
-            if(br.icon.gfxID != SYS_TEXNIL){
+            if(br.icon.gfxID != SYS_U32NIL){
                 if(auto iconTexPtr = g_progUseDB->retrieve(br.icon.gfxID)){
                     const int buffIconOffX = buffIconOffStartX + (drawIconCount % 5) * buffIconDrawW;
                     const int buffIconOffY = buffIconOffStartY - (drawIconCount / 5) * buffIconDrawH;
 
                     const auto [texW, texH] = SDLDeviceHelper::getTextureSize(iconTexPtr);
                     g_sdlDevice->drawTexture(iconTexPtr, buffIconOffX, buffIconOffY, buffIconDrawW, buffIconDrawH, 0, 0, texW, texH);
+
+                    const auto baseColor = [&br]() -> uint32_t
+                    {
+                        if(br.favor > 0){
+                            return colorf::GREEN;
+                        }
+                        else if(br.favor == 0){
+                            return colorf::YELLOW;
+                        }
+                        else{
+                            return colorf::RED;
+                        }
+                    }();
+
+                    const auto startColor = baseColor | colorf::A_SHF(255);
+                    const auto   endColor = baseColor | colorf::A_SHF( 64);
+
+                    const auto edgeGridCount = (buffIconDrawW + buffIconDrawH) * 2 - 4;
+                    const auto startLoc = std::lround(edgeGridCount * std::fmod(m_accuTime, 1500.0) / 1500.0);
+
+                    g_sdlDevice->drawBoxFading(startColor, endColor, buffIconOffX, buffIconOffY, buffIconDrawW, buffIconDrawH, startLoc, buffIconDrawW + buffIconDrawH);
                     drawIconCount++;
                 }
             }

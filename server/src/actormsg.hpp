@@ -13,6 +13,8 @@ enum ActorMsgPackType: int
     AM_ERROR,
     AM_BADACTORPOD,
     AM_BADCHANNEL,
+    AM_SDBUFFER,
+    AM_REMOTECALL,
     AM_TIMEOUT,
     AM_UID,
     AM_PING,
@@ -65,11 +67,14 @@ enum ActorMsgPackType: int
     AM_ATTACK,
     AM_UPDATEHP,
     AM_DEADFADEOUT,
+    AM_QUERYUIDBUFF,
     AM_QUERYCORECORD,
     AM_QUERYCOCOUNT,
+    AM_QUERYPLAYERNAME,
     AM_QUERYPLAYERWLDESP,
     AM_COCOUNT,
     AM_ADDBUFF,
+    AM_REMOVEBUFF,
     AM_EXP,
     AM_MISS,
     AM_HEAL,
@@ -96,12 +101,24 @@ enum ActorMsgPackType: int
     AM_NAMECOLOR,
     AM_MASTERKILL,
     AM_MASTERHITTED,
-    AM_NPCQUERY,
     AM_NPCEVENT,
     AM_NPCERROR,
     AM_BUY,
     AM_BUYCOST,
     AM_BUYERROR,
+    AM_MODIFYQUESTTRIGGERTYPE,
+    AM_QUERYQUESTUID,
+    AM_QUERYQUESTTRIGGERLIST,
+    AM_QUERYTEAMMEMBERLIST,
+    AM_QUERYTEAMPLAYER,
+    AM_TEAMPLAYER,
+    AM_TEAMUPDATE,
+    AM_TEAMMEMBERLIST,
+    AM_RUNQUESTTRIGGER,
+    AM_SENDNOTIFY,
+    AM_REGISTERQUEST,
+    AM_REQUESTJOINTEAM,
+    AM_REQUESTLEAVETEAM,
     AM_END,
 };
 
@@ -350,6 +367,12 @@ struct AMMapSwitchOK
 struct AMLoadMap
 {
     uint32_t mapID;
+    bool     activateMap;
+};
+
+struct AMLoadMapOK
+{
+    uint64_t uid;
 };
 
 struct AMUID
@@ -388,6 +411,8 @@ struct AMPathFind
 
     int X;
     int Y;
+    int direction;
+
     int EndX;
     int EndY;
 };
@@ -468,7 +493,14 @@ struct AMCOCount
 struct AMAddBuff
 {
     int id;
-    uint64_t from;
+    uint64_t fromUID;
+    uint64_t fromBuffSeq;
+};
+
+struct AMRemoveBuff
+{
+    uint64_t fromUID;
+    uint64_t fromBuffSeq;
 };
 
 struct AMExp
@@ -604,11 +636,6 @@ struct AMNameColor
     int Color;
 };
 
-struct AMNPCQuery
-{
-    char query[128];
-};
-
 struct AMNPCError
 {
     int errorID;
@@ -624,4 +651,15 @@ struct AMBuy
 struct AMBuyError
 {
     int error;
+};
+
+struct AMModifyQuestTriggerType
+{
+    int  type;
+    bool enable;
+};
+
+struct AMQueryQuestTriggerList
+{
+    int type;
 };

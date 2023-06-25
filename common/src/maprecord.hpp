@@ -1,23 +1,6 @@
-/*
- * =====================================================================================
- *
- *       Filename: maprecord.hpp
- *        Created: 08/31/2017 11:12:01
- *    Description: configuration of mir2x map data
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <initializer_list>
 
 struct MapSwitch
@@ -39,8 +22,9 @@ struct MapSwitch
 
 struct MapRecord
 {
-    const char8_t *name = u8"";
-    const uint32_t miniMapID = 0;
+    const char8_t *name = nullptr;
+    const std::optional<uint32_t> bgmID {};
+    const std::optional<uint32_t> miniMapID {};
     const std::initializer_list<MapSwitch> mapSwitchList {};
 
     operator bool () const

@@ -1,28 +1,14 @@
-/*
- * =====================================================================================
- *
- *       Filename: inputline.cpp
- *        Created: 06/19/2017 11:29:06
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cmath>
+#include <utf8.h>
 #include "mathf.hpp"
 #include "colorf.hpp"
+#include "imeboard.hpp"
 #include "inputline.hpp"
 #include "sdldevice.hpp"
+#include "labelboard.hpp"
 #include "clientargparser.hpp"
 
+extern IMEBoard *g_imeBoard;
 extern SDLDevice *g_sdlDevice;
 extern ClientArgParser *g_clientArgParser;
 
@@ -82,16 +68,23 @@ bool InputLine::processEvent(const SDL_Event &event, bool valid)
                         }
                     case SDLK_ESCAPE:
                         {
-                            focus(false);
+                            setFocus(false);
                             return true;
                         }
                     default:
                         {
                             const char keyChar = SDLDeviceHelper::getKeyChar(event, true);
-                            if(keyChar != '\0'){
-                                const char text[] {keyChar, '\0'};
-                                m_tpset.insertUTF8String(m_cursor++, 0, text);
+                            if(m_imeEnabled && g_imeBoard->active() && (keyChar >= 'a' && keyChar <= 'z')){
+                                g_imeBoard->gainFocus("", str_printf("%c", keyChar), this, [this](std::string s)
+                                {
+                                    m_tpset.insertUTF8String(m_cursor, 0, s.c_str());
+                                    m_cursor += utf8::distance(s.begin(), s.end());
+                                });
                             }
+                            else if(keyChar != '\0'){
+                                m_tpset.insertUTF8String(m_cursor++, 0, str_printf("%c", keyChar).c_str());
+                            }
+
                             m_cursorBlink = 0.0;
                             return true;
                         }
@@ -100,8 +93,7 @@ bool InputLine::processEvent(const SDL_Event &event, bool valid)
         case SDL_MOUSEBUTTONDOWN:
             {
                 if(!in(event.button.x, event.button.y)){
-                    focus(false);
-                    return false;
+                    return consumeFocus(false);
                 }
 
                 const int eventX = event.button.x - x();
@@ -115,8 +107,7 @@ bool InputLine::processEvent(const SDL_Event &event, bool valid)
                 m_cursor = cursorX;
                 m_cursorBlink = 0.0;
 
-                focus(true);
-                return true;
+                return consumeFocus(true);
             }
         default:
             {

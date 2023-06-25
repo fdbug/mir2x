@@ -1,11 +1,6 @@
 --, u8R"###(
 --
 
-LOGTYPE_INFO    = 0
-LOGTYPE_WARNING = 1
-LOGTYPE_FATAL   = 2
-LOGTYPE_DEBUG   = 3
-
 -- example:
 --     addLog(LOGTYPE_INFO, 'hello world')
 --     addLog(LOGTYPE_INFO, 'hello world: %d', 12)
@@ -24,7 +19,7 @@ function fatalPrintf(s, ...)
     error(s:format(...))
 end
 
-function argDef(arg, def)
+function argDefault(arg, def)
     if arg == nil then
         assert(def ~= nil)
         return def
@@ -33,71 +28,247 @@ function argDef(arg, def)
     end
 end
 
-function assertType(var, typestr)
-    if type(typestr) ~= 'string' then
-        fatalPrintf('invalid type string, expect string, get %s)', type(typestr))
+function assertType(var, ...)
+    local typestrs = {...}
+    for _, typestr in ipairs(typestrs) do
+        if type(typestr) ~= 'string' then
+            fatalPrintf('invalid type string, expect string, get %s', type(typestr))
+        end
+
+        if type(var) == 'number' then
+            if math.type(var) == typestr then
+                return var
+            end
+        else
+            if type(var) == typestr then
+                return var
+            end
+        end
     end
 
-    if type(var) == 'number' then
-        if math.type(var) ~= typestr then
-            fatalPrintf('assertion failed: expect type(var) as %s, get %s', math.type(var), typestr)
-        end
+    if #typestrs == 0 then
+        fatalPrintf('invalid argument: no type string provided')
+
+    elseif #typestrs == 1 then
+        fatalPrintf('assertion failed: expect %s, get %s', typestrs[1], type(var))
+
     else
-        if type(var) ~= typestr then
-            fatalPrintf('assertion failed: expect type(var) as %s, get %s', type(var), typestr)
+        local i = 1
+        local errStrs = {}
+
+        table.insert(errStrs, 'assertion failed: expect')
+        while i <= #typestrs - 2 do
+            table.insert(errStrs, string.format(' %s,', typestrs[i]))
+            i = i + 1
         end
+
+        table.insert(errStrs, ' %s or %s, get %s', typestrs[#typestrs - 1], typestrs[#typestrs], type(var))
+        fatalPrintf(table.concat(errStrs))
     end
 end
 
 function assertValue(var, value)
-    if var ~= value then
-        fatalPrintf('assertion failed: expect [%s](%s), get [%s](%s)', type(var), tostring(value), type(value), tostring(var))
-    end
-end
-
-function asString(arg)
-    typeStr = type(arg)
-    if typeStr == 'nil' or typeStr == 'number' or typeStr == 'boolean' or typeStr == 'string' then
-        return scalarAsString(arg)
-    elseif typeStr == 'table' then
-        local convTable = {}
-        for k, v in pairs(arg) do
-            convTable[asKeyString(asString(k))] = asString(v)
+    if type(value) == 'table' then
+        for _, v in ipairs(value) do
+            if var == v then
+                return var
+            end
         end
-        return convTableAsString(convTable)
+        fatalPrintf('assertion failed: expect %s, get %s', table.concat(value, ', '), tostring(var))
     else
-        fatalPrintf('asString(%s) type not supported: %s', tostring(arg), type(arg))
-    end
-end
-
-function fromString(s)
-    if type(s) ~= 'string' then
-        fatalPrintf('fromString(%s) expecting string, provided %s', tostring(s), type(s))
-    end
-
-    if string.sub(s, -1) == 't' then -- conv_table
-        local convTable = convTableFromString(s)
-        local realTable = {}
-        for k, v in pairs(convTable) do
-            realTable[fromString(fromKeyString(k))] = fromString(v)
+        if var == value then
+            return var
         end
-        return realTable
-    else
-        return scalarFromString(s)
+        fatalPrintf('assertion failed: expect %s, get %s', tostring(value), tostring(var))
     end
 end
 
-function asyncWait(ms)
-    local start = getTime()
-    while getTime() < start + ms
-    do
-        coroutine.yield()
+function shuffleArray(arr)
+    assert(isArray(arr))
+    local shuffled = {}
+    for _, v in ipairs(arr) do
+        table.insert(shuffled, math.random(1, #shuffled + 1), v)
+    end
+    return shuffled
+end
+
+function isArray(tbl)
+    if type(tbl) ~= 'table' then
+        return false
+    end
+
+    local i = 0
+    for _ in pairs(tbl) do
+        i = i + 1
+        if tbl[i] == nil then
+            return false
+        end
+    end
+    return true
+end
+
+function asInitString(var)
+    if type(var) == 'boolean' then
+        return tostring(var)
+
+    elseif type(var) == 'string' then
+        return [[']] .. var .. [[']]
+
+    elseif math.type(var) == 'integer' then
+        return tostring(var)
+
+    elseif isArray(var) then
+        local strs = {}
+        for _, v in ipairs(var) do
+            table.insert(strs, asInitString(v))
+        end
+        return '{' .. table.concat(strs, ',') .. '}'
+
+    else
+        fatalPrintf('Invalid type: %s', type(var))
+    end
+end
+
+function hasChar(s)
+    if s == nil then
+        return false
+    end
+
+    assertType(s, 'string')
+    return string.len(s) > 0
+end
+
+function splitString(str, sep)
+    assertType(str, 'string')
+    assertType(sep, 'string', 'nil')
+
+    if sep == nil then
+        sep = "%s"
+    end
+
+    local result = {}
+    for s in string.gmatch(str, '([^' .. sep .. ']+)') do
+        table.insert(result, s)
+    end
+    return result
+end
+
+function convItemSeqID(item)
+    if math.type(item) == 'integer' then
+        if item >= 0 then
+            return item, 0
+        else
+            fatalPrintf("Invalid argument: item = %s", tostring(item))
+        end
+
+    elseif type(item) == 'string' then
+        return getItemID(item), 0
+
+    elseif isArray(item) then
+        local itemID = convItemSeqID(item[1])
+        if item[2] == nil then
+            return itemID, 0
+
+        elseif math.type(item[2]) == 'integer' then
+            if item[2] >= 0 then
+                return itemID, item[2]
+            else
+                fatalPrintf('Invalid argument: {%d, %d}', itemID, item[2])
+            end
+
+        else
+            fatalPrintf('Invalid argument: {%d, %s}', itemID, tostring(item[2]));
+        end
+
+    elseif type(item) == 'table' then
+        return convItemSeqID(item.itemID, item.seqID)
+
+    else
+        fatalPrintf('Invalid argument: item = %s', tostring(item))
     end
 end
 
 function getFileName()
-    return debug.getinfo(2, 'S').short_src
+    return debug.getinfo(2, 'S').source
 end
+
+function rotable(tbl, recursive)
+    assertType(tbl, 'table')
+    if recursive ~= nil then
+        assertType(recursive, 'boolean')
+    end
+
+    local function plain_rotable(tb)
+        return setmetatable({}, {
+            __index = tb,
+            __newindex = function()
+                error("attempt to update a read-only table")
+            end,
+
+            __pairs = function()
+                return next, tb, nil
+            end,
+
+            __ipairs = function()
+                local function iter(t, i)
+                    local j = i + 1
+                    local v = t[j]
+                    if v ~= nil then
+                        return j, v
+                    end
+                end
+                return iter, tbl, 0
+            end,
+
+            __len = function()
+                return #tb
+            end
+        })
+    end
+
+    local function dfs_rotable(tb)
+        for k, v in pairs(tb) do
+            if type(v) == 'table' then
+                tb[k] = plain_rotable(dfs_rotable(v))
+            end
+        end
+        return plain_rotable(tb)
+    end
+
+    if (recursive == nil or recursive) then
+        return dfs_rotable(tbl)
+    else
+        return plain_rotable(tbl)
+    end
+end
+
+function tableEmpty(t, allowNil)
+    if t == nil and argDefault(allowNil, true) then
+        return true
+    elseif type(t) == 'table' then
+        return next(t) == nil
+    else
+        fatalPrintf('invalid argument: tableEmpty(%s)', type(t))
+    end
+end
+
+function tableSize(t, allowNil)
+    if type(t) == 'table' then
+        local size = 0
+        for k, v in pairs(t) do
+            size = size + 1
+        end
+        return size
+    end
+
+    if type(t) == 'nil' and argDefault(allowNil, true) then
+        return 0
+    end
+
+    fatalPrintf('invalid argument type: %s', type(t))
+end
+
+tableLength = tableSize
 
 function getBackTraceLine()
     local info = debug.getinfo(3, "Sl")

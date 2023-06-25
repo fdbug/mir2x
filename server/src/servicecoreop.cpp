@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: servicecoreop.cpp
- *        Created: 05/03/2016 21:29:58
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #include <string>
 #include <type_traits>
 
@@ -43,6 +26,12 @@ void ServiceCore::on_AM_RECVPACKAGE(const ActorMsgPack &mpk)
 
 void ServiceCore::on_AM_METRONOME(const ActorMsgPack &)
 {
+}
+
+void ServiceCore::on_AM_REGISTERQUEST(const ActorMsgPack &mpk)
+{
+    const auto sdRQ = mpk.deserialize<SDRegisterQuest>();
+    m_questList[mpk.from()] = sdRQ;
 }
 
 void ServiceCore::on_AM_ADDCO(const ActorMsgPack &rstMPK)
@@ -81,7 +70,8 @@ void ServiceCore::on_AM_QUERYMAPLIST(const ActorMsgPack &rstMPK)
         if(pMap.second && pMap.second->ID()){
             if(nIndex < std::extent_v<decltype(amML.MapList)>){
                 amML.MapList[nIndex++] = pMap.second->ID();
-            }else{
+            }
+            else{
                 throw fflerror("Need larger map list size in AMMapList");
             }
         }
@@ -95,10 +85,14 @@ void ServiceCore::on_AM_LOADMAP(const ActorMsgPack &mpk)
     const auto mapPtr = retrieveMap(amLM.mapID);
 
     if(mapPtr){
-        m_actorPod->forward(mpk.from(), AM_LOADMAPOK, mpk.seqID());
+        AMLoadMapOK amLMOK;
+        std::memset(&amLMOK, 0, sizeof(amLMOK));
+
+        amLMOK.uid = mapPtr->UID();
+        m_actorPod->forward(mpk.fromAddr(), {AM_LOADMAPOK, amLMOK});
     }
     else{
-        m_actorPod->forward(mpk.from(), AM_LOADMAPERROR, mpk.seqID());
+        m_actorPod->forward(mpk.fromAddr(), AM_LOADMAPERROR);
     }
 }
 
@@ -111,10 +105,12 @@ void ServiceCore::on_AM_QUERYCOCOUNT(const ActorMsgPack &rstMPK)
     if(amQCOC.mapID){
         if(m_mapList.find(amQCOC.mapID) == m_mapList.end()){
             nCheckCount = 0;
-        }else{
+        }
+        else{
             nCheckCount = 1;
         }
-    }else{
+    }
+    else{
         nCheckCount = to_d(m_mapList.size());
     }
 
@@ -144,7 +140,8 @@ void ServiceCore::on_AM_QUERYCOCOUNT(const ActorMsgPack &rstMPK)
                         }
                     });
                     return;
-                }else{
+                }
+                else{
                     m_mapList.erase(amQCOC.mapID);
                     m_actorPod->forward(rstMPK.from(), AM_ERROR, rstMPK.seqID());
                     return;
@@ -185,7 +182,8 @@ void ServiceCore::on_AM_QUERYCOCOUNT(const ActorMsgPack &rstMPK)
                                     // we get response but shared state shows ``done"
                                     // means more than one error has alreay happened before
                                     // do nothing
-                                }else{
+                                }
+                                else{
                                     // get one more valid response
                                     // need to check if we need to response to sender
                                     AMCOCount amCOC;
@@ -194,7 +192,8 @@ void ServiceCore::on_AM_QUERYCOCOUNT(const ActorMsgPack &rstMPK)
                                     if(pSharedState->CheckCount == 1){
                                         amCOC.Count += pSharedState->COCount;
                                         m_actorPod->forward(rstMPK.from(), {AM_COCOUNT, amCOC}, rstMPK.seqID());
-                                    }else{
+                                    }
+                                    else{
                                         pSharedState->CheckCount--;
                                         pSharedState->COCount += to_d(amCOC.Count);
                                     }
@@ -208,7 +207,8 @@ void ServiceCore::on_AM_QUERYCOCOUNT(const ActorMsgPack &rstMPK)
                                     // we get response but shared state shows ``done"
                                     // means more than one error has alreay happened before
                                     // do nothing
-                                }else{
+                                }
+                                else{
                                     // get first error
                                     m_actorPod->forward(rstMPK.from(), AM_ERROR, rstMPK.seqID());
                                 }
@@ -223,6 +223,59 @@ void ServiceCore::on_AM_QUERYCOCOUNT(const ActorMsgPack &rstMPK)
                 return;
             }
     }
+}
+
+void ServiceCore::on_AM_MODIFYQUESTTRIGGERTYPE(const ActorMsgPack &mpk)
+{
+    const auto amMQTT = mpk.conv<AMModifyQuestTriggerType>();
+
+    fflassert(amMQTT.type >= SYS_ON_BEGIN, amMQTT.type);
+    fflassert(amMQTT.type <  SYS_ON_END  , amMQTT.type);
+
+    if(amMQTT.enable){
+        m_questTriggerList[amMQTT.type].insert(mpk.from());
+    }
+    else{
+        m_questTriggerList[amMQTT.type].erase(mpk.from());
+    }
+
+    // give an response
+    // helps quest side to confirm that enable/disable is done
+    m_actorPod->forward(mpk.fromAddr(), AM_OK);
+}
+
+void ServiceCore::on_AM_QUERYQUESTTRIGGERLIST(const ActorMsgPack &mpk)
+{
+    const auto amQQTL = mpk.conv<AMQueryQuestTriggerList>();
+
+    fflassert(amQQTL.type >= SYS_ON_BEGIN, amQQTL.type);
+    fflassert(amQQTL.type <  SYS_ON_END  , amQQTL.type);
+
+    std::vector<uint64_t> uidList;
+    if(const auto p = m_questTriggerList.find(amQQTL.type); p != m_questTriggerList.end()){
+        uidList.assign(p->second.begin(), p->second.end());
+    }
+
+    m_actorPod->forward(mpk.fromAddr(), {AM_OK, cerealf::serialize(uidList)});
+}
+
+void ServiceCore::on_AM_QUERYQUESTUID(const ActorMsgPack &mpk)
+{
+    const auto sdQQUID = mpk.deserialize<SDQueryQuestUID>();
+
+    uint64_t questUID = 0;
+    for(const auto &[uid, sdRQ]: m_questList){
+        if(sdQQUID.name == sdRQ.name){
+            questUID = uid;
+            break;
+        }
+    }
+
+    AMUID amUID;
+    std::memset(&amUID, 0, sizeof(amUID));
+
+    amUID.UID = questUID;
+    m_actorPod->forward(mpk.fromAddr(), {AM_UID, amUID});
 }
 
 void ServiceCore::on_AM_BADCHANNEL(const ActorMsgPack &mpk)

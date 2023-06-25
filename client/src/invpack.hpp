@@ -1,21 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: invpack.hpp
- *        Created: 11/11/2017 00:55:42
- *    Description: class private to MyHero
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#pragma once
 #include <vector>
 #include "pack2d.hpp"
 #include "sysconst.hpp"
@@ -70,8 +53,8 @@ class InvPack
         }
 
     public:
-        void add(SDItem);
-        void add(SDItem, int, int);
+        void add(SDItem, bool playSound = true);
+        void add(SDItem, int, int, bool playSound = true);
 
     public:
         int update(SDItem);
@@ -94,11 +77,16 @@ class InvPack
 
     public:
         void setGold(int);
-        void addGold(int);
 
     public:
-        size_t getGold() const;
+        size_t getGold() const
+        {
+            return m_gold;
+        }
 
     public:
         void setInventory(const SDInventory &);
+
+    public:
+        static void playItemSoundEffect(uint32_t, bool consume = false);
 };

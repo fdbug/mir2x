@@ -438,6 +438,20 @@ void Client::onServerMessage(uint8_t headCode, const uint8_t *buf, size_t bufSiz
                 }
                 break;
             }
+        case SM_TEAMCANDIDATE:
+            {
+                if(auto p = processRun(); p){
+                    p->net_TEAMCANDIDATE(buf, bufSize);
+                }
+                break;
+            }
+        case SM_TEAMMEMBERLIST:
+            {
+                if(auto p = processRun(); p){
+                    p->net_TEAMMEMBERLIST(buf, bufSize);
+                }
+                break;
+            }
         case SM_GROUNDITEMIDLIST:
             {
                 if(auto proc = (ProcessRun *)(ProcessValid(PROCESSID_RUN))){
@@ -473,10 +487,10 @@ void Client::onServerMessage(uint8_t headCode, const uint8_t *buf, size_t bufSiz
                 }
                 break;
             }
-        case SM_RUNTIMECONFIG:
+        case SM_PLAYERCONFIG:
             {
                 if(auto proc = (ProcessRun *)(ProcessValid(PROCESSID_RUN))){
-                    proc->net_RUNTIMECONFIG(buf, bufSize);
+                    proc->net_PLAYERCONFIG(buf, bufSize);
                 }
                 break;
             }
@@ -714,11 +728,6 @@ void Client::switchProcess(int oldID, int newID)
                             m_currentProcess = std::make_unique<ProcessChangePassword>();
                             break;
                         }
-                    case PROCESSID_RUN:
-                        {
-                            m_currentProcess = std::make_unique<ProcessRun>();
-                            break;
-                        }
                     default:
                         {
                             break;
@@ -761,7 +770,8 @@ void Client::switchProcess(int oldID, int newID)
                 switch(newID){
                     case PROCESSID_RUN:
                         {
-                            m_currentProcess = std::make_unique<ProcessRun>();
+                            fflassert(m_smOOK.has_value());
+                            m_currentProcess = std::make_unique<ProcessRun>(m_smOOK.value());
                             break;
                         }
                     case PROCESSID_CREATECHAR:

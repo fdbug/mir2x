@@ -22,6 +22,7 @@ enum CMType: uint8_t
     CM_ONLINE,
     CM_ACTION,
     CM_SETMAGICKEY,
+    CM_SETRUNTIMECONFIG,
     CM_QUERYCORECORD,
     CM_REQUESTADDEXP,
     CM_REQUESTKILLPETS,
@@ -30,17 +31,22 @@ enum CMType: uint8_t
     CM_REQUESTMAGICDAMAGE,
     CM_PICKUP,
     CM_QUERYGOLD,
+    CM_QUERYUIDBUFF,
+    CM_QUERYPLAYERNAME,
     CM_QUERYPLAYERWLDESP,
     CM_CREATEACCOUNT,
     CM_NPCEVENT,
     CM_QUERYSELLITEMLIST,
     CM_DROPITEM,
     CM_CONSUMEITEM,
+    CM_MAKEITEM,
     CM_BUY,
     CM_REQUESTEQUIPWEAR,
     CM_REQUESTGRABWEAR,
     CM_REQUESTEQUIPBELT,
     CM_REQUESTGRABBELT,
+    CM_REQUESTJOINTEAM,
+    CM_REQUESTLEAVETEAM,
     CM_END,
 };
 
@@ -117,6 +123,16 @@ struct CMPickUp
     uint32_t mapID;
 };
 
+struct CMQueryUIDBuff
+{
+    uint64_t uid;
+};
+
+struct CMQueryPlayerName
+{
+    uint64_t uid;
+};
+
 struct CMQueryPlayerWLDesp
 {
     uint64_t uid;
@@ -135,11 +151,25 @@ struct CMChangePassword
     FixedBuf<SYS_PWDSIZE> passwordNew;
 };
 
+struct CMSetRuntimeConfig
+{
+    uint8_t bgm;
+    uint8_t bgmValue;
+
+    uint8_t soundEff;
+    uint8_t soundEffValue;
+
+    uint8_t ime;
+    uint8_t attackMode;
+};
+
 struct CMNPCEvent
 {
     uint64_t uid;
-    char event[128];
-    char value[256];
+
+    char path [100];
+    char event[100];
+    char value[200];
 
     int16_t valueSize;
 };
@@ -161,6 +191,12 @@ struct CMConsumeItem
 {
     uint32_t itemID;
     uint32_t seqID;
+    uint16_t count;
+};
+
+struct CMMakeItem
+{
+    uint32_t itemID;
     uint16_t count;
 };
 
@@ -195,6 +231,17 @@ struct CMRequestGrabBelt
 {
     uint16_t slot;
 };
+
+struct CMRequestJoinTeam
+{
+    uint64_t uid;
+};
+
+struct CMRequestLeaveTeam
+{
+    uint64_t uid;
+};
+
 #pragma pack(pop)
 
 // I was using class name ClientMessage
@@ -235,18 +282,24 @@ class ClientMsg final: public MsgBase
                 _add_client_msg_type_case(CM_REQUESTMAGICDAMAGE,         1, sizeof(CMRequestMagicDamage)        )
                 _add_client_msg_type_case(CM_PICKUP,                     1, sizeof(CMPickUp)                    )
                 _add_client_msg_type_case(CM_QUERYGOLD,                  0, 0                                   )
+                _add_client_msg_type_case(CM_QUERYUIDBUFF,               1, sizeof(CMQueryUIDBuff)              )
+                _add_client_msg_type_case(CM_QUERYPLAYERNAME,            1, sizeof(CMQueryPlayerName)         )
                 _add_client_msg_type_case(CM_QUERYPLAYERWLDESP,          1, sizeof(CMQueryPlayerWLDesp)         )
                 _add_client_msg_type_case(CM_CREATEACCOUNT,              1, sizeof(CMCreateAccount)             )
                 _add_client_msg_type_case(CM_CHANGEPASSWORD,             1, sizeof(CMChangePassword)            )
+                _add_client_msg_type_case(CM_SETRUNTIMECONFIG,           1, sizeof(CMSetRuntimeConfig)             )
                 _add_client_msg_type_case(CM_NPCEVENT,                   1, sizeof(CMNPCEvent)                  )
                 _add_client_msg_type_case(CM_QUERYSELLITEMLIST,          1, sizeof(CMQuerySellItemList)         )
                 _add_client_msg_type_case(CM_DROPITEM,                   1, sizeof(CMDropItem)                  )
                 _add_client_msg_type_case(CM_CONSUMEITEM,                1, sizeof(CMConsumeItem)               )
+                _add_client_msg_type_case(CM_MAKEITEM,                   1, sizeof(CMMakeItem)                  )
                 _add_client_msg_type_case(CM_BUY,                        1, sizeof(CMBuy)                       )
                 _add_client_msg_type_case(CM_REQUESTEQUIPWEAR,           1, sizeof(CMRequestEquipWear)          )
                 _add_client_msg_type_case(CM_REQUESTGRABWEAR,            1, sizeof(CMRequestGrabWear)           )
                 _add_client_msg_type_case(CM_REQUESTEQUIPBELT,           1, sizeof(CMRequestEquipBelt)          )
                 _add_client_msg_type_case(CM_REQUESTGRABBELT,            1, sizeof(CMRequestGrabBelt)           )
+                _add_client_msg_type_case(CM_REQUESTJOINTEAM,            1, sizeof(CMRequestJoinTeam)           )
+                _add_client_msg_type_case(CM_REQUESTLEAVETEAM,           1, sizeof(CMRequestLeaveTeam)          )
 #undef _add_client_msg_type_case
             };
 
@@ -272,17 +325,23 @@ class ClientMsg final: public MsgBase
                     || std::is_same_v<T, CMRequestMagicDamage>
                     || std::is_same_v<T, CMPickUp>
                     || std::is_same_v<T, CMSetMagicKey>
+                    || std::is_same_v<T, CMQueryUIDBuff>
+                    || std::is_same_v<T, CMQueryPlayerName>
                     || std::is_same_v<T, CMQueryPlayerWLDesp>
                     || std::is_same_v<T, CMChangePassword>
+                    || std::is_same_v<T, CMSetRuntimeConfig>
                     || std::is_same_v<T, CMCreateAccount>
                     || std::is_same_v<T, CMNPCEvent>
                     || std::is_same_v<T, CMQuerySellItemList>
                     || std::is_same_v<T, CMDropItem>
                     || std::is_same_v<T, CMConsumeItem>
+                    || std::is_same_v<T, CMMakeItem>
                     || std::is_same_v<T, CMBuy>
                     || std::is_same_v<T, CMRequestEquipWear>
                     || std::is_same_v<T, CMRequestGrabWear>
                     || std::is_same_v<T, CMRequestEquipBelt>
+                    || std::is_same_v<T, CMRequestJoinTeam>
+                    || std::is_same_v<T, CMRequestLeaveTeam>
                     || std::is_same_v<T, CMRequestGrabBelt>);
 
             if(bufLen && bufLen != sizeof(T)){

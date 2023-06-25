@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: mapbindb.hpp
- *        Created: 08/31/2017 17:23:35
- *    Description: 
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <vector>
 #include <memory>
@@ -24,8 +6,8 @@
 #include "zsdb.hpp"
 #include "inndb.hpp"
 #include "hexstr.hpp"
-#include "dbcomrecord.hpp"
 #include "mir2xmapdata.hpp"
+#include "dbcomid.hpp"
 
 struct MapBinElement
 {

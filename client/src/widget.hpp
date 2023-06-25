@@ -1,22 +1,5 @@
-/*
- * =====================================================================================
- *
- *       Filename: widget.hpp
- *        Created: 08/12/2015 09:59:15
- *    Description:
- *                 class Widget has no resize()
- *                 widget has no box concept like gtk, it can't calculate size in parent
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// class Widget has no resize()
+// widget has no box concept like gtk, it can't calculate size in parent
 
 #pragma once
 #include <list>
@@ -32,13 +15,6 @@
 
 class Widget
 {
-    private:
-        struct WidgetChildNode
-        {
-            Widget   *child = nullptr;
-            bool autoDelete = false;
-        };
-
     protected:
         Widget * const m_parent;
 
@@ -59,7 +35,10 @@ class Widget
         int m_h;
 
     protected:
-        std::list<WidgetChildNode> m_childList;
+        int m_dz = 0;
+
+    protected:
+        std::list<std::pair<Widget *, bool>> m_childList;
 
     public:
         Widget(dir8_t dir, int x, int y, int w = 0, int h = 0, Widget *parent = nullptr, bool autoDelete = false)
@@ -71,31 +50,26 @@ class Widget
             , m_h(h)
         {
             if(m_parent){
-                m_parent->m_childList.push_back(WidgetChildNode
-                {
-                    .child = this,
-                    .autoDelete = autoDelete,
-                });
+                m_parent->m_childList.emplace_back(this, autoDelete);
             }
 
-            if(!(m_w >= 0 && m_h >= 0)){
-                throw fflerror("invalid size: w = %d, h = %d", m_w, m_h);
-            }
+            fflassert(m_w >= 0, m_w, m_h);
+            fflassert(m_h >= 0, m_w, m_h);
         }
 
     public:
         virtual ~Widget()
         {
-            for(auto node: m_childList){
-                if(node.autoDelete){
-                    delete node.child;
+            for(auto &[child, autoDelete]: m_childList){
+                if(autoDelete){
+                    delete child;
                 }
             }
             m_childList.clear();
         }
 
     public:
-        virtual void draw() const
+        void draw() const
         {
             if(show()){
                 drawEx(x(), y(), 0, 0, w(), h());
@@ -161,8 +135,8 @@ class Widget
     public:
         virtual void update(double fUpdateTime)
         {
-            for(auto &node: m_childList){
-                node.child->update(fUpdateTime);
+            for(auto &[child, autoDelete]: m_childList){
+                child->update(fUpdateTime);
             }
         }
 
@@ -177,11 +151,11 @@ class Widget
             }
 
             bool took = false;
-            for(auto &node: m_childList){
-                if(!node.child->show()){
+            for(auto &[child, autoDelete]: m_childList){
+                if(!child->show()){
                     continue;
                 }
-                took |= node.child->processEvent(event, valid && !took);
+                took |= child->processEvent(event, valid && !took);
             }
             return took;
         }
@@ -237,16 +211,6 @@ class Widget
             }
         }
 
-        int dx() const
-        {
-            return x() - (m_parent ? m_parent->x() : 0);
-        }
-
-        int dy() const
-        {
-            return y() - (m_parent ? m_parent->y() : 0);
-        }
-
         int w() const
         {
             return m_w;
@@ -257,6 +221,32 @@ class Widget
             return m_h;
         }
 
+        Widget * parent()
+        {
+            return m_parent;
+        }
+
+        const Widget * parent() const
+        {
+            return m_parent;
+        }
+
+    public:
+        int dx() const
+        {
+            return x() - (m_parent ? m_parent->x() : 0);
+        }
+
+        int dy() const
+        {
+            return y() - (m_parent ? m_parent->y() : 0);
+        }
+
+        int dz() const
+        {
+            return m_dz;
+        }
+
     public:
         bool in(int pixelX, int pixelY) const
         {
@@ -264,9 +254,9 @@ class Widget
         }
 
     public:
-        void focus(bool focusFlag)
+        void setFocus(bool argFocus)
         {
-            m_focus = focusFlag;
+            m_focus = argFocus;
         }
 
         bool focus() const
@@ -274,10 +264,32 @@ class Widget
             return m_focus;
         }
 
-    public:
-        void show(bool showFlag)
+        // focus helper
+        // we have tons of code like:
+        //
+        //     if(...){
+        //         p->focus(true);  // get focus
+        //         return true;     // since the event changes focus, then event is consumed
+        //     }
+        //     else{
+        //         p->focus(false); // event doesn't help to move focus to the widget
+        //         return false;    // not consumed, try next widget
+        //     }
+        //
+        // this function helps to simplify the code to:
+        //
+        //     return p->consumeFocus(...)
+
+        bool consumeFocus(bool argFocus)
         {
-            m_show = showFlag;
+            setFocus(argFocus);
+            return argFocus;
+        }
+
+    public:
+        void setShow(bool argShow)
+        {
+            m_show = argShow;
         }
 
         bool show() const
@@ -285,15 +297,25 @@ class Widget
             return m_show;
         }
 
-    public:
-        void active(bool activeFlag)
+        void flipShow()
         {
-            m_active = activeFlag;
+            setShow(!m_show);
+        }
+
+    public:
+        void setActive(bool argActive)
+        {
+            m_active = argActive;
         }
 
         bool active() const
         {
             return m_active;
+        }
+
+        void flipActive()
+        {
+            setActive(!m_active);
         }
 
     public:
@@ -315,27 +337,58 @@ class Widget
             m_x = x.value_or(m_x);
             m_y = y.value_or(m_y);
         }
+
+    public:
+        void setDz(int dzArg)
+        {
+            m_dz = dzArg;
+        }
+
+        void setSize(int argW, int argH)
+        {
+            fflassert(argW >= 0, argW, argH);
+            fflassert(argH >= 0, argW, argH);
+
+            m_w = argW;
+            m_h = argH;
+        }
+
+        template<typename T> void setSize(const T &t)
+        {
+            const auto [argW, argH] = t;
+            setSize(argW, argH);
+        }
 };
 
 // simple *tiling* widget group
 // this class won't handle widget overlapping
 
-// when to use Widget, when to use WidgetGroup:
+// when to use Widget, when to use WidgetContainer:
 // when you are implement a widget from scratch, define how to draw every element, then use Widget
-// if your widget is a composition of other widgets, has many child widgets inside, then you should use WidgetGroup
+// if your widget is a composition of other widgets, has many child widgets inside, then you should use WidgetContainer
 
-class WidgetGroup: public Widget
+class WidgetContainer: public Widget
 {
+    private:
+        mutable std::vector<const Widget *> m_childWidgetPtrList;
+
     public:
-        WidgetGroup(dir8_t dir, int x, int y, int w, int h, Widget *parent = nullptr, bool autoDelete = false)
+        WidgetContainer(dir8_t dir, int x, int y, int w, int h, Widget *parent = nullptr, bool autoDelete = false)
             : Widget(dir, x, y, w, h, parent, autoDelete)
         {}
+
+    public:
+        virtual bool processUnhandledEvent(const SDL_Event &)
+        {
+            // valid event but not consumed by any child widget
+            return false;
+        }
 
     public:
         bool processEvent(const SDL_Event &event, bool valid) override
         {
             // this function alters the draw order
-            // if a WidgetGroup has children having overlapping then be careful
+            // if a WidgetContainer has children having overlapping then be careful
 
             if(!show()){
                 return false;
@@ -345,12 +398,12 @@ class WidgetGroup: public Widget
             auto focusedNode = m_childList.end();
 
             for(auto p = m_childList.begin(); p != m_childList.end(); ++p){
-                if(!p->child->show()){
+                if(!p->first->show()){
                     continue;
                 }
 
-                took |= p->child->processEvent(event, valid && !took);
-                if(focusedNode == m_childList.end() && p->child->focus()){
+                took |= p->first->processEvent(event, valid && !took);
+                if(focusedNode == m_childList.end() && p->first->focus()){
                     focusedNode = p;
                 }
             }
@@ -366,7 +419,7 @@ class WidgetGroup: public Widget
         void drawEx(int dstX, int dstY, int srcX, int srcY, int srcW, int srcH) const override
         {
             for(auto p = m_childList.rbegin(); p != m_childList.rend(); ++p){
-                if(!p->child->show()){
+                if(!p->first->show()){
                     continue;
                 }
 
@@ -385,44 +438,30 @@ class WidgetGroup: public Widget
                             w(),
                             h(),
 
-                            p->child->dx(), p->child->dy(), p->child->w(), p->child->h())){
+                            p->first->dx(), p->first->dy(), p->first->w(), p->first->h())){
                     continue;
                 }
-                p->child->drawEx(dstXCrop, dstYCrop, srcXCrop - p->child->dx(), srcYCrop - p->child->dy(), srcWCrop, srcHCrop);
+                p->first->drawEx(dstXCrop, dstYCrop, srcXCrop - p->first->dx(), srcYCrop - p->first->dy(), srcWCrop, srcHCrop);
             }
         }
+
+    private:
+        template<typename F> std::optional<std::pair<int, int>> getVarRange(const F &f) const
+        {
+            if(m_childList.empty()){
+                return {};
+            }
+
+            const auto pr = std::minmax_element(m_childList.begin(), m_childList.end(), [&f](const auto &x, const auto &y)
+            {
+                return f(x) < f(y);
+            });
+
+            return std::make_pair(f(*pr.first), f(*pr.second));
+        }
+
+    public:
+        std::optional<std::pair<int, int>> dxRange() const { return getVarRange([](const auto &node) { return node.first->dx(); }); }
+        std::optional<std::pair<int, int>> dyRange() const { return getVarRange([](const auto &node) { return node.first->dy(); }); }
+        std::optional<std::pair<int, int>> dzRange() const { return getVarRange([](const auto &node) { return node.first->dz(); }); }
 };
-
-// focus helper
-// we have tons of code like:
-//
-//     if(...){
-//         focus(true);     // get focus
-//         return false;    // since the event changes focus, then event is consumed
-//     }
-//     else{
-//         focus(false);    // event doesn't help to move focus to the widget
-//         return false;    // not consumed, try next widget
-//     }
-//
-// this function helps to simplify the code to:
-//
-//     return focusConsume(this, ...)
-//
-inline bool focusConsume(Widget *widgetPtr, bool setFocus)
-{
-    if(!widgetPtr){
-        throw fflerror("invalid widget pointer: (null)");
-    }
-
-    widgetPtr->focus(setFocus);
-    return setFocus;
-}
-
-inline void flipShow(Widget *widgetPtr)
-{
-    if(!widgetPtr){
-        throw fflerror("invalid widget pointer: (null)");
-    }
-    widgetPtr->show(!widgetPtr->show());
-}

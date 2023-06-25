@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: serverargparser.hpp
- *        Created: 11/26/2018 07:34:22
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <thread>
 #include <cstdint>
@@ -23,12 +5,16 @@
 #include "fflerror.hpp"
 #include "argparser.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 
 struct ServerArgParser
 {
     const bool disableProfiler;             // "--disable-profiler"
     const bool disableMapScript;            // "--disable-map-script"
+    const bool disableQuestScript;          // "--disable-quest-script"
+
+    const bool disableLearnMagicCheckJob;   // "--disable-learn-magic-check-job"
+    const bool disableLearnMagicCheckLevel; // "--disable-learn-magic-check-level"
+    const bool disableLearnMagicCheckPrior; // "--disable-learn-magic-check-prior"
 
     const bool traceActorMessage;           // "--trace-actor-message"
     const bool traceActorMessageCount;      // "--trace-actor-message-count"
@@ -42,13 +28,19 @@ struct ServerArgParser
     const bool forceMonsterRandomMove;      // "--force-monster-random-move"
     const bool showStrikeGrid;              // "--show-strike-grid"
     const bool preloadMap;                  // "--preload-map"
+    const bool autoLaunch;                  // "--auto-launch"
     const int  preloadMapID;                // "--preload-map-id"
     const int  actorPoolThread;             // "--actor-pool-thread"
     const int  logicalFPS;                  // "--logical-fps"
+    const int  summonCount;                 // "--summon-count"
 
     ServerArgParser(const argh::parser &cmdParser)
         : disableProfiler(cmdParser["disable-profiler"])
         , disableMapScript(cmdParser["disable-map-script"])
+        , disableQuestScript(cmdParser["disable-quest-script"])
+        , disableLearnMagicCheckJob(cmdParser["disable-learn-magic-check-job"])
+        , disableLearnMagicCheckLevel(cmdParser["disable-learn-magic-check-level"])
+        , disableLearnMagicCheckPrior(cmdParser["disable-learn-magic-check-prior"])
         , traceActorMessage(cmdParser["trace-actor-message"])
         , traceActorMessageCount(cmdParser["trace-actor-message-count"])
         , enableUniqueActorMessageID(cmdParser["enable-unique-actor-message-id"])
@@ -59,6 +51,7 @@ struct ServerArgParser
         , forceMonsterRandomMove(cmdParser["force-monster-random-move"])
         , showStrikeGrid(cmdParser["show-strike-grid"])
         , preloadMap(cmdParser["preload-map"])
+        , autoLaunch(cmdParser["auto-launch"])
         , preloadMapID([&cmdParser]() -> int
           {
               if(const auto s = cmdParser("preload-map-id").str(); !s.empty()){
@@ -120,6 +113,23 @@ struct ServerArgParser
               }
               else{
                   return 10;
+              }
+          }())
+        , summonCount([&cmdParser]() -> int
+          {
+              if(const auto numStr = cmdParser("summon-count").str(); !numStr.empty()){
+                  try{
+                      if(const auto count = std::stoi(numStr); count > 0){
+                          return count;
+                      }
+                  }
+                  catch(...){
+                      // ...
+                  }
+                  throw fflerror("invalid count: %s", numStr.c_str());
+              }
+              else{
+                  return 1;
               }
           }())
     {}

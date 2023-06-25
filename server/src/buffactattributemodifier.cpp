@@ -1,6 +1,5 @@
 #include "monoserver.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 #include "battleobject.hpp"
 #include "buff.hpp"
 #include "buffact.hpp"
@@ -12,8 +11,7 @@ BaseBuffActAttributeModifier::BaseBuffActAttributeModifier(BaseBuff *argBuff, si
     , m_onDone([this]() -> std::function<void()>
       {
           fflassert(getBAR().isAttributeModifier());
-          const auto percentage = getBAREF().attributeModifier.percentage;
-          const auto value      = getBAREF().attributeModifier.value;
+          const auto [value, percentage] = std::get<BuffValuePercentage>(getBAREF().attributeModifier.arg);
 
           fflassert(std::abs(percentage) >= 0);
           fflassert(std::abs(percentage) <= 100);
@@ -52,10 +50,10 @@ BaseBuffActAttributeModifier::BaseBuffActAttributeModifier(BaseBuff *argBuff, si
                           bo->m_sdHealth.buffedMaxMP.erase(tag);
                       };
                   }
-              case DBCOM_BUFFACTID(u8"HP持续"):
+              case DBCOM_BUFFACTID(u8"HP恢复"):
                   {
-                      const auto addHP = std::lround(bo->m_sdHealth.getMaxHP() * percentage / 100.0) + value;
-                      const auto tag = bo->m_sdHealth.buffedHPRecover.add(addHP);
+                      const auto addHPRecover = std::lround(bo->m_sdHealth.getHPRecover() * percentage / 100.0) + value;
+                      const auto tag = bo->m_sdHealth.buffedHPRecover.add(addHPRecover);
 
                       bo->updateHealth();
                       return [tag, bo]()
@@ -65,8 +63,8 @@ BaseBuffActAttributeModifier::BaseBuffActAttributeModifier(BaseBuff *argBuff, si
                   }
               case DBCOM_BUFFACTID(u8"MP恢复"):
                   {
-                      const auto addMP = std::lround(bo->m_sdHealth.getMaxMP() * percentage / 100.0) + value;
-                      const auto tag = bo->m_sdHealth.buffedMPRecover.add(addMP);
+                      const auto addMPRecover = std::lround(bo->m_sdHealth.getMPRecover() * percentage / 100.0) + value;
+                      const auto tag = bo->m_sdHealth.buffedMPRecover.add(addMPRecover);
 
                       bo->updateHealth();
                       return [tag, bo]()

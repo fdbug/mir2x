@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: followuidmagic.cpp
- *        Created: 12/07/2020 21:19:44
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 // Magic following UID has two offsets
 // Location a is the <m_x, m_y>, offset (b - a) is where to draw frame gfxs
 // Location c is the magic gfx arrow head (or fireball head) in the frame animation, which is used as target point
@@ -40,7 +22,6 @@
 #include "dbcomid.hpp"
 #include "sdldevice.hpp"
 #include "processrun.hpp"
-#include "dbcomrecord.hpp"
 #include "attachmagic.hpp"
 #include "pngtexoffdb.hpp"
 #include "followuidmagic.hpp"
@@ -63,9 +44,11 @@ FollowUIDMagic::FollowUIDMagic(
         uint64_t uid,
         ProcessRun *runPtr)
     : BaseMagic(magicName, magicStage, gfxDirIndex)
+    , m_startX(x)
+    , m_startY(y)
+    , m_flyDirIndex(flyDirIndex)
     , m_x(x)
     , m_y(y)
-    , m_flyDirIndex(flyDirIndex)
     , m_moveSpeed(moveSpeed)
     , m_uid(uid)
     , m_process(runPtr)
@@ -77,16 +60,16 @@ FollowUIDMagic::FollowUIDMagic(
 
 uint32_t FollowUIDMagic::frameTexID() const
 {
-    if(m_gfxEntry.gfxID == SYS_TEXNIL){
-        return SYS_TEXNIL;
+    if(m_gfxEntry->gfxID == SYS_U32NIL){
+        return SYS_U32NIL;
     }
 
-    switch(m_gfxEntry.gfxDirType){
-        case  1: return m_gfxEntry.gfxID + frame();
+    switch(m_gfxEntry->gfxDirType){
+        case  1: return m_gfxEntry->gfxID + frame();
         case  4:
         case  8:
         case 16:
-        default: return m_gfxEntry.gfxID + frame() + m_gfxDirIndex * m_gfxEntry.gfxIDCount;
+        default: return m_gfxEntry->gfxID + frame() + m_gfxDirIndex * m_gfxEntry->gfxIDCount;
     }
 }
 
@@ -125,9 +108,9 @@ bool FollowUIDMagic::update(double ms)
 
 void FollowUIDMagic::drawViewOff(int viewX, int viewY, uint32_t modColor) const
 {
-    if(const auto texID = frameTexID(); texID != SYS_TEXNIL){
+    if(const auto texID = frameTexID(); texID != SYS_U32NIL){
         if(auto [texPtr, offX, offY] = g_magicDB->retrieve(texID); texPtr){
-            const auto gfxEntryModColor = m_gfxEntryRef ? m_gfxEntryRef.modColor : m_gfxEntry.modColor;
+            const auto gfxEntryModColor = m_gfxEntryRef ? m_gfxEntryRef->modColor : m_gfxEntry->modColor;
             SDLDeviceHelper::EnableTextureModColor enableModColor(texPtr, colorf::modRGBA(gfxEntryModColor, modColor));
             SDLDeviceHelper::EnableTextureBlendMode enableBlendMode(texPtr, SDL_BLENDMODE_BLEND);
 
@@ -155,10 +138,42 @@ void FollowUIDMagic::drawViewOff(int viewX, int viewY, uint32_t modColor) const
 
 bool FollowUIDMagic::done() const
 {
+    const auto startGX = m_startX / SYS_MAPGRIDXP;
+    const auto startGY = m_startY / SYS_MAPGRIDYP;
+
+    const auto currGX = m_x / SYS_MAPGRIDXP;
+    const auto currGY = m_y / SYS_MAPGRIDYP;
+
+    if(mathf::LDistance(startGX, startGY, currGX, currGY) > 255){
+        return true;
+    }
+
     if(const auto coPtr = m_process->findUID(m_uid)){
         const auto [srcTargetX, srcTargetY] = targetPLoc();
         const auto [dstTargetX, dstTargetY] = coPtr->getTargetBox().targetPLoc();
         return (std::abs(srcTargetX - dstTargetX) < 24 && std::abs(srcTargetY - dstTargetY) < 16) || (mathf::LDistance2<int>(srcTargetX, srcTargetY, dstTargetX, dstTargetY) > m_lastLDistance2);
     }
     return false;
+}
+
+std::tuple<int, int> FollowUIDMagic::getSoundEffectPosition() const
+{
+    const auto selfGX = m_x / SYS_MAPGRIDXP;
+    const auto selfGY = m_y / SYS_MAPGRIDYP;
+
+    fflassert(m_process->getMyHero());
+    const auto [heroGX, heroGY] = m_process->getMyHero()->location();
+
+    const auto dGX = selfGX - heroGX;
+    const auto dGY = selfGY - heroGY;
+
+    if(dGX == 0 && dGY == 0){
+        return {0, 0};
+    }
+
+    return
+    {
+        std::lround(mathf::LDistance<double>(dGX, dGY, 0, 0)),
+        std::lround(90.0 - 180.0 * std::atan2(-dGY, dGX) / mathf::pi),
+    };
 }

@@ -1,35 +1,12 @@
-/*
- * =====================================================================================
- *
- *       Filename: strf.cpp
- *        Created: 11/27/2018 22:36:12
- *    Description: 
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <vector>
 #include <cstring>
 #include <stdexcept>
 #include "strf.hpp"
 
-bool str_haschar(const char *s)
-{
-    return s && s[0] != '\0';
-}
-
-bool str_haschar(const char8_t *s)
-{
-    return str_haschar(reinterpret_cast<const char *>(s));
-}
+bool str_haschar(const std::string        &s) { return !s.empty(); }
+bool str_haschar(const std::u8string      &s) { return !s.empty(); }
+bool str_haschar(const std::string_view   &s) { return !s.empty(); }
+bool str_haschar(const std::u8string_view &s) { return !s.empty(); }
 
 #define _macro_str_vprintf_body_s(s, format, ap) do \
 { \

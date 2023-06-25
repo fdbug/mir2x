@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: servertaodog.hpp
- *        Created: 04/10/2016 02:32:45
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include "dbcomid.hpp"
 #include "servertaosummon.hpp"
@@ -85,5 +67,5 @@ class ServerTaoDog final: public ServerTaoSummon
         void onAMAttack(const ActorMsgPack &) override;
 
     protected:
-        DamageNode getAttackDamage(int) const override;
+        DamageNode getAttackDamage(int, int) const override;
 };

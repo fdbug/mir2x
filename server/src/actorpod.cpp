@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: actorpod.cpp
- *        Created: 05/03/2016 15:00:35
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #include <cstdio>
 #include <atomic>
 #include <cinttypes>
@@ -31,22 +14,21 @@ extern ActorPool *g_actorPool;
 extern MonoServer *g_monoServer;
 extern ServerArgParser *g_serverArgParser;
 
-ActorPod::ActorPod(uint64_t nUID,
+ActorPod::ActorPod(uint64_t uid,
+        ServerObject *serverObject,
         std::function<void()> fnTrigger,
         std::function<void(const ActorMsgPack &)> fnOperation,
         double updateFreq,
         uint64_t expireTime)
-    : m_UID([nUID]() -> uint64_t
+    : m_UID([uid]() -> uint64_t
       {
-          if(!nUID){
-              throw fflerror("provide user-defined zero UID");
-          }
-
-          if(nUID & 0X00FF000000000000ULL){
-              throw fflerror("provide user-defined UID has non-zero bits at 0X00FF000000000000: 0x%016llu", to_llu(nUID));
-          }
-          return nUID;
+          fflassert(uid);
+          fflassert(uidf::getUIDType(uid) != UID_RCV);
+          fflassert(uidf::getUIDType(uid) >= UID_BEGIN, uid, uidf::getUIDString(uid));
+          fflassert(uidf::getUIDType(uid) <  UID_END  , uid, uidf::getUIDString(uid));
+          return uid;
       }())
+    , m_SO(serverObject)
     , m_trigger(std::move(fnTrigger))
     , m_operation(std::move(fnOperation))
     , m_updateFreq(regMetronomeFreq(updateFreq))
@@ -115,20 +97,23 @@ void ActorPod::innHandler(const ActorMsgPack &mpk)
                 throw fflerror("%s <- %s : (type: %s, seqID: %llu, respID: %llu): Response handler not executable", to_cstr(uidf::getUIDString(UID())), to_cstr(uidf::getUIDString(mpk.from())), mpkName(mpk.type()), to_llu(mpk.seqID()), to_llu(mpk.respID()));
             }
             m_respondCBList.erase(p);
-        }else{
+        }
+        else{
             // should only caused by deletion of timeout
             // do nothing for this case, don't take this as an error
         }
-    }else{
+    }
+    else{
         // this is not a responding message
         // use default message handling operation
-        if(m_operation){
+        if(const auto &mpkFunc = m_msgOpList.at(mpk.type()) ? m_msgOpList.at(mpk.type()) : m_operation){
             m_podMonitor.amProcMonitorList[mpk.type()].recvCount++;
             {
                 raii_timer stTimer(&(m_podMonitor.amProcMonitorList[mpk.type()].procTick));
-                m_operation(mpk);
+                mpkFunc(mpk);
             }
-        }else{
+        }
+        else{
             // shoud I make it fatal?
             // we may get a lot warning message here
             throw fflerror("%s <- %s : (type: %s, seqID: %llu, respID: %llu): Message handler not executable", to_cstr(uidf::getUIDString(UID())), to_cstr(uidf::getUIDString(mpk.from())), mpkName(mpk.type()), to_llu(mpk.seqID()), to_llu(mpk.respID()));
@@ -144,7 +129,7 @@ void ActorPod::innHandler(const ActorMsgPack &mpk)
     }
 }
 
-uint32_t ActorPod::rollSeqID()
+uint64_t ActorPod::rollSeqID()
 {
     // NOTE we have to use increasing seqID for one pod to support timeout
     // previously we reset m_nextSeqID when m_respondCBList is empty, as following:
@@ -162,7 +147,7 @@ uint32_t ActorPod::rollSeqID()
     // then m_respondCBList can be empty if we reset m_nextSeqID, however the responding actor message can come after the m_nextSeqID reset
 
     if(g_serverArgParser->enableUniqueActorMessageID){
-        static std::atomic<uint32_t> s_nextSeqID {1}; // shared by all ActorPod
+        static std::atomic<uint64_t> s_nextSeqID {1}; // shared by all ActorPod
         return s_nextSeqID.fetch_add(1);
     }
     else{
@@ -170,7 +155,7 @@ uint32_t ActorPod::rollSeqID()
     }
 }
 
-bool ActorPod::forward(uint64_t uid, const ActorMsgBuf &mbuf, uint32_t respID)
+bool ActorPod::forward(uint64_t uid, const ActorMsgBuf &mbuf, uint64_t respID)
 {
     if(!uid){
         throw fflerror("%s -> NONE: (type: %s, seqID: 0, respID: %llu): Try to send message to an empty address", to_cstr(uidf::getUIDString(UID())), mpkName(mbuf.type()), to_llu(respID));
@@ -192,7 +177,7 @@ bool ActorPod::forward(uint64_t uid, const ActorMsgBuf &mbuf, uint32_t respID)
     return g_actorPool->postMessage(uid, {mbuf, UID(), 0, respID});
 }
 
-bool ActorPod::forward(uint64_t uid, const ActorMsgBuf &mbuf, uint32_t respID, std::function<void(const ActorMsgPack &)> opr)
+bool ActorPod::forward(uint64_t uid, const ActorMsgBuf &mbuf, uint64_t respID, std::function<void(const ActorMsgPack &)> opr)
 {
     if(!uid){
         throw fflerror("%s -> NONE: (type: %s, seqID: 0, respID: %llu): Try to send message to an empty address", to_cstr(uidf::getUIDString(UID())), mpkName(mbuf.type()), to_llu(respID));
@@ -221,7 +206,8 @@ bool ActorPod::forward(uint64_t uid, const ActorMsgBuf &mbuf, uint32_t respID, s
             return true;
         }
         throw fflerror("failed to register response handler for posted message: %s", mpkName(mbuf.type()));
-    }else{
+    }
+    else{
         // respond the response handler here
         // if post failed, it can only be the UID is detached
         if(opr){
@@ -273,8 +259,8 @@ void ActorPod::PrintMonitor() const
 {
     for(size_t nIndex = 0; nIndex < m_podMonitor.amProcMonitorList.size(); ++nIndex){
         const uint64_t nProcTick  = m_podMonitor.amProcMonitorList[nIndex].procTick / 1000000;
-        const uint32_t nSendCount = m_podMonitor.amProcMonitorList[nIndex].sendCount;
-        const uint32_t nRecvCount = m_podMonitor.amProcMonitorList[nIndex].recvCount;
+        const uint64_t nSendCount = m_podMonitor.amProcMonitorList[nIndex].sendCount;
+        const uint64_t nRecvCount = m_podMonitor.amProcMonitorList[nIndex].recvCount;
         if(nSendCount || nRecvCount){
             g_monoServer->addLog(LOGTYPE_DEBUG, "UID: %s %s: procTick %llu ms, sendCount %llu, recvCount %llu", uidf::getUIDString(UID()).c_str(), mpkName(nIndex), to_llu(nProcTick), to_llu(nSendCount), to_llu(nRecvCount));
         }

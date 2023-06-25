@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: alphaonbutton.cpp
- *        Created: 08/26/2016 13:20:23
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "colorf.hpp"
 #include "totype.hpp"
 #include "bevent.hpp"
@@ -56,6 +38,10 @@ AlphaOnButton::AlphaOnButton(
           std::move(fnOnOverIn),
           std::move(fnOnOverOut),
           std::move(fnOnClick),
+
+          SYS_U32NIL,
+          SYS_U32NIL,
+          SYS_U32NIL,
 
           0,
           0,

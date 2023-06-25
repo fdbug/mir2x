@@ -1,44 +1,29 @@
-/*
- * =====================================================================================
- *
- *       Filename: hero.cpp
- *        Created: 09/03/2015 03:49:00
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include <cmath>
 #include "log.hpp"
 #include "hero.hpp"
 #include "pathf.hpp"
+#include "client.hpp"
 #include "dbcomid.hpp"
 #include "mathf.hpp"
 #include "sysconst.hpp"
+#include "soundeffectdb.hpp"
 #include "pngtexdb.hpp"
 #include "sdldevice.hpp"
 #include "processrun.hpp"
 #include "motionnode.hpp"
 #include "attachmagic.hpp"
-#include "dbcomrecord.hpp"
 #include "pngtexoffdb.hpp"
-#include "dbcomrecord.hpp"
 #include "clientargparser.hpp"
 
 extern Log *g_log;
+extern Client *g_client;
 extern SDLDevice *g_sdlDevice;
 extern PNGTexDB *g_progUseDB;
 extern PNGTexOffDB *g_heroDB;
 extern PNGTexOffDB *g_hairDB;
 extern PNGTexOffDB *g_weaponDB;
 extern PNGTexOffDB *g_helmetDB;
+extern SoundEffectDB *g_seffDB;
 extern ClientArgParser *g_clientArgParser;
 
 Hero::Hero(uint64_t uid, ProcessRun *proc, const ActionNode &action)
@@ -92,14 +77,17 @@ void Hero::drawFrame(int viewX, int viewY, int, int frame, bool)
     const auto [dressGfxIndex, modDressColor] = [this]() -> std::tuple<int, uint32_t>
     {
         if(const auto &dressItem = getWLItem(WLG_DRESS)){
-            return {DBCOM_ITEMRECORD(dressItem.itemID).shape, dressItem.getExtAttr<uint32_t>(SDItem::EA_COLOR).value_or(0XFFFFFFFF)};
+            return {DBCOM_ITEMRECORD(dressItem.itemID).shape, dressItem.getExtAttr<SDItem::EA_COLOR_t>().value_or(0XFFFFFFFF)};
         }
         return {DRESS_BEGIN, 0XFFFFFFFF}; // naked
     }();
 
     const auto nGfxDressID = gfxDressID(dressGfxIndex, m_currMotion->type, m_currMotion->direction);
     if(!nGfxDressID.has_value()){
-        m_currMotion->print();
+        m_currMotion->print([](const std::string &s)
+        {
+            g_log->addLog(LOGTYPE_WARNING, "%s", s.c_str());
+        });
         return;
     }
 
@@ -236,15 +224,158 @@ void Hero::drawFrame(int viewX, int viewY, int, int frame, bool)
 
         g_sdlDevice->drawTexture(bar1Ptr, drawHPX, drawHPY, 0, 0, drawHPW, bar1TexH);
         g_sdlDevice->drawTexture(bar0Ptr, drawHPX, drawHPY);
+
+        constexpr int buffIconDrawW = 10;
+        constexpr int buffIconDrawH = 10;
+
+        const int buffIconStartX = drawHPX + 1;
+        const int buffIconStartY = drawHPY - buffIconDrawH;
+
+        if(getSDBuffIDList().has_value()){
+            for(int drawIconCount = 0; const auto id: getSDBuffIDList().value().idList){
+                const auto &br = DBCOM_BUFFRECORD(id);
+                fflassert(br);
+
+                if(br.icon.gfxID != SYS_U32NIL){
+                    if(auto iconTexPtr = g_progUseDB->retrieve(br.icon.gfxID)){
+                        const int buffIconOffX = buffIconStartX + (drawIconCount % 3) * buffIconDrawW;
+                        const int buffIconOffY = buffIconStartY - (drawIconCount / 3) * buffIconDrawH;
+
+                        const auto [texW, texH] = SDLDeviceHelper::getTextureSize(iconTexPtr);
+                        g_sdlDevice->drawTexture(iconTexPtr, buffIconOffX, buffIconOffY, buffIconDrawW, buffIconDrawH, 0, 0, texW, texH);
+
+                        const auto baseColor = [&br]() -> uint32_t
+                        {
+                            if(br.favor > 0){
+                                return colorf::GREEN;
+                            }
+                            else if(br.favor == 0){
+                                return colorf::YELLOW;
+                            }
+                            else{
+                                return colorf::RED;
+                            }
+                        }();
+
+                        const auto startColor = baseColor | colorf::A_SHF(255);
+                        const auto   endColor = baseColor | colorf::A_SHF( 64);
+
+                        const auto edgeGridCount = (buffIconDrawW + buffIconDrawH) * 2 - 4;
+                        const auto startLoc = std::lround(edgeGridCount * std::fmod(m_accuUpdateTime, 1500.0) / 1500.0);
+
+                        g_sdlDevice->drawBoxFading(startColor, endColor, buffIconOffX, buffIconOffY, buffIconDrawW, buffIconDrawH, startLoc, buffIconDrawW + buffIconDrawH);
+                        drawIconCount++;
+                    }
+                }
+            }
+        }
+    }
+
+    if(isTeamLeader()){
+        LabelBoard amLeader(DIR_NONE, 0, 0, u8"我是队长", 1, 12, 0, colorf::RGBA(0XFF, 0XFF, 0X00, 0XFF));
+        amLeader.drawEx(startX, startY, 0, 0, amLeader.w(), amLeader.h());
     }
 }
 
 bool Hero::update(double ms)
 {
     updateAttachMagic(ms);
-    const CallOnExitHelper motionOnUpdate([this]()
+    const CallOnExitHelper motionOnUpdate([lastSeqFrameID = m_currMotion->getSeqFrameID(), this]()
     {
         m_currMotion->runTrigger();
+
+        // check soundeffectdb.cpp for more detailed comments
+        //
+        // TODO: 1. need to check ground type
+        //       2. need to add positional sound effect
+
+        if(lastSeqFrameID == m_currMotion->getSeqFrameID()){
+            return;
+        }
+
+        const auto fnPlayStepSound = [this](uint32_t seffBaseID)
+        {
+            if(m_currMotion->frame == 1){
+                playSoundEffect(seffBaseID);
+            }
+            else if(m_currMotion->frame == 4){
+                playSoundEffect(seffBaseID + 1);
+            }
+        };
+
+        const auto fnPlayAttackSound = [this]()
+        {
+            if(m_currMotion->frame == 0){
+                if(const auto weaponItemID = getWLItem(WLG_WEAPON).itemID){
+                    const auto &ir = DBCOM_ITEMRECORD(weaponItemID);
+                    fflassert(ir);
+
+                    if     (ir.equip.weapon.category == u8"匕首") playSoundEffect(0X01010000 + 50);
+                    else if(ir.equip.weapon.category == u8"木剑") playSoundEffect(0X01010000 + 51);
+                    else if(ir.equip.weapon.category == u8"剑"  ) playSoundEffect(0X01010000 + 52);
+                    else if(ir.equip.weapon.category == u8"刀"  ) playSoundEffect(0X01010000 + 53);
+                    else if(ir.equip.weapon.category == u8"斧"  ) playSoundEffect(0X01010000 + 54);
+                    else if(ir.equip.weapon.category == u8"锏"  ) playSoundEffect(0X01010000 + 55);
+                    else if(ir.equip.weapon.category == u8"棍"  ) playSoundEffect(0X01010000 + 56);
+                    else                                          playSoundEffect(0X01010000 + 57); // anything else, currently use bare-hand
+                }
+                else{
+                    playSoundEffect(0X01010000 + 57); // bare-hand
+                }
+            }
+        };
+
+        const auto fnPlayHittedSound = [this]() // TODO: check attacker's weapon category
+        {
+            playSoundEffect(0X01030000 + (gender() ? 138 : 139));
+            playSoundEffect([this]() -> uint32_t
+            {
+                const bool hasDress = DBCOM_ITEMRECORD(getWLItem(WLG_DRESS).itemID);
+                switch(const auto fromUID = m_currMotion->extParam.hitted.fromUID; uidf::getUIDType(fromUID)){
+                    case UID_MON:
+                        {
+                            return 0X01010000 + (hasDress ? 83 : 73);
+                        }
+                    case UID_PLY:
+                        {
+                            if(const auto plyPtr = m_processRun->findUID(fromUID)){
+                                if(const auto itemID = dynamic_cast<const Hero *>(plyPtr)->getWLItem(WLG_WEAPON).itemID){
+                                    const auto &ir = DBCOM_ITEMRECORD(itemID);
+                                    fflassert(ir);
+
+                                    if     (ir.equip.weapon.category == u8"匕首") return 0X01010000 + (hasDress ? 80 : 70);
+                                    else if(ir.equip.weapon.category == u8"木剑") return 0X01010000 + (hasDress ? 82 : 72);
+                                    else if(ir.equip.weapon.category == u8"剑"  ) return 0X01010000 + (hasDress ? 80 : 70);
+                                    else if(ir.equip.weapon.category == u8"刀"  ) return 0X01010000 + (hasDress ? 80 : 70);
+                                    else if(ir.equip.weapon.category == u8"斧"  ) return 0X01010000 + (hasDress ? 81 : 71);
+                                    else if(ir.equip.weapon.category == u8"锏"  ) return 0X01010000 + (hasDress ? 80 : 70);
+                                }
+                            }
+                            return 0X01010000 + (hasDress ? 83 : 73);
+                        }
+                    default:
+                        {
+                            return 0X01010000 + (hasDress ? 83 : 73);
+                        }
+                }
+            }());
+        };
+
+        switch(m_currMotion->type){
+            case MOTION_WALK        : fnPlayStepSound(0X01000000 +  1); break;
+            case MOTION_RUN         : fnPlayStepSound(0X01000000 +  3); break;
+            case MOTION_ONHORSEWALK : fnPlayStepSound(0X01000000 + 33); break;
+            case MOTION_ONHORSERUN  : fnPlayStepSound(0X01000000 + 35); break;
+            case MOTION_ONEHSWING   :
+            case MOTION_ONEVSWING   :
+            case MOTION_TWOHSWING   :
+            case MOTION_TWOVSWING   :
+            case MOTION_RANDSWING   :
+            case MOTION_SPEARHSWING :
+            case MOTION_SPEARVSWING : fnPlayAttackSound(); break;
+            case MOTION_HITTED      : fnPlayHittedSound(); break;
+            default: break;
+        }
     });
 
     if(m_currMotion->effect && !m_currMotion->effect->done()){
@@ -473,7 +604,7 @@ bool Hero::parseAction(const ActionNode &action)
                         if(action.aimUID){
                             if(auto coPtr = m_processRun->findUID(action.aimUID)){
                                 if(mathf::CDistance<int>(coPtr->x(), coPtr->y(), x(), y()) == 1){
-                                    return PathFind::GetDirection(coPtr->x(), coPtr->y(), x(), y());
+                                    return pathf::getOffDir(coPtr->x(), coPtr->y(), x(), y());
                                 }
                             }
                         }
@@ -513,397 +644,421 @@ bool Hero::parseAction(const ActionNode &action)
             {
                 flushForcedMotion();
                 jumpLoc(action.aimX, action.aimY, m_currMotion->direction);
-                m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(u8"瞬息移动", u8"开始", action.x, action.y)));
-                addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"瞬息移动", u8"结束")));
+                m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(u8"瞬息移动", u8"运行", action.x, action.y)));
+                addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"瞬息移动", u8"裂解")));
                 break;
             }
         case ACTION_SPELL:
             {
                 const auto magicID = action.extParam.spell.magicID;
-                if(auto &mr = DBCOM_MAGICRECORD(magicID)){
-                    if(auto &gfxEntry = mr.getGfxEntry(u8"启动").first){
-                        const auto motionSpell = [&gfxEntry]() -> int
-                        {
-                            switch(gfxEntry.motion){
-                                case MOTION_SPELL0:
-                                case MOTION_SPELL1:
-                                case MOTION_ATTACKMODE: return gfxEntry.motion;
-                                default: throw fflreach();
-                            }
-                        }();
-
-                        const auto fnGetSpellDir = [this](int nX0, int nY0, int nX1, int nY1) -> int
-                        {
-                            switch(mathf::LDistance2(nX0, nY0, nX1, nY1)){
-                                case 0:
-                                    {
-                                        return m_currMotion->direction;
-                                    }
-                                default:
-                                    {
-                                        return pathf::getDir8(nX1 - nX0, nY1 - nY0) + DIR_BEGIN;
-                                    }
-                            }
-                        };
-
-                        const auto standDir = [&gfxEntry, &fnGetSpellDir, &action, this]() -> int
-                        {
-                            if(gfxEntry.motion == MOTION_ATTACKMODE){
-                                return DIR_DOWN;
-                            }
-
-                            if(action.aimUID){
-                                if(auto coPtr = m_processRun->findUID(action.aimUID); coPtr && coPtr->getTargetBox()){
-                                    if(const auto dir = m_processRun->getAimDirection(action, DIR_NONE); dir != DIR_NONE){
-                                        return dir;
-                                    }
-                                }
-                                return m_currMotion->direction;
-                            }
-                            else{
-                                return fnGetSpellDir(action.x, action.y, action.aimX, action.aimY);
-                            }
-                        }();
-
-                        fflassert(directionValid(standDir));
-                        m_motionQueue.push_back(std::unique_ptr<MotionNode>(new MotionNode
-                        {
-                            .type = motionSpell,
-                            .direction = standDir,
-                            .x = action.x,
-                            .y = action.y,
-                        }));
-
-                        m_motionQueue.back()->effect = std::unique_ptr<HeroSpellMagicEffect>(new HeroSpellMagicEffect
-                        {
-                            to_u8cstr(DBCOM_MAGICRECORD(magicID).name),
-                            this,
-                            m_motionQueue.back().get(),
-                        });
-
-                        if(UID() == m_processRun->getMyHeroUID()){
-                            m_processRun->getMyHero()->setMagicCastTime(magicID);
+                if(const auto gfxEntry = DBCOM_MAGICGFXENTRY(magicID, u8"启动").first){
+                    const auto motionSpell = [gfxEntry]() -> int
+                    {
+                        switch(gfxEntry->motion){
+                            case MOTION_SPELL0:
+                            case MOTION_SPELL1:
+                            case MOTION_ATTACKMODE: return gfxEntry->motion;
+                            default: throw fflreach();
                         }
+                    }();
 
-                        switch(magicID){
-                            case DBCOM_MAGICID(u8"冰沙掌"):
-                            case DBCOM_MAGICID(u8"地狱火"):
+                    const auto fnGetSpellDir = [this](int nX0, int nY0, int nX1, int nY1) -> int
+                    {
+                        switch(mathf::LDistance2(nX0, nY0, nX1, nY1)){
+                            case 0:
                                 {
-                                    m_motionQueue.back()->addTrigger(true, [standDir, magicID, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        // usually when reaches this cb the motionPtr is just currMotion()
-                                        // but not true if in flushForcedMotion()
-
-                                        if(motionPtr->frame < 3){
-                                            return false;
-                                        }
-
-                                        const auto castX = motionPtr->endX;
-                                        const auto castY = motionPtr->endY;
-
-                                        for(const auto distance: {1, 2, 3, 4, 5, 6, 7, 8}){
-                                            m_processRun->addDelay(distance * 100, [standDir, magicID, castX, castY, distance, castMapID = m_processRun->mapID(), this]()
-                                            {
-                                                if(m_processRun->mapID() != castMapID){
-                                                    return;
-                                                }
-
-                                                const auto [aimX, aimY] = pathf::getFrontGLoc(castX, castY, standDir, distance);
-                                                if(!m_processRun->groundValid(aimX, aimY)){
-                                                    return;
-                                                }
-
-                                                if(magicID == DBCOM_MAGICID(u8"冰沙掌")){
-                                                    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new IceThrust_RUN(aimX, aimY, standDir)));
-                                                }
-                                                else if(magicID == DBCOM_MAGICID(u8"地狱火")){
-                                                    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new HellFire_RUN
-                                                    {
-                                                        aimX,
-                                                        aimY,
-                                                        standDir,
-                                                    }))->addTrigger([aimX, aimY, this](BaseMagic *magicPtr)
-                                                    {
-                                                        if(magicPtr->frame() < 10){
-                                                            return false;
-                                                        }
-
-                                                        m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FireAshEffect_RUN
-                                                        {
-                                                            aimX,
-                                                            aimY,
-                                                            1000,
-                                                        }));
-                                                        return true;
-                                                    });
-                                                }
-                                                else{
-                                                    throw fflreach();
-                                                }
-                                            });
-                                        }
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"风震天"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [standDir, magicID, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        if(motionPtr->frame < 4){
-                                            return false;
-                                        }
-
-                                        const auto castX = motionPtr->endX;
-                                        const auto castY = motionPtr->endY;
-                                        const auto [aimX, aimY] = pathf::getFrontGLoc(castX, castY, standDir, 1);
-                                        m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
-                                        {
-                                            u8"风震天",
-                                            u8"开始",
-
-                                            aimX,
-                                            aimY,
-                                        }))->addOnDone([standDir, this](BaseMagic *magicPtr)
-                                        {
-                                            auto fnAddNextStep = +[](BaseMagic *magicPtr, int standDir, ProcessRun *proc, std::shared_ptr<int> magicRanPtr, void *selfFuncPtr)
-                                            {
-                                                const auto fixedLocMagicPtr = dynamic_cast<FixedLocMagic *>(magicPtr);
-                                                const auto [nextX, nextY] = pathf::getFrontGLoc(fixedLocMagicPtr->x(), fixedLocMagicPtr->y(), standDir, 1);
-
-                                                if(*magicRanPtr >= 5){
-                                                    proc->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
-                                                    {
-                                                        u8"风震天",
-                                                        u8"结束",
-
-                                                        nextX,
-                                                        nextY,
-                                                    }));
-                                                }
-                                                else{
-                                                    (*magicRanPtr)++;
-                                                    proc->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
-                                                    {
-                                                        u8"风震天",
-                                                        u8"运行",
-
-                                                        nextX,
-                                                        nextY,
-                                                    }))->addOnDone([proc, magicRanPtr, standDir, selfFuncPtr](BaseMagic *magicPtr)
-                                                    {
-                                                        ((void (*)(BaseMagic *, int, ProcessRun *, std::shared_ptr<int>, void *))(selfFuncPtr))(magicPtr, standDir, proc, magicRanPtr, selfFuncPtr);
-                                                    });
-                                                }
-                                            };
-                                            fnAddNextStep(magicPtr, standDir, m_processRun, std::make_shared<int>(0), (void *)(fnAddNextStep));
-                                        });
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"疾光电影"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [standDir, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        if(motionPtr->frame < 3){
-                                            return false;
-                                        }
-
-                                        m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
-                                        {
-                                            u8"疾光电影",
-                                            u8"运行",
-
-                                            motionPtr->endX,
-                                            motionPtr->endY,
-                                            standDir - DIR_BEGIN,
-                                        }));
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"乾坤大挪移"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [aimUID = action.aimUID, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        if(motionPtr->frame < 3){
-                                            return false;
-                                        }
-
-                                        if(auto coPtr = m_processRun->findUID(aimUID)){
-                                            coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"乾坤大挪移", u8"运行")));
-                                        }
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"治愈术"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [magicID, action, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        if(motionPtr->frame < 3){
-                                            return false;
-                                        }
-
-                                        const auto coPtr = [action, this]() -> ClientCreature *
-                                        {
-                                            if(auto coPtr = m_processRun->findUID(action.aimUID)){
-                                                return coPtr;
-                                            }
-                                            else{
-                                                return this;
-                                            }
-                                        }();
-
-                                        coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(DBCOM_MAGICRECORD(magicID).name, u8"运行")));
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"圣言术"):
-                            case DBCOM_MAGICID(u8"云寂术"):
-                            case DBCOM_MAGICID(u8"回生术"):
-                            case DBCOM_MAGICID(u8"施毒术"):
-                            case DBCOM_MAGICID(u8"诱惑之光"):
-                            case DBCOM_MAGICID(u8"移花接玉"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [magicID, action, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        if(motionPtr->frame < 3){
-                                            return false;
-                                        }
-
-                                        if(auto coPtr = m_processRun->findUID(action.aimUID)){
-                                            coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(DBCOM_MAGICRECORD(magicID).name, u8"运行")));
-                                        }
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"击风"  ):
-                            case DBCOM_MAGICID(u8"冰咆哮"):
-                            case DBCOM_MAGICID(u8"龙卷风"):
-                            case DBCOM_MAGICID(u8"爆裂火焰"):
-                            case DBCOM_MAGICID(u8"地狱雷光"):
-                            case DBCOM_MAGICID(u8"怒神霹雳"):
-                            case DBCOM_MAGICID(u8"群体治愈术"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [magicID, action, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        if(motionPtr->frame < 3){
-                                            return false;
-                                        }
-
-                                        const auto [aimX, aimY] = [action, this]() -> std::tuple<int, int>
-                                        {
-                                            if(auto coPtr = m_processRun->findUID(action.aimUID)){
-                                                return {coPtr->currMotion()->endX, coPtr->currMotion()->endY};
-                                            }
-                                            else{
-                                                return {action.aimX, action.aimY};
-                                            }
-                                        }();
-
-                                        auto addedMagic = m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(DBCOM_MAGICRECORD(magicID).name, u8"运行", aimX, aimY)));
-                                        if(magicID == DBCOM_MAGICID(u8"击风")){
-                                            addedMagic->addOnDone([aimX, aimY, magicID, this](BaseMagic *)
-                                            {
-                                                m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(DBCOM_MAGICRECORD(magicID).name, u8"结束", aimX, aimY)));
-                                            });
-                                        }
-                                        return true;
-                                    });
-                                    break;
-                                }
-                            case DBCOM_MAGICID(u8"火球术"):
-                            case DBCOM_MAGICID(u8"大火球"):
-                            case DBCOM_MAGICID(u8"霹雳掌"):
-                            case DBCOM_MAGICID(u8"风掌"  ):
-                            case DBCOM_MAGICID(u8"月魂断玉"):
-                            case DBCOM_MAGICID(u8"月魂灵波"):
-                            case DBCOM_MAGICID(u8"灵魂火符"):
-                            case DBCOM_MAGICID(u8"冰月神掌"):
-                            case DBCOM_MAGICID(u8"冰月震天"):
-                            case DBCOM_MAGICID(u8"幽灵盾"):
-                            case DBCOM_MAGICID(u8"神圣战甲术"):
-                            case DBCOM_MAGICID(u8"强魔震法"):
-                            case DBCOM_MAGICID(u8"猛虎强势"):
-                            case DBCOM_MAGICID(u8"集体隐身术"):
-                                {
-                                    m_motionQueue.back()->addTrigger(true, [targetUID = action.aimUID, magicID, this](MotionNode *motionPtr) -> bool
-                                    {
-                                        // usually when reaches this cb the current motion is motionPtr
-                                        // but not true if in flushForcedMotion()
-
-                                        if(motionPtr->frame < 4){
-                                            return false;
-                                        }
-
-                                        const auto fromX = motionPtr->x * SYS_MAPGRIDXP;
-                                        const auto fromY = motionPtr->y * SYS_MAPGRIDYP;
-                                        const auto flyDir16Index = [fromX, fromY, targetUID, this]() -> int
-                                        {
-                                            if(const auto coPtr = m_processRun->findUID(targetUID)){
-                                                if(const auto targetBox = coPtr->getTargetBox()){
-                                                    const auto [targetPX, targetPY] = targetBox.targetPLoc();
-                                                    return pathf::getDir16((targetPX - fromX) * SYS_MAPGRIDYP, (targetPY - fromY) * SYS_MAPGRIDXP);
-                                                }
-                                            }
-                                            return (m_currMotion->direction - DIR_BEGIN) * 2;
-                                        }();
-
-                                        const auto gfxDirIndex = [magicID, flyDir16Index]()
-                                        {
-                                            switch(magicID){
-                                                case DBCOM_MAGICID(u8"月魂断玉"): return 0;
-                                                case DBCOM_MAGICID(u8"月魂灵波"): return 0;
-                                                case DBCOM_MAGICID(u8"冰月震天"): return 0;
-                                                default                         : return flyDir16Index;
-                                            }
-                                        }();
-
-                                        m_processRun->addFollowUIDMagic(std::unique_ptr<FollowUIDMagic>(new FollowUIDMagic
-                                        {
-                                            DBCOM_MAGICRECORD(magicID).name,
-                                            u8"运行",
-
-                                            fromX,
-                                            fromY,
-
-                                            gfxDirIndex,
-                                            flyDir16Index,
-                                            20,
-
-                                            targetUID,
-                                            m_processRun,
-
-                                        }))->addOnDone([targetUID, magicID, proc = m_processRun](BaseMagic *)
-                                        {
-                                            if(auto coPtr = proc->findUID(targetUID)){
-                                                coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(DBCOM_MAGICRECORD(magicID).name, u8"结束")));
-                                            }
-                                        });
-                                        return true;
-                                    });
-                                    break;
+                                    return m_currMotion->direction;
                                 }
                             default:
                                 {
-                                    break;
+                                    return pathf::getDir8(nX1 - nX0, nY1 - nY0) + DIR_BEGIN;
                                 }
                         }
+                    };
 
-                        if(motionSpell == MOTION_SPELL0){
-                            for(int i = 0; i < 2; ++i){
-                                m_motionQueue.push_back(std::unique_ptr<MotionNode>(new MotionNode
-                                {
-                                    .type = MOTION_ATTACKMODE,
-                                    .direction = standDir,
-                                    .x = action.x,
-                                    .y = action.y,
-                                }));
+                    const auto standDir = [gfxEntry, &fnGetSpellDir, &action, this]() -> int
+                    {
+                        if(gfxEntry->motion == MOTION_ATTACKMODE){
+                            return DIR_DOWN;
+                        }
+
+                        if(action.aimUID){
+                            if(auto coPtr = m_processRun->findUID(action.aimUID); coPtr && coPtr->getTargetBox()){
+                                if(const auto dir = m_processRun->getAimDirection(action, DIR_NONE); dir != DIR_NONE){
+                                    return dir;
+                                }
                             }
+                            return m_currMotion->direction;
+                        }
+                        else{
+                            return fnGetSpellDir(action.x, action.y, action.aimX, action.aimY);
+                        }
+                    }();
+
+                    fflassert(pathf::dirValid(standDir));
+                    m_motionQueue.push_back(std::unique_ptr<MotionNode>(new MotionNode
+                    {
+                        .type = motionSpell,
+                        .direction = standDir,
+                        .x = action.x,
+                        .y = action.y,
+                    }));
+
+                    m_motionQueue.back()->effect = std::unique_ptr<HeroSpellMagicEffect>(new HeroSpellMagicEffect
+                    {
+                        to_u8cstr(DBCOM_MAGICRECORD(magicID).name),
+                        this,
+                        m_motionQueue.back().get(),
+                    });
+
+                    if(UID() == m_processRun->getMyHeroUID()){
+                        m_processRun->getMyHero()->setMagicCastTime(magicID);
+                    }
+
+                    switch(magicID){
+                        case DBCOM_MAGICID(u8"冰沙掌"):
+                        case DBCOM_MAGICID(u8"地狱火"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [standDir, magicID, this](MotionNode *motionPtr) -> bool
+                                {
+                                    // usually when reaches this cb the motionPtr is just currMotion()
+                                    // but not true if in flushForcedMotion()
+
+                                    if(motionPtr->frame < 3){
+                                        return false;
+                                    }
+
+                                    const auto castX = motionPtr->endX;
+                                    const auto castY = motionPtr->endY;
+
+                                    for(const auto distance: {1, 2, 3, 4, 5, 6, 7, 8}){
+                                        m_processRun->addDelay(distance * 100, [standDir, magicID, castX, castY, distance, castMapID = m_processRun->mapID(), this]()
+                                        {
+                                            if(m_processRun->mapID() != castMapID){
+                                                return;
+                                            }
+
+                                            const auto [aimX, aimY] = pathf::getFrontGLoc(castX, castY, standDir, distance);
+                                            if(!m_processRun->groundValid(aimX, aimY)){
+                                                return;
+                                            }
+
+                                            if(magicID == DBCOM_MAGICID(u8"冰沙掌")){
+                                                m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new IceThrust_RUN(aimX, aimY, standDir)));
+                                            }
+                                            else if(magicID == DBCOM_MAGICID(u8"地狱火")){
+                                                m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new HellFire_RUN
+                                                {
+                                                    aimX,
+                                                    aimY,
+                                                    standDir,
+                                                }))->addTrigger([aimX, aimY, this](BaseMagic *magicPtr)
+                                                {
+                                                    if(magicPtr->frame() < 10){
+                                                        return false;
+                                                    }
+
+                                                    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FireAshEffect_RUN
+                                                    {
+                                                        aimX,
+                                                        aimY,
+                                                        1000,
+                                                    }));
+                                                    return true;
+                                                });
+                                            }
+                                            else{
+                                                throw fflreach();
+                                            }
+                                        });
+                                    }
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"风震天"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [standDir, magicID, this](MotionNode *motionPtr) -> bool
+                                {
+                                    if(motionPtr->frame < 4){
+                                        return false;
+                                    }
+
+                                    const auto castX = motionPtr->endX;
+                                    const auto castY = motionPtr->endY;
+                                    const auto [aimX, aimY] = pathf::getFrontGLoc(castX, castY, standDir, 1);
+                                    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
+                                    {
+                                        u8"风震天",
+                                        u8"运行",
+
+                                        aimX,
+                                        aimY,
+                                    }))->addOnDone([standDir, this](BaseMagic *magicPtr)
+                                    {
+                                        auto fnAddNextStep = +[](BaseMagic *magicPtr, int standDir, ProcessRun *proc, std::shared_ptr<int> magicRanPtr, void *selfFuncPtr)
+                                        {
+                                            const auto fixedLocMagicPtr = dynamic_cast<FixedLocMagic *>(magicPtr);
+                                            const auto [nextX, nextY] = pathf::getFrontGLoc(fixedLocMagicPtr->x(), fixedLocMagicPtr->y(), standDir, 1);
+
+                                            if(*magicRanPtr >= 5){
+                                                proc->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
+                                                {
+                                                    u8"风震天",
+                                                    u8"裂解",
+
+                                                    nextX,
+                                                    nextY,
+                                                }));
+                                            }
+                                            else{
+                                                (*magicRanPtr)++;
+                                                proc->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
+                                                {
+                                                    u8"风震天",
+                                                    u8"运行",
+
+                                                    nextX,
+                                                    nextY,
+                                                }))->addOnDone([proc, magicRanPtr, standDir, selfFuncPtr](BaseMagic *magicPtr)
+                                                {
+                                                    ((void (*)(BaseMagic *, int, ProcessRun *, std::shared_ptr<int>, void *))(selfFuncPtr))(magicPtr, standDir, proc, magicRanPtr, selfFuncPtr);
+                                                });
+                                            }
+                                        };
+                                        fnAddNextStep(magicPtr, standDir, m_processRun, std::make_shared<int>(0), (void *)(fnAddNextStep));
+                                    });
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"疾光电影"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [standDir, this](MotionNode *motionPtr) -> bool
+                                {
+                                    if(motionPtr->frame < 3){
+                                        return false;
+                                    }
+
+                                    m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic
+                                    {
+                                        u8"疾光电影",
+                                        u8"运行",
+
+                                        motionPtr->endX,
+                                        motionPtr->endY,
+                                        standDir - DIR_BEGIN,
+                                    }));
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"乾坤大挪移"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [aimUID = action.aimUID, this](MotionNode *motionPtr) -> bool
+                                {
+                                    if(motionPtr->frame < 3){
+                                        return false;
+                                    }
+
+                                    if(auto coPtr = m_processRun->findUID(aimUID)){
+                                        coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"乾坤大挪移", u8"运行")));
+                                    }
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"治愈术"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [magicID, action, this](MotionNode *motionPtr) -> bool
+                                {
+                                    if(motionPtr->frame < 3){
+                                        return false;
+                                    }
+
+                                    const auto coPtr = [action, this]() -> ClientCreature *
+                                    {
+                                        if(auto coPtr = m_processRun->findUID(action.aimUID)){
+                                            return coPtr;
+                                        }
+                                        else{
+                                            return this;
+                                        }
+                                    }();
+
+                                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(DBCOM_MAGICRECORD(magicID).name, u8"运行")));
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"圣言术"):
+                        case DBCOM_MAGICID(u8"云寂术"):
+                        case DBCOM_MAGICID(u8"回生术"):
+                        case DBCOM_MAGICID(u8"施毒术"):
+                        case DBCOM_MAGICID(u8"诱惑之光"):
+                        case DBCOM_MAGICID(u8"移花接玉"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [magicID, action, this](MotionNode *motionPtr) -> bool
+                                {
+                                    if(motionPtr->frame < 3){
+                                        return false;
+                                    }
+
+                                    if(auto coPtr = m_processRun->findUID(action.aimUID)){
+                                        coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(DBCOM_MAGICRECORD(magicID).name, u8"运行")));
+                                    }
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"击风"  ):
+                        case DBCOM_MAGICID(u8"冰咆哮"):
+                        case DBCOM_MAGICID(u8"龙卷风"):
+                        case DBCOM_MAGICID(u8"爆裂火焰"):
+                        case DBCOM_MAGICID(u8"地狱雷光"):
+                        case DBCOM_MAGICID(u8"怒神霹雳"):
+                        case DBCOM_MAGICID(u8"群体治愈术"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [magicID, action, this](MotionNode *motionPtr) -> bool
+                                {
+                                    if(motionPtr->frame < 3){
+                                        return false;
+                                    }
+
+                                    const auto [aimX, aimY] = [action, this]() -> std::tuple<int, int>
+                                    {
+                                        if(auto coPtr = m_processRun->findUID(action.aimUID)){
+                                            return {coPtr->currMotion()->endX, coPtr->currMotion()->endY};
+                                        }
+                                        else{
+                                            return {action.aimX, action.aimY};
+                                        }
+                                    }();
+
+                                    auto addedMagic = m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(DBCOM_MAGICRECORD(magicID).name, u8"运行", aimX, aimY)));
+                                    if(magicID == DBCOM_MAGICID(u8"击风")){
+                                        addedMagic->addOnDone([aimX, aimY, magicID, this](BaseMagic *)
+                                        {
+                                            m_processRun->addFixedLocMagic(std::unique_ptr<FixedLocMagic>(new FixedLocMagic(DBCOM_MAGICRECORD(magicID).name, u8"裂解", aimX, aimY)));
+                                        });
+                                    }
+                                    return true;
+                                });
+                                break;
+                            }
+                        case DBCOM_MAGICID(u8"火球术"):
+                        case DBCOM_MAGICID(u8"大火球"):
+                        case DBCOM_MAGICID(u8"霹雳掌"):
+                        case DBCOM_MAGICID(u8"风掌"  ):
+                        case DBCOM_MAGICID(u8"月魂断玉"):
+                        case DBCOM_MAGICID(u8"月魂灵波"):
+                        case DBCOM_MAGICID(u8"灵魂火符"):
+                        case DBCOM_MAGICID(u8"冰月神掌"):
+                        case DBCOM_MAGICID(u8"冰月震天"):
+                        case DBCOM_MAGICID(u8"幽灵盾"):
+                        case DBCOM_MAGICID(u8"神圣战甲术"):
+                        case DBCOM_MAGICID(u8"强魔震法"):
+                        case DBCOM_MAGICID(u8"猛虎强势"):
+                        case DBCOM_MAGICID(u8"集体隐身术"):
+                            {
+                                m_motionQueue.back()->addTrigger(true, [targetUID = action.aimUID, magicID, this](MotionNode *motionPtr) -> bool
+                                {
+                                    // usually when reaches this cb the current motion is motionPtr
+                                    // but not true if in flushForcedMotion()
+
+                                    if(motionPtr->frame < 4){
+                                        return false;
+                                    }
+
+                                    const auto fromX = motionPtr->x * SYS_MAPGRIDXP;
+                                    const auto fromY = motionPtr->y * SYS_MAPGRIDYP;
+                                    const auto flyDir16Index = [fromX, fromY, targetUID, this]() -> int
+                                    {
+                                        if(const auto coPtr = m_processRun->findUID(targetUID)){
+                                            if(const auto targetBox = coPtr->getTargetBox()){
+                                                const auto [targetPX, targetPY] = targetBox.targetPLoc();
+                                                return pathf::getDir16((targetPX - fromX) * SYS_MAPGRIDYP, (targetPY - fromY) * SYS_MAPGRIDXP);
+                                            }
+                                        }
+                                        return (m_currMotion->direction - DIR_BEGIN) * 2;
+                                    }();
+
+                                    const auto gfxDirIndex = [magicID, flyDir16Index]()
+                                    {
+                                        switch(magicID){
+                                            case DBCOM_MAGICID(u8"月魂断玉"): return 0;
+                                            case DBCOM_MAGICID(u8"月魂灵波"): return 0;
+                                            case DBCOM_MAGICID(u8"冰月震天"): return 0;
+                                            default                         : return flyDir16Index;
+                                        }
+                                    }();
+
+                                    m_processRun->addFollowUIDMagic(std::unique_ptr<FollowUIDMagic>(new FollowUIDMagic
+                                    {
+                                        DBCOM_MAGICRECORD(magicID).name,
+                                        u8"运行",
+
+                                        fromX,
+                                        fromY,
+
+                                        gfxDirIndex,
+                                        flyDir16Index,
+                                        20,
+
+                                        targetUID,
+                                        m_processRun,
+
+                                    }))->addTrigger([uid = UID(), proc = m_processRun](BaseMagic *magic) -> bool
+                                    {
+                                        if(auto selfPtr = proc->findUID(uid)){
+                                            if(const auto seffIDOpt = magic->getSeffID(); seffIDOpt.has_value()){
+                                                selfPtr->playSoundEffect(seffIDOpt.value());
+                                            }
+                                        }
+                                        return true;
+                                    })->addOnDone([targetUID, magicID, proc = m_processRun](BaseMagic *)
+                                    {
+                                        if(auto coPtr = proc->findUID(targetUID)){
+                                            coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(DBCOM_MAGICRECORD(magicID).name, u8"裂解")))->addTrigger([targetUID, proc](BaseMagic *magic)
+                                            {
+                                                if(auto targetPtr = proc->findUID(targetUID)){
+                                                    if(const auto seffIDOpt = magic->getSeffID(); seffIDOpt.has_value()){
+                                                        targetPtr->playSoundEffect(seffIDOpt.value());
+                                                    }
+                                                }
+                                                return true;
+                                            });
+                                        }
+                                    });
+                                    return true;
+                                });
+                                break;
+                            }
+                        default:
+                            {
+                                break;
+                            }
+                    }
+
+                    m_motionQueue.back()->addTrigger(false, [uid = UID(), magicID, proc = m_processRun](MotionNode *)
+                    {
+                        if(auto selfPtr = proc->findUID(uid)){
+                            if(const auto seffIDOpt = DBCOM_MAGICGFXSEFFID(magicID, u8"启动"); seffIDOpt.has_value()){
+                                selfPtr->playSoundEffect(seffIDOpt.value());
+                            }
+                        }
+                        return true;
+                    });
+
+                    if(motionSpell == MOTION_SPELL0){
+                        for(int i = 0; i < 2; ++i){
+                            m_motionQueue.push_back(std::unique_ptr<MotionNode>(new MotionNode
+                            {
+                                .type = MOTION_ATTACKMODE,
+                                .direction = standDir,
+                                .x = action.x,
+                                .y = action.y,
+                            }));
                         }
                     }
                 }
@@ -912,7 +1067,7 @@ bool Hero::parseAction(const ActionNode &action)
         case ACTION_ATTACK:
             {
                 if(auto coPtr = m_processRun->findUID(action.aimUID)){
-                    if(const auto attackDir = PathFind::GetDirection(action.x, action.y, coPtr->x(), coPtr->y()); attackDir >= DIR_BEGIN && attackDir < DIR_END){
+                    if(const auto attackDir = pathf::getOffDir(action.x, action.y, coPtr->x(), coPtr->y()); attackDir >= DIR_BEGIN && attackDir < DIR_END){
                         const auto magicID = action.extParam.attack.magicID;
                         const auto [swingMotion, motionSpeed, magicName, lagFrame] = [magicID, this]() -> std::tuple<int, int, const char8_t *, int>
                         {
@@ -984,6 +1139,13 @@ bool Hero::parseAction(const ActionNode &action)
                     .direction = endDir,
                     .x = endX,
                     .y = endY,
+                    .extParam
+                    {
+                        .hitted
+                        {
+                            .fromUID = action.fromUID,
+                        },
+                    },
                 }));
 
                 m_motionQueue.front()->addTrigger(true, [this](MotionNode *) -> bool
@@ -999,7 +1161,7 @@ bool Hero::parseAction(const ActionNode &action)
                                 // don't replace the ptr holding by p, just add a new magic, since the callback is by ptr holding by p
                                 for(auto &p: m_attachMagicList){
                                     if(p->magicID() == DBCOM_MAGICID(u8"魔法盾")){
-                                        addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"魔法盾", u8"运行")));
+                                        addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"魔法盾", u8"持续")));
                                         break;
                                     }
                                 }
@@ -1307,7 +1469,7 @@ const SDItem &Hero::getWLItem(int wltype) const
     return m_sdWLDesp.wear.getWLItem(wltype);
 }
 
-bool Hero::setWLItem(int wltype, SDItem item)
+bool Hero::setWLItem(int wltype, SDItem item, bool playSound)
 {
     if(!(wltype >= WLG_BEGIN && wltype < WLG_END)){
         throw fflerror("invalid wear/look type: %d", wltype);
@@ -1330,7 +1492,7 @@ bool Hero::setWLItem(int wltype, SDItem item)
     switch(wltype){
         case WLG_DRESS:
             {
-                if((to_u8sv(ir.type) != u8"衣服") || (getClothGender(item.itemID) != gender())){
+                if((to_u8sv(ir.type) != u8"衣服") || (ir.clothGender().value() != gender())){
                     return false;
                 }
                 break;
@@ -1345,6 +1507,19 @@ bool Hero::setWLItem(int wltype, SDItem item)
     }
 
     m_sdWLDesp.wear.setWLItem(wltype, std::move(item));
+    if(playSound){
+        switch(wltype){
+            case WLG_WEAPON  : playSoundEffect(0X01020000 + 111); break;
+            case WLG_DRESS   : playSoundEffect(0X01020000 + 112); break;
+            case WLG_RING0   :
+            case WLG_RING1   : playSoundEffect(0X01020000 + 113); break;
+            case WLG_ARMRING0:
+            case WLG_ARMRING1: playSoundEffect(0X01020000 + 114); break;
+            case WLG_NECKLACE: playSoundEffect(0X01020000 + 115); break;
+            case WLG_HELMET  : playSoundEffect(0X01020000 + 116); break;
+            default          : playSoundEffect(0X01020000 + 118); break;
+        }
+    }
     return true;
 }
 
@@ -1437,4 +1612,13 @@ void Hero::toggleSwingMagic(uint32_t magicID, std::optional<bool> enable)
             m_swingMagicList.insert(magicID);
         }
     }
+}
+
+void Hero::queryName() const
+{
+    CMQueryPlayerName cmQPN;
+    std::memset(&cmQPN, 0, sizeof(cmQPN));
+
+    cmQPN.uid = UID();
+    g_client->send(CM_QUERYPLAYERNAME, cmQPN);
 }

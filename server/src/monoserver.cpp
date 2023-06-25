@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: monoserver.cpp
- *        Created: 08/31/2015 10:45:48 PM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #include <thread>
 #include <chrono>
 #include <vector>
@@ -53,32 +36,32 @@ extern MonoServer *g_monoServer;
 extern MainWindow *g_mainWindow;
 extern ServerConfigureWindow *g_serverConfigureWindow;
 
-void MonoServer::addLog(const std::array<std::string, 4> &logDesc, const char *format, ...)
+void MonoServer::addLog(const Log::LogTypeLoc &typeLoc, const char *format, ...)
 {
     std::string s;
     str_format(format, s);
-    const int logType = std::atoi(logDesc[0].c_str());
 
-    switch(logType){
-        case Log::LOGTYPEV_DEBUG:
-            {
-                g_log->addLog(logDesc, "%s", s.c_str());
-                return;
-            }
-        default:
-            {
-                // flush the log window
-                // make LOGTYPEV_FATAL be seen before process crash
-                {
-                    std::lock_guard<std::mutex> lockGuard(m_logLock);
-                    m_logBuf.push_back((char)(logType));
-                    m_logBuf.insert(m_logBuf.end(), s.c_str(), s.c_str() + std::strlen(s.c_str()) + 1);
-                }
-                notifyGUI("FlushBrowser");
+    std::string logLine;
+    std::stringstream errStream(s);
+    std::vector<std::string> multiLine;
 
-                g_log->addLog(logDesc, "%s", s.c_str());
-                return;
+    while(std::getline(errStream, logLine, '\n')){
+        multiLine.push_back(std::move(logLine));
+    }
+
+    if(const int logType = std::get<0>(typeLoc); logType != Log::LOGTYPEV_DEBUG){
+        {
+            const std::lock_guard<std::mutex> lockGuard(m_logLock);
+            for(const auto &line: multiLine){
+                m_logBuf.push_back((char)(logType));
+                m_logBuf.insert(m_logBuf.end(), line.c_str(), line.c_str() + line.size() + 1); // add extra '\0'
             }
+        }
+        notifyGUI("FlushBrowser");
+    }
+
+    for(const auto &line: multiLine){
+        g_log->addLog(typeLoc, "%s", line.c_str());
     }
 }
 
@@ -195,12 +178,16 @@ bool MonoServer::createAccountCharacter(const char *id, const char *charName, bo
     uint32_t seqID = 1;
     const auto fnAddInitItem = [dbid, &seqID](const char8_t *itemName, size_t count = 1)
     {
-        const SDItem item
+        SDItem item
         {
             .itemID = DBCOM_ITEMID(itemName),
             .seqID  = seqID++,
             .count  = count,
         };
+
+        if(DBCOM_ITEMRECORD(item.itemID).isWeapon()){
+            item.extAttrList.insert(SDItem::build_EA_DC(100));
+        }
 
         fflassert(item);
         const auto attrBuf = cerealf::serialize(item.extAttrList);
@@ -329,10 +316,10 @@ void MonoServer::createDefaultDatabase()
         u8R"###(     primary key (fld_dbid, fld_magicid)                             )###"
         u8R"###( );                                                                  )###",
 
-        u8R"###( create table tbl_runtimeconfig(                                     )###"
+        u8R"###( create table tbl_playerconfig(                                      )###"
         u8R"###(     fld_dbid           int unsigned not null,                       )###"
-        u8R"###(     fld_mute           int unsigned default 0,                      )###"
         u8R"###(     fld_magickeylist   blob null default (x''),                     )###"
+        u8R"###(     fld_runtimeconfig  blob null default (x''),                     )###"
         u8R"###(                                                                     )###"
         u8R"###(     foreign key (fld_dbid) references tbl_char(fld_dbid),           )###"
         u8R"###(     primary key (fld_dbid)                                          )###"
@@ -507,39 +494,37 @@ bool MonoServer::addMonster(uint32_t monsterID, uint32_t mapID, int x, int y, bo
     return false;
 }
 
-bool MonoServer::addNPChar(const char *scriptPath)
+bool MonoServer::addNPChar(const char *npcName, uint16_t lookID, uint32_t mapID, int x, int y, int gfxDir, const char *fullScriptName)
 {
-    fflassert(str_haschar(scriptPath));
-    fflassert(filesys::hasFile(scriptPath));
-    const auto [filePath, fileName, extName] = filesys::decompFileName(scriptPath, false);
-
-    char mapName[64];
-    char npcName[64];
-
-    if(std::sscanf(fileName.c_str(), "%[^.].%[^.].lua", mapName, npcName) != 2){
-        throw fflerror("invalid script: %s", scriptPath);
-    }
-
-    const auto mapID = DBCOM_MAPID(to_u8cstr(mapName));
     fflassert(mapID);
+    fflassert(x >= 0);
+    fflassert(y >= 0);
+
+    fflassert(str_haschar(npcName));
+    fflassert(str_haschar(fullScriptName));
+    fflassert(filesys::hasFile(fullScriptName), fullScriptName);
 
     AMAddCharObject amACO;
     std::memset(&amACO, 0, sizeof(amACO));
 
     amACO.type  = UID_NPC;
     amACO.mapID = mapID;
-    amACO.x = -1;
-    amACO.y = -1;
+    amACO.x = x;
+    amACO.y = y;
     amACO.strictLoc = false;
 
     amACO.buf.assign(cerealf::serialize(SDInitNPChar
     {
-        .filePath = filePath,
-        .mapID    = mapID,
-        .npcName  = npcName,
+        .lookID = lookID,
+        .npcName = npcName,
+        .fullScriptName = fullScriptName,
+        .mapID = mapID,
+        .x = x,
+        .y = y,
+        .gfxDir = gfxDir,
     }));
 
-    addLog(LOGTYPE_INFO, "Try to add NPC, script: %s", to_cstr(scriptPath));
+    addLog(LOGTYPE_INFO, "Try to add NPC, script: %s", to_cstr(fullScriptName));
     switch(auto rmpk = SyncDriver().forward(uidf::getServiceCoreUID(), {AM_ADDCO, amACO}, 0, 0); rmpk.type()){
         case AM_UID:
             {
@@ -573,7 +558,7 @@ bool MonoServer::loadMap(const std::string &mapName)
     switch(const auto rmpk = SyncDriver().forward(uidf::getServiceCoreUID(), {AM_LOADMAP, amLM}); rmpk.type()){
         case AM_LOADMAPOK:
             {
-                addLog(LOGTYPE_INFO, "Load map %s: uid = %s", to_cstr(mapName), uidf::getUIDString(uidf::getMapUID(amLM.mapID)).c_str());
+                addLog(LOGTYPE_INFO, "Load map %s: uid = %s", to_cstr(mapName), uidf::getUIDString(uidf::getMapBaseUID(amLM.mapID)).c_str());
                 return true;
             }
         default:
@@ -596,7 +581,8 @@ std::vector<int> MonoServer::getMapList()
                 for(size_t nIndex = 0; nIndex < std::extent<decltype(amML.MapList)>::value; ++nIndex){
                     if(amML.MapList[nIndex]){
                         stMapList.push_back(to_d(amML.MapList[nIndex]));
-                    }else{
+                    }
+                    else{
                         break;
                     }
                 }
@@ -850,7 +836,7 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
 
     // register command quit
     // exit current command window and free all related resource
-    modulePtr->getLuaState().set_function("quit", [this, nCWID]()
+    modulePtr->bindFunction("quit", [this, nCWID]()
     {
         // 1. show exiting messages
         addCWLogString(nCWID, 0, "> ", "Command window is requested to exit now...");
@@ -864,7 +850,7 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
 
     // register command addCWLogString
     // print one line in command window, won't add message to log system
-    modulePtr->getLuaState().set_function("addCWLogString", [this, nCWID](sol::object logType, sol::object prompt, sol::object logInfo)
+    modulePtr->bindFunction("addCWLogString", [this, nCWID](sol::object logType, sol::object prompt, sol::object logInfo)
     {
         if(true
                 && logType.is<int>()
@@ -879,7 +865,7 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
     });
 
     // register command countMonster(monsterID, mapID)
-    modulePtr->getLuaState().set_function("countMonster", [this, nCWID](int nMonsterID, int nMapID) -> int
+    modulePtr->bindFunction("countMonster", [this, nCWID](int nMonsterID, int nMapID) -> int
     {
         auto nRet = getMonsterCount(nMonsterID, nMapID).value_or(-1);
         if(nRet < 0){
@@ -900,7 +886,7 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
     //      end
     // here we get an exception from lua caught by sol2: ``std::bad_alloc"
     // but we want more detailed information like print the function usage out
-    modulePtr->getLuaState().set_function("addMonster", [this, nCWID](int nMonsterID, int nMapID, sol::variadic_args stVariadicArgs) -> bool
+    modulePtr->bindFunction("addMonster", [this, nCWID](int nMonsterID, int nMapID, sol::variadic_args stVariadicArgs) -> bool
     {
         auto fnPrintUsage = [this, nCWID]()
         {
@@ -926,7 +912,8 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
                             && stArgList[0].is<int>()
                             && stArgList[1].is<int>()){
                         return addMonster(to_u32(nMonsterID), to_u32(nMapID), stArgList[0].as<int>(), stArgList[1].as<int>(), false);
-                    }else{
+                    }
+                    else{
                         fnPrintUsage();
                         return false;
                     }
@@ -938,7 +925,8 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
                             && stArgList[1].is<int >()
                             && stArgList[2].is<bool>()){
                         return addMonster(to_u32(nMonsterID), to_u32(nMapID), stArgList[0].as<int>(), stArgList[1].as<int>(), stArgList[2].as<bool>());
-                    }else{
+                    }
+                    else{
                         fnPrintUsage();
                         return false;
                     }
@@ -953,22 +941,22 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
 
     // register command mapList
     // return a table (userData) to lua for ipairs() check
-    modulePtr->getLuaState().set_function("getMapIDList", [this](sol::this_state stThisLua)
+    modulePtr->bindFunction("getMapIDList", [this](sol::this_state stThisLua)
     {
         return sol::make_object(sol::state_view(stThisLua), getMapList());
     });
 
-    modulePtr->getLuaState().set_function("loadMap", [this](std::string mapName)
+    modulePtr->bindFunction("loadMap", [this](std::string mapName)
     {
         return loadMap(mapName);
     });
 
-    modulePtr->getLuaState().set_function("getCWID", [nCWID]() -> int
+    modulePtr->bindFunction("getCWID", [nCWID]() -> int
     {
         return nCWID;
     });
 
-    modulePtr->getLuaState().set_function("history", [nCWID, this]()
+    modulePtr->bindFunction("history", [nCWID, this]()
     {
         for(const auto &s: g_mainWindow->getCWHistory(nCWID)){
             if(!s.empty()){
@@ -977,7 +965,7 @@ void MonoServer::regLuaExport(CommandLuaModule *modulePtr, uint32_t nCWID)
         }
     });
 
-    modulePtr->getLuaState().script(INCLUA_BEGIN(char)
+    modulePtr->pfrCheck(modulePtr->execRawString(BEGIN_LUAINC(char)
 #include "monoserver.lua"
-    INCLUA_END());
+    END_LUAINC()));
 }

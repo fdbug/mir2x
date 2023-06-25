@@ -1,11 +1,11 @@
 #include <cinttypes>
 #include "totype.hpp"
+#include "luaf.hpp"
 #include "mathf.hpp"
 #include "pathf.hpp"
 #include "player.hpp"
 #include "dbcomid.hpp"
 #include "friendtype.hpp"
-#include "dbcomrecord.hpp"
 #include "actorpod.hpp"
 #include "netdriver.hpp"
 #include "monoserver.hpp"
@@ -103,12 +103,12 @@ void Player::on_AM_ACTION(const ActorMsgPack &rstMPK)
         .direction = amA.action.direction,
     });
 
-    if(addedInView > 0){
-        dispatchAction(amA.UID, makeActionStand());
-    }
-
     if(distChanged){
         m_buffList.updateAura(amA.UID);
+    }
+
+    if(addedInView > 0){
+        dispatchAction(amA.UID, makeActionStand());
     }
 
     // always need to notify client for CO gets added/moved/removed
@@ -154,151 +154,6 @@ void Player::on_AM_MAPSWITCHTRIGGER(const ActorMsgPack &mpk)
     else{
         requestMapSwitch(amMST.mapID, amMST.X, amMST.Y, false);
     }
-}
-
-void Player::on_AM_NPCQUERY(const ActorMsgPack &mpk)
-{
-    const auto tokenList = parseNPCQuery(mpk.conv<AMNPCQuery>().query);
-    fflassert(!tokenList.empty());
-
-    const auto fnResp = [from = mpk.from(), seqID = mpk.seqID(), argX = X(), argY = Y(), argMapID = mapID(), argEvent = tokenList.front(), this](std::optional<std::string> value)
-    {
-        // capture all variables by copy
-        // this lambda can be registered into other callbacks
-
-        m_actorPod->forward(from, {AM_NPCEVENT, cerealf::serialize(SDNPCEvent
-        {
-            .x = argX,
-            .y = argY,
-            .mapID = argMapID,
-            .event = argEvent,
-            .value = std::move(value),
-        })}, seqID);
-    };
-
-    if(tokenList.front() == "GOLD"){
-        fnResp(std::to_string(m_sdItemStorage.gold));
-        return;
-    }
-
-    if(tokenList.front() == "LEVEL"){
-        fnResp(std::to_string(level()));
-        return;
-    }
-
-    if(tokenList.front() == "NAME"){
-        fnResp(m_name);
-        return;
-    }
-
-    if(tokenList.front() == "SECURE"){
-        const auto itemID = std::stoi(tokenList.at(1));
-        const auto  seqID = std::stoi(tokenList.at(2));
-        addSecuredItem(itemID, seqID);
-        fnResp("1");
-        return;
-    }
-
-    if(tokenList.front() == "GRANT"){
-        const auto itemID = std::stoi(tokenList.at(1));
-        const auto  count = std::stoi(tokenList.at(2));
-
-        const auto &ir = DBCOM_ITEMRECORD(itemID);
-        fflassert(ir);
-        fflassert(count > 0);
-
-        if(ir.isGold()){
-            setGold(getGold() + count);
-        }
-        else{
-            int added = 0;
-            while(added < count){
-                const auto &addedItem = addInventoryItem(SDItem
-                {
-                    .itemID = to_u32(itemID),
-                    .seqID  = 1,
-                    .count  = std::min<size_t>(ir.packable() ? SYS_INVGRIDMAXHOLD : 1, count - added),
-                }, false);
-                added += addedItem.count;
-            }
-        }
-
-        fnResp("1");
-        return;
-    }
-
-    if(tokenList.front() == "SHOWSECURED"){
-        reportSecuredItemList();
-        fnResp("1");
-        return;
-    }
-
-    if(tokenList.front() == "SPACEMOVE"){
-        const auto argMapID = std::stoi(tokenList.at(1));
-        const auto argX     = std::stoi(tokenList.at(2));
-        const auto argY     = std::stoi(tokenList.at(3));
-
-        if(to_u32(argMapID) == mapID()){
-            requestSpaceMove(argX, argY, false,
-            [fnResp]() mutable
-            {
-                fnResp("1");
-            },
-            [fnResp]() mutable
-            {
-                fnResp("0");
-            });
-        }
-        else{
-            requestMapSwitch(argMapID, argX, argY, false,
-            [fnResp]() mutable
-            {
-                fnResp("1");
-            },
-            [fnResp]() mutable
-            {
-                fnResp("0");
-            });
-        }
-        return;
-    }
-
-    if(tokenList.front() == "REMOVE"){
-        const auto argItemID = to_u32(std::stoi(tokenList.at(1)));
-        const auto argSeqID  = to_u32(std::stoi(tokenList.at(2)));
-        const auto argCount  = to_uz (std::stoi(tokenList.at(3)));
-
-        const auto &ir = DBCOM_ITEMRECORD(argItemID);
-        fflassert(ir);
-
-        if(ir.isGold()){
-            fflassert(argSeqID == 0);
-            if(m_sdItemStorage.gold >= argCount){
-                fnResp("1");
-                setGold(m_sdItemStorage.gold - argCount);
-            }
-            else{
-                fnResp("0");
-            }
-        }
-        else if(argSeqID > 0){
-            fflassert(argCount == 1);
-            const auto delCount = removeInventoryItem(argItemID, argSeqID);
-            fnResp(delCount ? "1" : "0");
-        }
-        else{
-            fflassert(argCount > 0);
-            if(hasInventoryItem(argItemID, argSeqID, argCount)){
-                removeInventoryItem(argItemID, 0, argCount);
-                fnResp("1");
-            }
-            else{
-                fnResp("0");
-            }
-        }
-        return;
-    }
-    fnResp(SYS_NPCERROR);
 }
 
 void Player::on_AM_QUERYLOCATION(const ActorMsgPack &rstMPK)
@@ -355,13 +210,15 @@ void Player::on_AM_ATTACK(const ActorMsgPack &mpk)
         .x = X(),
         .y = Y(),
         .direction = Direction(),
+        .fromUID = amA.UID,
     });
-    struckDamage(amA.damage);
+    struckDamage(amA.UID, amA.damage);
     reportAction(UID(), mapID(), ActionHitted
     {
         .x = X(),
         .y = Y(),
         .direction = Direction(),
+        .fromUID = amA.UID,
     });
 }
 
@@ -389,7 +246,7 @@ void Player::on_AM_ADDBUFF(const ActorMsgPack &mpk)
     fflassert(amAB.id);
     fflassert(DBCOM_BUFFRECORD(amAB.id));
 
-    checkFriend(amAB.from, [amAB, this](int friendType)
+    checkFriend(amAB.fromUID, [amAB, this](int friendType)
     {
         const auto &br = DBCOM_BUFFRECORD(amAB.id);
         fflassert(br);
@@ -398,20 +255,20 @@ void Player::on_AM_ADDBUFF(const ActorMsgPack &mpk)
             case FT_FRIEND:
                 {
                     if(br.favor >= 0){
-                        addBuff(amAB.from, amAB.id);
+                        addBuff(amAB.fromUID, amAB.fromBuffSeq, amAB.id);
                     }
                     return;
                 }
             case FT_ENEMY:
                 {
                     if(br.favor <= 0){
-                        addBuff(amAB.from, amAB.id);
+                        addBuff(amAB.fromUID, amAB.fromBuffSeq, amAB.id);
                     }
                     return;
                 }
             case FT_NEUTRAL:
                 {
-                    addBuff(amAB.from, amAB.id);
+                    addBuff(amAB.fromUID, amAB.fromBuffSeq, amAB.id);
                     return;
                 }
             default:
@@ -422,9 +279,18 @@ void Player::on_AM_ADDBUFF(const ActorMsgPack &mpk)
     });
 }
 
+void Player::on_AM_REMOVEBUFF(const ActorMsgPack &mpk)
+{
+    const auto amRB = mpk.conv<AMRemoveBuff>();
+    removeFromBuff(amRB.fromUID, amRB.fromBuffSeq, true);
+}
+
 void Player::on_AM_EXP(const ActorMsgPack &mpk)
 {
     const auto amE = mpk.conv<AMExp>();
+    if(!m_slaveList.contains(mpk.from()) && uidf::isMonster(mpk.from())){
+        m_luaRunner->spawn(m_threadKey++, str_printf("_RSVD_NAME_trigger(SYS_ON_KILL, %llu)", to_llu(uidf::getMonsterID(mpk.from()))));
+    }
     gainExp(amE.exp);
 }
 
@@ -454,7 +320,7 @@ void Player::on_AM_BADCHANNEL(const ActorMsgPack &mpk)
 {
     const auto amBC = mpk.conv<AMBadChannel>();
     fflassert(m_channID.has_value());
-    fflassert(m_channID.value() == amBC.channID);
+    fflassert(m_channID.value() == amBC.channID, m_channID.value(), amBC.channID);
 
     // AM_BADCHANNEL is sent by Channel::dtor
     // when player get this message the channel has already been destructed
@@ -471,6 +337,25 @@ void Player::on_AM_OFFLINE(const ActorMsgPack &rstMPK)
     std::memcpy(&amO, rstMPK.data(), sizeof(amO));
 
     reportOffline(amO.UID, amO.mapID);
+}
+
+void Player::on_AM_QUERYUIDBUFF(const ActorMsgPack &mpk)
+{
+    forwardNetPackage(mpk.from(), SM_BUFFIDLIST, cerealf::serialize(SDBuffIDList
+    {
+        .uid = UID(),
+        .idList = m_buffList.getIDList(),
+    }));
+}
+
+void Player::on_AM_QUERYPLAYERNAME(const ActorMsgPack &mpk)
+{
+    forwardNetPackage(mpk.from(), SM_PLAYERNAME, cerealf::serialize(SDPlayerName
+    {
+        .uid = UID(),
+        .name = name(),
+        .nameColor = nameColor(),
+    }));
 }
 
 void Player::on_AM_QUERYPLAYERWLDESP(const ActorMsgPack &mpk)
@@ -572,4 +457,87 @@ void Player::on_AM_CHECKMASTER(const ActorMsgPack &rstMPK)
 
     m_slaveList.insert(rstMPK.from());
     m_actorPod->forward(rstMPK.from(), {AM_CHECKMASTEROK, amCMOK}, rstMPK.seqID());
+}
+
+void Player::on_AM_REMOTECALL(const ActorMsgPack &mpk)
+{
+    const auto sdRC = mpk.deserialize<SDRemoteCall>();
+    m_luaRunner->spawn(m_threadKey++, mpk.fromAddr(), sdRC.code);
+}
+
+void Player::on_AM_REQUESTJOINTEAM(const ActorMsgPack &mpk)
+{
+    const auto sdRJT = mpk.deserialize<SDRequestJoinTeam>();
+    postNetMessage(SM_TEAMCANDIDATE, cerealf::serialize(SDTeamCandidate
+    {
+        .player = sdRJT.player, // can forward player's friend to the team leader
+    }));
+}
+
+void Player::on_AM_REQUESTLEAVETEAM(const ActorMsgPack &mpk)
+{
+    if(m_teamLeader == UID()){
+        for(const auto member: m_teamMemberList){
+            if(member != UID()){
+                m_actorPod->forward(member, AM_TEAMUPDATE);
+            }
+        }
+
+        m_teamMemberList.erase(std::remove(m_teamMemberList.begin(), m_teamMemberList.end(), mpk.from()), m_teamMemberList.end());
+        reportTeamMemberList();
+    }
+}
+
+void Player::on_AM_QUERYTEAMPLAYER(const ActorMsgPack &mpk)
+{
+    m_actorPod->forward(mpk.fromAddr(), {AM_TEAMPLAYER, cerealf::serialize(SDTeamPlayer
+    {
+        .uid = UID(),
+        .level = level(),
+        .name = name(),
+    })});
+}
+
+void Player::on_AM_TEAMUPDATE(const ActorMsgPack &mpk)
+{
+    m_actorPod->forward(mpk.from(), AM_QUERYTEAMMEMBERLIST, [this](const ActorMsgPack &rmpk)
+    {
+        switch(rmpk.type()){
+            case AM_TEAMMEMBERLIST:
+                {
+                    const auto sdTML = rmpk.deserialize<SDTeamMemberList>();
+                    if(sdTML.hasMember(UID())){
+                        fflassert(sdTML.teamLeader == rmpk.from());
+                    }
+
+                    if(sdTML.hasMember(UID())){
+                        m_teamLeader = rmpk.from();
+                        m_teamMemberList.clear();
+                        postNetMessage(SM_TEAMMEMBERLIST, cerealf::serialize(sdTML));
+                    }
+                    else{
+                        m_teamLeader = 0;
+                        m_teamMemberList.clear();
+                        postNetMessage(SM_TEAMMEMBERLIST, cerealf::serialize(SDTeamMemberList{}));
+                    }
+
+                    break;
+                }
+            default:
+                {
+                    m_teamLeader = 0;
+                    m_teamMemberList.clear();
+                    postNetMessage(SM_TEAMMEMBERLIST, cerealf::serialize(SDTeamMemberList{}));
+                    break;
+                }
+        }
+    });
+}
+
+void Player::on_AM_QUERYTEAMMEMBERLIST(const ActorMsgPack &mpk)
+{
+    pullTeamMemberList([mpk, this](std::optional<SDTeamMemberList> sdTML)
+    {
+        m_actorPod->forward(mpk.fromAddr(), {AM_TEAMMEMBERLIST, cerealf::serialize(sdTML.value())});
+    });
 }

@@ -1,109 +1,36 @@
-/*
- * =====================================================================================
- *
- *       Filename: clientpathfinder.cpp
- *        Created: 03/28/2017 21:15:25
- *    Description: class for path finding in ProcessRun
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
-#include "log.hpp"
-#include "client.hpp"
 #include "fflerror.hpp"
+#include "pathf.hpp"
 #include "processrun.hpp"
 #include "clientpathfinder.hpp"
 
-extern Log *g_log;
-extern Client *g_client;
-
-ClientPathFinder::ClientPathFinder(bool bCheckGround, int nCheckCreature, int nMaxStep)
-    : AStarPathFinder([this](int nSrcX, int nSrcY, int nDstX, int nDstY) -> double
+ClientPathFinder::ClientPathFinder(const ProcessRun *argProc, bool argCheckGround, int argCheckCreature, int argMaxStep)
+    : AStarPathFinder(1, argMaxStep, [this](int argSrcX, int argSrcY, int argSrcDir, int argDstX, int argDstY) -> std::optional<double>
       {
-          if(0){
-              if(true
-                      && MaxStep() != 1
-                      && MaxStep() != 2
-                      && MaxStep() != 3){
-                  throw fflerror("invalid MaxStep provided: %d, should be (1, 2, 3)", MaxStep());
-              }
+          fflassert(pathf::hopValid(maxStep(), argSrcX, argSrcY, argDstX, argDstY), maxStep(), argSrcX, argSrcY, pathf::dirName(argSrcDir), argDstX, argDstY);
+          return m_proc->oneStepCost(this, m_checkGround, m_checkCreature, argSrcX, argSrcY, argSrcDir, argDstX, argDstY);
+      })
 
-              int nDistance2 = mathf::LDistance2(nSrcX, nSrcY, nDstX, nDstY);
-              if(true
-                      && nDistance2 != 1
-                      && nDistance2 != 2
-                      && nDistance2 != MaxStep() * MaxStep()
-                      && nDistance2 != MaxStep() * MaxStep() * 2){
-                  throw fflerror("invalid step checked: (%d, %d) -> (%d, %d)", nSrcX, nSrcY, nDstX, nDstY);
-              }
-          }
-
-          auto pRun = (ProcessRun *)(g_client->ProcessValid(PROCESSID_RUN));
-
-          if(!pRun){
-              throw fflerror("ProcessRun is invalid");
-          }
-          return pRun->OneStepCost(this, m_checkGround, m_checkCreature, nSrcX, nSrcY, nDstX, nDstY);
-      }, nMaxStep)
-    , m_checkGround(bCheckGround)
-    , m_checkCreature(nCheckCreature)
+    , m_proc(argProc)
+    , m_checkGround(argCheckGround)
+    , m_checkCreature(argCheckCreature)
 {
-    switch(m_checkCreature){
-        case 0:
-        case 1:
-        case 2:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid CheckCreature provided: %d, should be (0, 1, 2)", m_checkCreature);
-            }
-    }
+    fflassert(m_proc);
 
-    switch(MaxStep()){
-        case 1:
-        case 2:
-        case 3:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid MaxStep provided: %d, should be (1, 2, 3)", MaxStep());
-            }
-    }
+    fflassert(m_checkCreature >= 0, m_checkCreature);
+    fflassert(m_checkCreature <= 2, m_checkCreature);
+
+    fflassert(maxStep() >= 1, maxStep());
+    fflassert(maxStep() <= 3, maxStep());
 }
 
-int ClientPathFinder::getGrid(int nX, int nY) const
+int ClientPathFinder::getGrid(int argX, int argY) const
 {
-    auto pRun = (ProcessRun *)(g_client->ProcessValid(PROCESSID_RUN));
-
-    if(!pRun){
-        throw fflerror("ProcessRun is invalid");
+    if(!m_proc->validC(argX, argY)){
+        return PF_NONE;
     }
 
-    if(!pRun->validC(nX, nY)){
-        return PathFind::INVALID;
-    }
-
-    int32_t nX32 = nX;
-    int32_t nY32 = nY;
-
-    uint64_t nKey = (to_u64(nX32) << 32) | nY32;
-    if(auto p = m_cache.find(nKey); p != m_cache.end()){
+    if(const auto p = m_cache.find({argX, argY}); p != m_cache.end()){
         return p->second;
     }
-
-    auto nGrid = pRun->CheckPathGrid(nX, nY);
-    m_cache[nKey] = nGrid;
-    return nGrid;
+    return m_cache[{argX, argY}] = m_proc->checkPathGrid(argX, argY);
 }

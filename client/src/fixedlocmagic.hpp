@@ -1,24 +1,7 @@
-/*
- * =====================================================================================
- *
- *       Filename: fixedlocmagic.hpp
- *        Created: 08/07/2017 21:19:44
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
 #include <cstdlib>
+#include "pathf.hpp"
 #include "colorf.hpp"
 #include "totype.hpp"
 #include "fflerror.hpp"
@@ -43,7 +26,7 @@ class FixedLocMagic: public BaseMagic
             , m_x(x)
             , m_y(y)
         {
-            fflassert(m_gfxEntry.checkType(u8"固定"));
+            fflassert(m_gfxEntry->checkType(u8"固定"));
         }
 
     public:
@@ -204,7 +187,7 @@ class HellFire_RUN: public FixedLocMagic
             , m_fireRun1   (u8"地狱火", u8"运行", x, y, (dir + 1) % 2)
             , m_fireDir(dir)
         {
-            fflassert(directionValid(m_fireDir));
+            fflassert(pathf::dirValid(m_fireDir));
         }
 
     public:
@@ -259,7 +242,7 @@ class IceThorn_RUN: public FixedLocMagic
     public:
         bool done() const override
         {
-            return absFrame() >= std::max<int>(m_gfxEntry.frameCount, m_iceSlagFrameCount[0] + m_iceSlagFrameCount[1] + m_iceSlagFrameCount[2]);
+            return absFrame() >= std::max<int>(m_gfxEntry->frameCount, m_iceSlagFrameCount[0] + m_iceSlagFrameCount[1] + m_iceSlagFrameCount[2]);
         }
 
     private:
@@ -288,7 +271,7 @@ class IceThorn_RUN: public FixedLocMagic
     public:
         void drawViewOff(int viewX, int viewY, uint32_t modColor) const override
         {
-            if(absFrame() < m_gfxEntry.frameCount){
+            if(absFrame() < m_gfxEntry->frameCount){
                 FixedLocMagic::drawViewOff(viewX, viewY, modColor);
             }
         }
@@ -310,7 +293,7 @@ class IceThrust_RUN: public FixedLocMagic
             , m_iceRun1(x, y, (dir + 1) % 2)
             , m_iceDir(dir)
         {
-            fflassert(directionValid(m_iceDir));
+            fflassert(pathf::dirValid(m_iceDir));
         }
 
     public:
@@ -352,7 +335,7 @@ class SingleFrameEffect_RUN: public FixedLocMagic
         {
             fflassert(t1 >= 0);
             fflassert(t2 >  0);
-            fflassert(m_gfxEntry.frameCount == 1);
+            fflassert(m_gfxEntry->frameCount == 1);
         }
 
     public:

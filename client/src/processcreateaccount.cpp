@@ -14,17 +14,19 @@ extern PNGTexDB *g_progUseDB;
 extern SDLDevice *g_sdlDevice;
 
 ProcessCreateAccount::ProcessCreateAccount()
-	: Process()
+    : Process()
     , m_LBID        (DIR_UPLEFT, 0, 0, u8"账号"    , 1, 15, 0, colorf::WHITE + colorf::A_SHF(255))
     , m_LBPwd       (DIR_UPLEFT, 0, 0, u8"密码"    , 1, 15, 0, colorf::WHITE + colorf::A_SHF(255))
     , m_LBPwdConfirm(DIR_UPLEFT, 0, 0, u8"确认密码", 1, 15, 0, colorf::WHITE + colorf::A_SHF(255))
-	, m_boxID
+    , m_boxID
       {
           DIR_LEFT,
           m_x + 129 + 6, // offset + start of box in gfx + offset for input char
           m_y +  85,
           186,
           28,
+
+          false,
 
           2,
           15,
@@ -36,9 +38,9 @@ ProcessCreateAccount::ProcessCreateAccount()
 
           [this]()
           {
-              m_boxID        .focus(false);
-              m_boxPwd       .focus(true );
-              m_boxPwdConfirm.focus(false);
+              m_boxID        .setFocus(false);
+              m_boxPwd       .setFocus(true );
+              m_boxPwdConfirm.setFocus(false);
           },
           [this]()
           {
@@ -64,9 +66,9 @@ ProcessCreateAccount::ProcessCreateAccount()
 
           [this]()
           {
-              m_boxID        .focus(false);
-              m_boxPwd       .focus(false);
-              m_boxPwdConfirm.focus(true );
+              m_boxID        .setFocus(false);
+              m_boxPwd       .setFocus(false);
+              m_boxPwdConfirm.setFocus(true );
           },
           [this]()
           {
@@ -92,9 +94,9 @@ ProcessCreateAccount::ProcessCreateAccount()
 
           [this]()
           {
-              m_boxID        .focus(true );
-              m_boxPwd       .focus(false);
-              m_boxPwdConfirm.focus(false);
+              m_boxID        .setFocus(true );
+              m_boxPwd       .setFocus(false);
+              m_boxPwdConfirm.setFocus(false);
           },
           [this]()
           {
@@ -112,9 +114,15 @@ ProcessCreateAccount::ProcessCreateAccount()
           m_x + 189,
           m_y + 233,
           {
-              SYS_TEXNIL,
+              SYS_U32NIL,
               0X0800000B,
               0X0800000C,
+          },
+
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
           },
 
           nullptr,
@@ -138,7 +146,12 @@ ProcessCreateAccount::ProcessCreateAccount()
           DIR_UPLEFT,
           m_x + 400,
           m_y + 267,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -169,9 +182,9 @@ ProcessCreateAccount::ProcessCreateAccount()
           colorf::YELLOW + colorf::A_SHF(255)
       }
 {
-    m_boxID.focus(true);
-    m_boxPwd.focus(false);
-    m_boxPwdConfirm.focus(false);
+    m_boxID.setFocus(true);
+    m_boxPwd.setFocus(false);
+    m_boxPwdConfirm.setFocus(false);
 }
 
 void ProcessCreateAccount::update(double fUpdateTime)
@@ -251,7 +264,7 @@ void ProcessCreateAccount::processEvent(const SDL_Event &event)
                             for(size_t i = 0; i < std::extent_v<decltype(boxPtrList)>; ++i){
                                 if(boxPtrList[i]->focus()){
                                     for(size_t j = 0; j < std::extent_v<decltype(boxPtrList)>; ++j){
-                                        boxPtrList[j]->focus(j == ((i + 1) % std::extent_v<decltype(boxPtrList)>));
+                                        boxPtrList[j]->setFocus(j == ((i + 1) % std::extent_v<decltype(boxPtrList)>));
                                     }
                                     break;
                                 }

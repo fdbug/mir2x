@@ -1,22 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: actionnode.hpp
- *        Created: 04/06/2017 13:03:56
- *    Description:
- *
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <cstdint>
 #include <cstring>
@@ -49,15 +30,21 @@ struct ActionNode
     uint16_t speed     : 9;
     uint16_t direction : 5;
 
-    uint16_t x;
-    uint16_t y;
-    uint16_t aimX;
-    uint16_t aimY;
-    uint64_t aimUID;
+    int16_t x;
+    int16_t y;
+
+    int16_t aimX;
+    int16_t aimY;
+
+    union
+    {
+        uint64_t  aimUID;
+        uint64_t fromUID; // for ACTION_HITTED
+    };
 
     struct ExtParamStand
     {
-        struct DogStand
+        struct TaoDogStand
         {
             uint8_t standMode;
         };
@@ -99,7 +86,7 @@ struct ActionNode
 
         union
         {
-            DogStand dog;
+            TaoDogStand dog;
             CannibalPlantStand cannibalPlant;
             SandGhostStand sandGhost;
             RebornZombieStand rebornZombie;
@@ -112,7 +99,7 @@ struct ActionNode
 
     struct ExtParamTransf
     {
-        struct DogTransf
+        struct TaoDogTransf
         {
             uint8_t standModeReq;
         };
@@ -149,7 +136,7 @@ struct ActionNode
 
         union
         {
-            DogTransf dog;
+            TaoDogTransf dog;
             CannibalPlantTransf cannibalPlant;
             SandGhostTransf sandGhost;
             RebornZombieTransf rebornZombie;
@@ -161,14 +148,14 @@ struct ActionNode
 
     struct ExtParamDie
     {
-        struct DogDie
+        struct TaoDogDie
         {
             uint8_t standMode;
         };
 
         union
         {
-            DogDie dog;
+            TaoDogDie dog;
         };
     };
 
@@ -192,14 +179,14 @@ struct ActionNode
 
     struct ExtParamHitted
     {
-        struct DogHitted
+        struct TaoDogHitted
         {
             uint8_t standMode;
         };
 
         union
         {
-            DogHitted dog;
+            TaoDogHitted dog;
         };
     };
 
@@ -480,6 +467,7 @@ struct ActionHitted
     const int x = -1;
     const int y = -1;
     const int direction = DIR_NONE;
+    const uint64_t fromUID = 0;
     const ActionNode::ExtParamHitted extParam = {};
 
     operator ActionNode () const
@@ -492,6 +480,7 @@ struct ActionHitted
         node.x = x;
         node.y = y;
         node.direction = direction;
+        node.fromUID = fromUID;
 
         node.extParam.hitted = extParam;
         return node;

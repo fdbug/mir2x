@@ -3,7 +3,6 @@
 #include "mathf.hpp"
 #include "fflerror.hpp"
 #include "combatnode.hpp"
-#include "dbcomrecord.hpp"
 
 int CombatNode::randPickDC() const
 {
@@ -54,7 +53,7 @@ CombatNode getCombatNode(const SDWear & wear, const SDLearnedMagicList &magicLis
 
             node.dc[0] += ir.equip.dc[0];
             node.dc[1] += ir.equip.dc[1];
-            node.dc[1] += item.getExtAttr<int>(SDItem::EA_DC).value_or(0);
+            node.dc[1] += item.getExtAttr<SDItem::EA_DC_t>().value_or(0);
 
             node.mac[0] += ir.equip.mac[0];
             node.mac[1] += ir.equip.mac[1];

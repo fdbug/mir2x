@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: actorpool.hpp
- *        Created: 09/02/2018 18:20:15
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <map>
 #include <mutex>
@@ -31,7 +13,6 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include "uidf.hpp"
-#include "condcheck.hpp"
 #include "raiitimer.hpp"
 #include "actormsgpack.hpp"
 #include "actormonitor.hpp"
@@ -370,7 +351,7 @@ class ActorPool final
                             if(m_expected != MAILBOX_DETACHED){
                                 // big error here and should never happen
                                 // someone stolen the mailbox without accquire the lock
-                                condcheck(m_expected == MAILBOX_DETACHED);
+                                std::abort();
                             }
                         }
                     }

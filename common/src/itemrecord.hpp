@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include "protocoldef.hpp"
 
@@ -79,7 +80,25 @@ struct ItemRecord
 
         const struct WeaponAttr
         {
-            const bool doubleHand = false;
+            const int mine = 0;
+            const int doubleHand = 0;
+            const std::u8string_view category {}; // weapon category, used for sound effect
+                                                  // etorth/CBWCQ3 doesn't have this, possible values:
+                                                  //
+                                                  //     飞镖   ：标枪，袖里剑
+                                                  //     匕首   : 短剑，匕首
+                                                  //     木剑   : 木剑，桃木剑，乌木剑
+                                                  //     剑     :
+                                                  //     刀     :
+                                                  //     斧     :
+                                                  //     锏     : 裁决之杖
+                                                  //     镐     : 鹤嘴锄，风之鹤嘴锄
+                                                  //     棍     : 无极棍
+                                                  //     扇     : 逍遥扇
+                                                  //     法杖   ：魔杖，噬魂，天神法杖
+                                                  //
+                                                  // still there are some weapons hard to give a category like 铁轮，泰伦拂尘，etc
+                                                  // take them as 法杖 for now
         }
         weapon {};
     }
@@ -181,5 +200,45 @@ struct ItemRecord
     constexpr bool isWeapon() const
     {
         return std::u8string_view(type) == u8"武器";
+    }
+
+    constexpr bool isRing() const
+    {
+        return std::u8string_view(type) == u8"戒指";
+    }
+
+    constexpr bool isHelmet() const
+    {
+        return std::u8string_view(type) == u8"头盔";
+    }
+
+    constexpr bool isBook() const
+    {
+        return std::u8string_view(type) == u8"技能书";
+    }
+
+    constexpr bool isPotion() const
+    {
+        return std::u8string_view(type) == u8"恢复药水";
+    }
+
+    constexpr bool isDope() const
+    {
+        return std::u8string_view(type) == u8"强效药水";
+    }
+
+    constexpr std::optional<bool> clothGender() const
+    {
+        if(type && (std::u8string_view(type) == u8"衣服")){
+            if(name){
+                if(std::u8string_view(name).find(u8"（男）") != std::u8string_view::npos){
+                    return true;
+                }
+                else if(std::u8string_view(name).find(u8"（女）") != std::u8string_view::npos){
+                    return false;
+                }
+            }
+        }
+        return {};
     }
 };

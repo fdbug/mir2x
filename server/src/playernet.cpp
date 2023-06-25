@@ -1,29 +1,12 @@
-/*
- * =====================================================================================
- *
- *       Filename: playernet.cpp
- *        Created: 05/19/2016 15:26:25
- *    Description: how player respond for different net package
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cinttypes>
 #include "player.hpp"
 #include "message.hpp"
 #include "actorpod.hpp"
 #include "monoserver.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
+#include "serverargparser.hpp"
 
+extern ServerArgParser *g_serverArgParser;
 void Player::net_CM_ACTION(uint8_t, const uint8_t *pBuf, size_t)
 {
     CMAction cmA;
@@ -95,7 +78,7 @@ void Player::net_CM_REQUESTSPACEMOVE(uint8_t, const uint8_t *buf, size_t)
 void Player::net_CM_REQUESTMAGICDAMAGE(uint8_t, const uint8_t *buf, size_t)
 {
     const auto cmRMD = ClientMsg::conv<CMRequestMagicDamage>(buf);
-    dispatchAttackDamage(cmRMD.aimUID, DBCOM_MAGICID(u8"物理攻击"));
+    dispatchAttackDamage(cmRMD.aimUID, DBCOM_MAGICID(u8"物理攻击"), 0);
 }
 
 void Player::net_CM_REQUESTADDEXP(uint8_t, const uint8_t *buf, size_t)
@@ -200,6 +183,7 @@ void Player::net_CM_NPCEVENT(uint8_t, const uint8_t *buf, size_t bufLen)
         .y = Y(),
         .mapID = mapID(),
 
+        .path = cmNPCE.path,
         .event = cmNPCE.event,
         .value = [&cmNPCE]() -> std::optional<std::string>
         {
@@ -219,6 +203,48 @@ void Player::net_CM_QUERYSELLITEMLIST(uint8_t, const uint8_t *buf, size_t)
     std::memset(&amQSIL, 0, sizeof(amQSIL));
     amQSIL.itemID = cmQSIL.itemID;
     m_actorPod->forward(cmQSIL.npcUID, {AM_QUERYSELLITEMLIST, amQSIL});
+}
+
+void Player::net_CM_QUERYUIDBUFF(uint8_t, const uint8_t *buf, size_t)
+{
+    const auto cmQUIDB = ClientMsg::conv<CMQueryUIDBuff>(buf);
+    if(cmQUIDB.uid == UID()){
+        postNetMessage(SM_BUFFIDLIST, cerealf::serialize(SDBuffIDList
+        {
+            .uid = UID(),
+            .idList = m_buffList.getIDList(),
+        }));
+    }
+    else{
+        switch(uidf::getUIDType(cmQUIDB.uid)){
+            case UID_PLY:
+            case UID_MON:
+                {
+                    m_actorPod->forward(cmQUIDB.uid, AM_QUERYUIDBUFF);
+                    break;
+                }
+            default:
+                {
+                    throw fflerror("invalid uid: %llu, type: %s", to_llu(cmQUIDB.uid), uidf::getUIDTypeCStr(cmQUIDB.uid));
+                }
+        }
+    }
+}
+
+void Player::net_CM_QUERYPLAYERNAME(uint8_t, const uint8_t *buf, size_t)
+{
+    const auto cmQPN = ClientMsg::conv<CMQueryPlayerName>(buf);
+    if(cmQPN.uid == UID()){
+        postNetMessage(SM_PLAYERNAME, cerealf::serialize(SDPlayerName
+        {
+            .uid = UID(),
+            .name = name(),
+            .nameColor = nameColor(),
+        }));
+    }
+    else if(uidf::isPlayer(cmQPN.uid)){
+        m_actorPod->forward(cmQPN.uid, AM_QUERYPLAYERNAME);
+    }
 }
 
 void Player::net_CM_QUERYPLAYERWLDESP(uint8_t, const uint8_t *buf, size_t)
@@ -423,16 +449,12 @@ void Player::net_CM_REQUESTEQUIPWEAR(uint8_t, const uint8_t *buf, size_t)
         addInventoryItem(currItem, false);
     }
 
-    if(const auto buffIDOpt = item.getExtAttr<uint32_t>(SDItem::EA_BUFFID); buffIDOpt.has_value() && buffIDOpt.value()){
-        if(const auto [tag, pbuff] = addBuff(UID(), buffIDOpt.value()); pbuff){
-            if(const auto auraList = pbuff->getAuraList(); !auraList.empty()){
-                pbuff->dispatchAura();
-            }
-
-            m_onWearOff[wltype] = [tag, this]()
+    if(const auto buffIDOpt = item.getExtAttr<SDItem::EA_BUFFID_t>(); buffIDOpt.has_value() && buffIDOpt.value()){
+        if(const auto pbuff = addBuff(UID(), 0, buffIDOpt.value())){
+            addWLOffTrigger(wltype, [buffSeq = pbuff->buffSeq(), this]()
             {
-                m_buffList.erase(tag);
-            };
+                removeBuff(buffSeq, true);
+            });
         }
     }
 }
@@ -527,10 +549,10 @@ void Player::net_CM_REQUESTGRABWEAR(uint8_t, const uint8_t *buf, size_t)
         .item = addedItem,
     }));
 
-    if(auto cbp = m_onWearOff.find(wltype); cbp != m_onWearOff.end()){
+    if(auto cbp = m_onWLOff.find(wltype); cbp != m_onWLOff.end()){
         fflassert(cbp->second);
         cbp->second();
-        m_onWearOff.erase(cbp);
+        m_onWLOff.erase(cbp);
     }
 }
 
@@ -567,6 +589,77 @@ void Player::net_CM_REQUESTGRABBELT(uint8_t, const uint8_t *buf, size_t)
     }));
 }
 
+void Player::net_CM_REQUESTJOINTEAM(uint8_t, const uint8_t *buf, size_t)
+{
+    const auto cmRJT = ClientMsg::conv<CMRequestJoinTeam>(buf);
+    if(!uidf::isPlayer(cmRJT.uid)){
+        return;
+    }
+
+    if(cmRJT.uid == UID()){
+        if(m_teamLeader){
+            SMTeamError smTE;
+            std::memset(&smTE, 0, sizeof(smTE));
+            smTE.error = TEAMERR_INTEAM;
+            postNetMessage(SM_TEAMERROR, smTE);
+        }
+        else{
+            m_teamLeader = UID();
+            m_teamMemberList = std::vector<uint64_t>{UID()};
+            reportTeamMemberList();
+        }
+    }
+    else if(m_teamLeader == UID()){
+        m_teamMemberList.push_back(cmRJT.uid);
+        m_actorPod->forward(cmRJT.uid, AM_TEAMUPDATE);
+        reportTeamMemberList();
+    }
+    else{
+        m_actorPod->forward(cmRJT.uid, {AM_REQUESTJOINTEAM, cerealf::serialize(SDRequestJoinTeam
+        {
+            .player
+            {
+                .uid = UID(),
+                .level = level(),
+                .name = name(),
+            },
+        })});
+    }
+}
+
+void Player::net_CM_REQUESTLEAVETEAM(uint8_t, const uint8_t *buf, size_t)
+{
+    const auto cmRLT = ClientMsg::conv<CMRequestLeaveTeam>(buf);
+    if(!uidf::isPlayer(cmRLT.uid)){
+        return;
+    }
+
+    if(!m_teamLeader){
+        return;
+    }
+
+    if(m_teamLeader == UID()){
+        for(const auto member: m_teamMemberList){
+            if(member != UID()){
+                m_actorPod->forward(member, AM_TEAMUPDATE);
+            }
+        }
+
+        if(cmRLT.uid == UID()){
+            m_teamLeader = 0;
+            m_teamMemberList.clear();
+        }
+        else{
+            m_teamMemberList.erase(std::remove(m_teamMemberList.begin(), m_teamMemberList.end(), cmRLT.uid), m_teamMemberList.end());
+        }
+
+        reportTeamMemberList();
+    }
+    else if(cmRLT.uid == UID()){
+        m_actorPod->forward(m_teamLeader, AM_REQUESTLEAVETEAM);
+    }
+}
+
 void Player::net_CM_DROPITEM(uint8_t, const uint8_t *buf, size_t)
 {
     const auto cmDI = ClientMsg::conv<CMDropItem>(buf);
@@ -601,42 +694,85 @@ void Player::net_CM_DROPITEM(uint8_t, const uint8_t *buf, size_t)
 
 void Player::net_CM_CONSUMEITEM(uint8_t, const uint8_t *buf, size_t)
 {
-    const auto cmCI = ClientMsg::conv<CMDropItem>(buf);
-    fflassert(SDItem
+    const auto cmCI = ClientMsg::conv<CMConsumeItem>(buf);
+    fflassert((SDItem
     {
         .itemID = cmCI.itemID,
         .seqID = cmCI.seqID,
         .count = to_uz(cmCI.count),
-    });
+    }));
 
     const auto &ir = DBCOM_ITEMRECORD(cmCI.itemID);
     fflassert(ir);
 
-    if(to_u8sv(ir.type) == u8"技能书"){
-        const uint32_t magicID = DBCOM_MAGICID(ir.name);
-        if(m_sdLearnedMagicList.has(magicID)){
-            postNetMessage(SM_TEXT, str_printf(u8"你已掌握%s", to_cstr(ir.name)));
-            return;
-        }
-        else{
-            m_sdLearnedMagicList.magicList.push_back(SDLearnedMagic
-            {
-                .magicID = magicID,
-            });
-
-            dbLearnMagic(DBCOM_MAGICID(ir.name));
-            postNetMessage(SM_TEXT, str_printf(u8"学习%s", to_cstr(ir.name)));
-            postNetMessage(SM_LEARNEDMAGICLIST, cerealf::serialize(m_sdLearnedMagicList));
-        }
+    bool consumed = false;
+    if(ir.isBook()){
+        consumed = consumeBook(cmCI.itemID);
+    }
+    else if(ir.isPotion()){
+        consumed = consumePotion(cmCI.itemID);
     }
     else{
         // TODO
     }
-    removeInventoryItem(cmCI.itemID, cmCI.seqID, cmCI.count);
+
+    if(consumed){
+        removeInventoryItem(cmCI.itemID, cmCI.seqID, cmCI.count);
+    }
+}
+
+void Player::net_CM_MAKEITEM(uint8_t, const uint8_t *buf, size_t)
+{
+    const auto cmMI = ClientMsg::conv<CMMakeItem>(buf);
+    fflassert(cmMI.count > 1, cmMI.count);
+
+    const auto &ir = DBCOM_ITEMRECORD(cmMI.itemID);
+    fflassert(ir, cmMI.itemID, cmMI.count);
+
+    size_t done = 0;
+    while(done < cmMI.count){
+        const SDItem item
+        {
+            .itemID = cmMI.itemID,
+            .count = ir.packable() ? std::min<size_t>(SYS_INVGRIDMAXHOLD, cmMI.count - done) : to_uz(1),
+        };
+
+        fflassert(item, item.itemID, item.count);
+        addInventoryItem(item, false);
+
+        done += item.count;
+    }
 }
 
 void Player::net_CM_SETMAGICKEY(uint8_t, const uint8_t *buf, size_t)
 {
-    const auto cmRC = ClientMsg::conv<CMSetMagicKey>(buf);
-    dbUpdateMagicKey(cmRC.magicID, cmRC.key);
+    const auto cmSMK = ClientMsg::conv<CMSetMagicKey>(buf);
+    dbUpdateMagicKey(cmSMK.magicID, cmSMK.key);
+}
+
+void Player::net_CM_SETRUNTIMECONFIG(uint8_t, const uint8_t *buf, size_t)
+{
+    const auto cmSRC = ClientMsg::conv<CMSetRuntimeConfig>(buf);
+    bool needUpdate = false;
+
+    const auto fnCheckUpdate = [&needUpdate](auto &oldVal, auto &newVal)
+    {
+        if(const auto val = check_cast<std::remove_cvref_t<decltype(oldVal)>>(newVal); val != oldVal){
+            oldVal = val;
+            needUpdate = true;
+        }
+    };
+
+    fnCheckUpdate(m_sdPlayerConfig.runtimeConfig.bgm, cmSRC.bgm);
+    fnCheckUpdate(m_sdPlayerConfig.runtimeConfig.bgmValue, cmSRC.bgmValue);
+
+    fnCheckUpdate(m_sdPlayerConfig.runtimeConfig.soundEff, cmSRC.soundEff);
+    fnCheckUpdate(m_sdPlayerConfig.runtimeConfig.soundEffValue, cmSRC.soundEffValue);
+
+    fnCheckUpdate(m_sdPlayerConfig.runtimeConfig.ime, cmSRC.ime);
+    fnCheckUpdate(m_sdPlayerConfig.runtimeConfig.attackMode, cmSRC.attackMode);
+
+    if(needUpdate){
+        dbUpdateRuntimeConfig();
+    }
 }

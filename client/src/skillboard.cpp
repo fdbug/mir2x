@@ -1,27 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename: skillboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "dbcomid.hpp"
 #include "pngtexdb.hpp"
 #include "sdldevice.hpp"
 #include "processrun.hpp"
 #include "skillboard.hpp"
-#include "dbcomrecord.hpp"
 #include "tritexbutton.hpp"
 
 extern PNGTexDB *g_progUseDB;
@@ -80,7 +61,7 @@ void SkillBoard::SkillBoardConfig::setMagicKey(uint32_t magicID, std::optional<c
 }
 
 SkillBoard::MagicIconButton::MagicIconButton(int argX, int argY, uint32_t argMagicID, SkillBoardConfig *configPtr, ProcessRun *proc, Widget *widgetPtr, bool autoDelete)
-    : WidgetGroup
+    : WidgetContainer
       {
           DIR_UPLEFT,
           argX,
@@ -122,6 +103,12 @@ SkillBoard::MagicIconButton::MagicIconButton(int argX, int argY, uint32_t argMag
               SkillBoard::getMagicIconGfx(argMagicID).magicIcon,
           },
 
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              SYS_U32NIL,
+          },
+
           nullptr,
           nullptr,
           nullptr,
@@ -146,7 +133,7 @@ SkillBoard::MagicIconButton::MagicIconButton(int argX, int argY, uint32_t argMag
 void SkillBoard::MagicIconButton::drawEx(int dstX, int dstY, int srcX, int srcY, int srcW, int srcH) const
 {
     if(const auto levelOpt = m_config->getMagicLevel(magicID()); levelOpt.has_value()){
-        WidgetGroup::drawEx(dstX, dstY, srcX, srcY, srcW, srcH);
+        WidgetContainer::drawEx(dstX, dstY, srcX, srcY, srcW, srcH);
 
         const LabelBoard magicLevel
         {
@@ -186,7 +173,7 @@ void SkillBoard::MagicIconButton::drawEx(int dstX, int dstY, int srcX, int srcY,
 }
 
 SkillBoard::SkillPage::SkillPage(uint32_t pageImage, SkillBoardConfig *configPtr, ProcessRun *proc, Widget *widgetPtr, bool autoDelete)
-    : WidgetGroup
+    : WidgetContainer
       {
           DIR_UPLEFT,
           SkillBoard::getPageRectange().at(0),
@@ -243,7 +230,7 @@ void SkillBoard::SkillPage::drawEx(int dstX, int dstY, int srcX, int srcY, int s
             g_sdlDevice->drawTexture(texPtr, dstXCrop, dstYCrop, srcXCrop, srcYCrop, srcWCrop, srcHCrop);
         }
     }
-    WidgetGroup::drawEx(dstX, dstY, srcX, srcY, srcW, srcH);
+    WidgetContainer::drawEx(dstX, dstY, srcX, srcY, srcW, srcH);
 }
 
 SkillBoard::SkillBoard(int argX, int argY, ProcessRun *runPtr, Widget *widgetPtr, bool autoDelete)
@@ -294,9 +281,15 @@ SkillBoard::SkillBoard(int argX, int argY, ProcessRun *runPtr, Widget *widgetPtr
                   tabY,
 
                   {
-                      SYS_TEXNIL,
+                      SYS_U32NIL,
                       0X05000020 + to_u32(i),
                       0X05000030 + to_u32(i),
+                  },
+
+                  {
+                      SYS_U32NIL,
+                      SYS_U32NIL,
+                      0X01020000 + 105,
                   },
 
                   [i, this]()
@@ -328,13 +321,13 @@ SkillBoard::SkillBoard(int argX, int argY, ProcessRun *runPtr, Widget *widgetPtr
                       m_tabButtonList.at(m_selectedTabIndex)->setOff();
                       m_tabButtonList.at(m_selectedTabIndex)->setTexID(
                       {
-                          SYS_TEXNIL,
+                          SYS_U32NIL,
                           0X05000020 + to_u32(m_selectedTabIndex),
                           0X05000030 + to_u32(m_selectedTabIndex),
                       });
 
                       m_selectedTabIndex = i;
-                      m_slider.setValue(0);
+                      m_slider.setValue(0, false);
 
                       const auto r = getPageRectange();
                       for(auto pagePtr: m_skillPageList){
@@ -370,10 +363,11 @@ SkillBoard::SkillBoard(int argX, int argY, ProcessRun *runPtr, Widget *widgetPtr
           DIR_UPLEFT,
           326,
           74,
-
+          5,
           266,
-          2,
 
+          false,
+          0,
           [this](float value)
           {
               const auto r = SkillBoard::getPageRectange();
@@ -391,13 +385,18 @@ SkillBoard::SkillBoard(int argX, int argY, ProcessRun *runPtr, Widget *widgetPtr
           DIR_UPLEFT,
           317,
           402,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
+              setShow(false);
           },
 
           0,
@@ -411,7 +410,7 @@ SkillBoard::SkillBoard(int argX, int argY, ProcessRun *runPtr, Widget *widgetPtr
       }
     , m_processRun(runPtr)
 {
-    show(false);
+    setShow(false);
     if(auto texPtr = g_progUseDB->retrieve(0X05000000)){
         std::tie(m_w, m_h) = SDLDeviceHelper::getTextureSize(texPtr);
     }
@@ -444,11 +443,16 @@ bool SkillBoard::MagicIconButton::processEvent(const SDL_Event &event, bool vali
     const auto result = m_icon.processEvent(event, valid);
     if(event.type == SDL_KEYDOWN && cursorOn()){
         if(const auto key = SDLDeviceHelper::getKeyChar(event, false); (key >= '0' && key <= '9') || (key >= 'a' && key <= 'z')){
-            if(!SkillBoard::getMagicIconGfx(magicID()).passive){
-                m_config->setMagicKey(magicID(), key);
-                m_processRun->requestSetMagicKey(magicID(), key);
+            if(m_config->hasMagicID(magicID())){
+                if(SkillBoard::getMagicIconGfx(magicID()).passive){
+                    m_processRun->addCBLog(CBLOG_SYS, u8"无法为被动技能设置快捷键：%s", to_cstr(DBCOM_MAGICRECORD(magicID()).name));
+                }
+                else{
+                    m_config->setMagicKey(magicID(), key);
+                    m_processRun->requestSetMagicKey(magicID(), key);
+                }
             }
-            return focusConsume(this, true);
+            return consumeFocus(true);
         }
     }
     return result;
@@ -457,15 +461,15 @@ bool SkillBoard::MagicIconButton::processEvent(const SDL_Event &event, bool vali
 bool SkillBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(!show()){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(m_closeButton.processEvent(event, valid)){
-        return focusConsume(this, show());
+        return consumeFocus(show());
     }
 
     bool tabConsumed = false;
@@ -474,19 +478,19 @@ bool SkillBoard::processEvent(const SDL_Event &event, bool valid)
     }
 
     if(tabConsumed){
-        return focusConsume(this, true);
+        return consumeFocus(true);
     }
 
     if(m_slider.processEvent(event, valid)){
-        return focusConsume(this, true);
+        return consumeFocus(true);
     }
 
     const auto r = getPageRectange();
     const auto loc = SDLDeviceHelper::getMousePLoc();
-    const bool captureEvent = loc && mathf::pointInRectangle(loc.x, loc.y, x() + r[0], y() + r[1], r[2], r[3]);
+    const bool captureEvent = (loc.x >= 0 && loc.y >= 0) && mathf::pointInRectangle(loc.x, loc.y, x() + r[0], y() + r[1], r[2], r[3]);
 
     if(m_skillPageList.at(m_selectedTabIndex)->processEvent(event, captureEvent && valid)){
-        return focusConsume(this, true);
+        return consumeFocus(true);
     }
 
     switch(event.type){
@@ -501,20 +505,20 @@ bool SkillBoard::processEvent(const SDL_Event &event, bool valid)
                     const int newY = std::max<int>(0, std::min<int>(maxY, y() + event.motion.yrel));
 
                     moveBy(newX - x(), newY - y());
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
         case SDL_MOUSEBUTTONDOWN:
             {
                 switch(event.button.button){
                     case SDL_BUTTON_LEFT:
                         {
-                            return focusConsume(this, in(event.button.x, event.button.y));
+                            return consumeFocus(in(event.button.x, event.button.y));
                         }
                     default:
                         {
-                            return focusConsume(this, false);
+                            return consumeFocus(false);
                         }
                 }
             }
@@ -522,14 +526,14 @@ bool SkillBoard::processEvent(const SDL_Event &event, bool valid)
             {
                 auto pagePtr = m_skillPageList.at(m_selectedTabIndex);
                 if(captureEvent && (r[3] < pagePtr->h())){
-                    m_slider.addValue(event.wheel.y * -0.1f);
+                    m_slider.addValue(event.wheel.y * -0.1f, false);
                     pagePtr->moveTo(r[0], r[1] - (pagePtr->h() - r[3]) * m_slider.getValue());
                 }
-                return focusConsume(this, true);
+                return consumeFocus(true);
             }
         default:
             {
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
     }
 }

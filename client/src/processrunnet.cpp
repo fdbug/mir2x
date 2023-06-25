@@ -1,24 +1,5 @@
-/*
- * =====================================================================================
- *
- *       Filename: processrunnet.cpp
- *        Created: 08/31/2015 03:43:46
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <memory>
 #include <cstring>
-
 #include "log.hpp"
 #include "pathf.hpp"
 #include "client.hpp"
@@ -34,24 +15,30 @@
 #include "raiitimer.hpp"
 #include "sdldevice.hpp"
 #include "processrun.hpp"
-#include "dbcomrecord.hpp"
 #include "cerealf.hpp"
+#include "imeboard.hpp"
 #include "serdesmsg.hpp"
 #include "sdldevice.hpp"
 
+extern IMEBoard *g_imeBoard;
 extern SDLDevice *g_sdlDevice;
+
 void ProcessRun::net_STARTGAMESCENE(const uint8_t *buf, size_t bufSize)
 {
-    auto sdSGS = cerealf::deserialize<SDStartGameScene>(buf, bufSize);
-    loadMap(sdSGS.mapID, sdSGS.x, sdSGS.y);
+    const auto sdSGS = cerealf::deserialize<SDStartGameScene>(buf, bufSize);
 
-    m_myHeroUID = sdSGS.uid;
-    m_coList[m_myHeroUID].reset(new MyHero(m_myHeroUID, this, ActionStand
+    // verfy mapID and myHeroUID
+    // myHeroUID and mapID has been sent by smOnlineOK
+
+    fflassert(sdSGS.mapID == mapID(), sdSGS.mapID, mapID());
+    fflassert(sdSGS.uid == getMyHeroUID(), sdSGS.uid, getMyHeroUID());
+
+    getMyHero()->parseAction(ActionStand
     {
         .x = sdSGS.x,
         .y = sdSGS.y,
         .direction = DIR_DOWN,
-    }));
+    });
 
     getMyHero()->setName(to_cstr(sdSGS.name), sdSGS.nameColor);
     getMyHero()->setWLDesp(std::move(sdSGS.desp));
@@ -60,10 +47,12 @@ void ProcessRun::net_STARTGAMESCENE(const uint8_t *buf, size_t bufSize)
     getMyHero()->pullGold();
 }
 
-void ProcessRun::net_RUNTIMECONFIG(const uint8_t *buf, size_t bufSize)
+void ProcessRun::net_PLAYERCONFIG(const uint8_t *buf, size_t bufSize)
 {
-    const auto sdRC = cerealf::deserialize<SDRuntimeConfig>(buf, bufSize);
-    for(const auto &[magicID, key]: sdRC.magicKeyList.keyList){
+    const auto sdPC = cerealf::deserialize<SDPlayerConfig>(buf, bufSize);
+    dynamic_cast<RuntimeConfigBoard *>(getWidget("RuntimeConfigBoard"))->setConfig(sdPC.runtimeConfig);
+
+    for(const auto &[magicID, key]: sdPC.magicKeyList.keyList){
         dynamic_cast<SkillBoard *>(getWidget("SkillBoard"))->getConfig().setMagicKey(magicID, key);
     }
 }
@@ -131,7 +120,9 @@ void ProcessRun::net_ACTION(const uint8_t *bufPtr, size_t)
         // shouldn't accept ACTION_SPAWN
         // we shouldn't have spawn action after co created
         if(smA.action.type == ACTION_SPAWN){
-            throw fflerror("existing CO get spawn action: name = %s", uidf::getUIDString(smA.UID).c_str());
+            // TODO ACTION_SPAWN should be the first action
+            //      but current implementation sometimes ACTION_SPAWN comes later, ignore it
+            return;
         }
 
         // clear all pending action
@@ -183,6 +174,7 @@ void ProcessRun::net_ACTION(const uint8_t *bufPtr, size_t)
                                     {
                                         if(!m_actionBlocker.contains(smA.UID)){
                                             m_coList[smA.UID].reset(new ClientTaoSkeleton(smA.UID, this, smA.action));
+                                            queryUIDBuff(smA.UID);
                                         }
                                         return;
                                     }
@@ -190,6 +182,7 @@ void ProcessRun::net_ACTION(const uint8_t *bufPtr, size_t)
                                     {
                                         if(!m_actionBlocker.contains(smA.UID)){
                                             m_coList[smA.UID].reset(new ClientTaoSkeletonExt(smA.UID, this, smA.action));
+                                            queryUIDBuff(smA.UID);
                                         }
                                         return;
                                     }
@@ -197,12 +190,14 @@ void ProcessRun::net_ACTION(const uint8_t *bufPtr, size_t)
                                     {
                                         if(!m_actionBlocker.contains(smA.UID)){
                                             m_coList[smA.UID].reset(new ClientTaoDog(smA.UID, this, smA.action));
+                                            queryUIDBuff(smA.UID);
                                         }
                                         return;
                                     }
                                 default:
                                     {
                                         m_coList[smA.UID].reset(ClientMonster::create(smA.UID, this, smA.action));
+                                        queryUIDBuff(smA.UID);
                                         return;
                                     }
                             }
@@ -239,11 +234,13 @@ void ProcessRun::net_CORECORD(const uint8_t *bufPtr, size_t)
         case UID_MON:
             {
                 m_coList[smCOR.UID].reset(ClientMonster::create(smCOR.UID, this, smCOR.action));
+                queryUIDBuff(smCOR.UID);
                 break;
             }
         case UID_PLY:
             {
                 m_coList[smCOR.UID].reset(new Hero(smCOR.UID, this, smCOR.action));
+                queryUIDBuff(smCOR.UID);
                 queryPlayerWLDesp(smCOR.UID);
                 break;
             }
@@ -439,7 +436,15 @@ void ProcessRun::net_GROUNDFIREWALLLIST(const uint8_t *buf, size_t bufSize)
                     {
                         p->x,
                         p->y,
-                    }));
+                    }))->addTrigger([this](BaseMagic *magic)
+                    {
+                        if(const auto fireWallMagic = dynamic_cast<FireWall_RUN *>(magic)){
+                            if(const auto seffIDOpt = fireWallMagic->getSeffID(); seffIDOpt.has_value()){
+                                playSoundEffectAt(seffIDOpt.value(), fireWallMagic->x(), fireWallMagic->y());
+                            }
+                        }
+                        return true;
+                    });
                 }
             }
         }
@@ -460,7 +465,7 @@ void ProcessRun::net_CASTMAGIC(const uint8_t *bufPtr, size_t)
         case DBCOM_MAGICID(u8"魔法盾"):
             {
                 if(auto coPtr = findUID(smCM.UID)){
-                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"魔法盾", u8"开始")))->addOnDone([smCM, this](BaseMagic *)
+                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"魔法盾", u8"运行")))->addOnDone([smCM, this](BaseMagic *)
                     {
                         if(auto coPtr = findUID(smCM.UID)){
                             coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"魔法盾", u8"运行")));
@@ -472,7 +477,7 @@ void ProcessRun::net_CASTMAGIC(const uint8_t *bufPtr, size_t)
         case DBCOM_MAGICID(u8"阴阳法环"):
             {
                 if(auto coPtr = findUID(smCM.UID)){
-                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"阴阳法环", u8"开始")))->addOnDone([smCM, this](BaseMagic *)
+                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new AttachMagic(u8"阴阳法环", u8"运行")))->addOnDone([smCM, this](BaseMagic *)
                     {
                         if(auto coPtr = findUID(smCM.UID)){
                             coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new TaoYellowBlueRing()));
@@ -485,7 +490,15 @@ void ProcessRun::net_CASTMAGIC(const uint8_t *bufPtr, size_t)
         case DBCOM_MAGICID(u8"沃玛教主_雷电术"):
             {
                 if(auto coPtr = findUID(smCM.AimUID)){
-                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new Thunderbolt()));
+                    coPtr->addAttachMagic(std::unique_ptr<AttachMagic>(new Thunderbolt()))->addTrigger([smCM, this](BaseMagic *magic)
+                    {
+                        if(auto targetPtr = findUID(smCM.AimUID)){
+                            if(const auto seffIDOpt = magic->getSeffID(); seffIDOpt.has_value()){
+                                targetPtr->playSoundEffect(seffIDOpt.value());
+                            }
+                        }
+                        return true;
+                    });
                 }
                 return;
             }
@@ -533,7 +546,7 @@ void ProcessRun::net_STARTINVOP(const uint8_t *buf, size_t size)
     fflassert(size > 0);
     auto invBoardPtr = dynamic_cast<InventoryBoard *>(getWidget("InventoryBoard"));
 
-    invBoardPtr->show(true);
+    invBoardPtr->setShow(true);
     invBoardPtr->moveAt(DIR_UPRIGHT, g_sdlDevice->getRendererWidth() - 1, 0);
     invBoardPtr->startInvOp(cerealf::deserialize<SDStartInvOp>(buf, size));
 }
@@ -562,9 +575,9 @@ void ProcessRun::net_NPCXMLLAYOUT(const uint8_t *buf, size_t bufSize)
     auto npcChatBoardPtr  = dynamic_cast<NPCChatBoard  *>(getGUIManager()->getWidget("NPCChatBoard"));
     auto purchaseBoardPtr = dynamic_cast<PurchaseBoard *>(getGUIManager()->getWidget("PurchaseBoard"));
 
-    npcChatBoardPtr->loadXML(sdNPCXMLL.npcUID, sdNPCXMLL.xmlLayout.c_str());
-    npcChatBoardPtr->show(true);
-    purchaseBoardPtr->show(false);
+    npcChatBoardPtr->loadXML(sdNPCXMLL.npcUID, sdNPCXMLL.eventPath.c_str(), sdNPCXMLL.xmlLayout.c_str());
+    npcChatBoardPtr->setShow(true);
+    purchaseBoardPtr->setShow(false);
 }
 
 void ProcessRun::net_NPCSELL(const uint8_t *buf, size_t bufSize)
@@ -581,7 +594,7 @@ void ProcessRun::net_NPCSELL(const uint8_t *buf, size_t bufSize)
     }
 
     purchaseBoardPtr->loadSell(sdNPCS.npcUID, std::move(sdNPCS.itemList));
-    purchaseBoardPtr->show(true);
+    purchaseBoardPtr->setShow(true);
 }
 
 void ProcessRun::net_TEXT(const uint8_t *buf, size_t bufSize)
@@ -601,12 +614,12 @@ void ProcessRun::net_PLAYERWLDESP(const uint8_t *buf, size_t bufSize)
     }
 }
 
-void ProcessRun::net_PLAYERNAME(const uint8_t *buf, size_t)
+void ProcessRun::net_PLAYERNAME(const uint8_t *buf, size_t bufSize)
 {
-    const auto smPN = ServerMsg::conv<SMPlayerName>(buf);
-    if(uidf::getUIDType(smPN.uid) == UID_PLY){
-        if(auto playerPtr = dynamic_cast<Hero *>(findUID(smPN.uid)); playerPtr){
-            playerPtr->setName(smPN.name, smPN.nameColor);
+    const auto sdPN = cerealf::deserialize<SDPlayerName>(buf, bufSize);
+    if(uidf::isPlayer(sdPN.uid)){
+        if(auto playerPtr = dynamic_cast<Hero *>(findUID(sdPN.uid)); playerPtr){
+            playerPtr->setName(sdPN.name.c_str(), sdPN.nameColor);
         }
     }
 }
@@ -666,7 +679,7 @@ void ProcessRun::net_EQUIPWEAR(const uint8_t *buf, size_t bufSize)
     }
 
     if(auto coPtr = dynamic_cast<Hero *>(findUID(sdEW.uid))){
-        coPtr->setWLItem(sdEW.wltype, std::move(sdEW.item));
+        coPtr->setWLItem(sdEW.wltype, std::move(sdEW.item), sdEW.uid == m_myHeroUID);
     }
 }
 
@@ -804,7 +817,7 @@ void ProcessRun::net_STARTINPUT(const uint8_t *buf, size_t bufSize)
     inputBoardPtr->setSecurity(true);
     inputBoardPtr->waitInput(to_u8cstr(sdSI.title), [uid = sdSI.uid, commitTag = sdSI.commitTag, this](std::u8string input)
     {
-        sendNPCEvent(uid, commitTag, to_cstr(input));
+        sendNPCEvent(uid, {}, commitTag, to_cstr(input));
     });
 }
 
@@ -821,9 +834,19 @@ void ProcessRun::net_SHOWSECUREDITEMLIST(const uint8_t *buf, size_t bufSize)
     }
 
     itemBoardPtr->setItemList(std::move(cerealf::deserialize<SDShowSecuredItemList>(buf, bufSize).itemList));
-    itemBoardPtr->show(true);
+    itemBoardPtr->setShow(true);
 
     auto invBoardPtr = dynamic_cast<InventoryBoard *>(getWidget("InventoryBoard"));
-    invBoardPtr->show(true);
+    invBoardPtr->setShow(true);
     invBoardPtr->moveAt(DIR_UPRIGHT, g_sdlDevice->getRendererWidth() - 1, 0);
+}
+
+void ProcessRun::net_TEAMCANDIDATE(const uint8_t *buf, size_t bufSize)
+{
+    dynamic_cast<TeamStateBoard *>(getWidget("TeamStateBoard"))->addTeamCandidate(cerealf::deserialize<SDTeamCandidate>(buf, bufSize));
+}
+
+void ProcessRun::net_TEAMMEMBERLIST(const uint8_t *buf, size_t bufSize)
+{
+    dynamic_cast<TeamStateBoard *>(getWidget("TeamStateBoard"))->setTeamMemberList(cerealf::deserialize<SDTeamMemberList>(buf, bufSize));
 }

@@ -1,31 +1,17 @@
-/*
- * =====================================================================================
- *
- *       Filename: luamodule.hpp
- *        Created: 06/03/2017 20:24:34
- *    Description:
- *                 base class to register all functions, libs.
- *                 don't call lua error("..") from C++, it calls longmp, skips all dtors
- *
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// base class to register all functions, libs.
+// don't call lua error("..") from C++, it calls longmp, skips all dtors
 
 #pragma once
 #include <sol/sol.hpp>
+#include "strf.hpp"
+#include "filesys.hpp"
+#include "fflerror.hpp"
 
 class LuaModule
 {
     protected:
         sol::state m_luaState;
+        sol::environment m_replaceEnv;
 
     public:
         LuaModule();
@@ -39,8 +25,90 @@ class LuaModule
             return m_luaState;
         }
 
+    public:
+        sol::protected_function_result execFile(const char *path)
+        {
+            fflassert(     str_haschar(path), path);
+            fflassert(filesys::hasFile(path), path);
+
+            return m_luaState.script_file(path, [](lua_State *, sol::protected_function_result result)
+            {
+                // default handler
+                // do nothing and let the call site handle the errors
+                return result;
+            });
+        }
+
+        sol::protected_function_result execString(const char *format, ...)
+        {
+            std::string s;
+            str_format(format, s);
+            return execRawString(s.c_str());
+        }
+
+        sol::protected_function_result execRawString(const char *s)
+        {
+            // execString() fails when format contains lua string.format() string, like
+            //
+            //    execString(
+            //        "function my_error(err)                             ""\n"
+            //        "    error(string.format('dected error: %s', err))  ""\n"
+            //        "end                                                ""\n");
+            //
+            // we would like to take the lua code as raw string
+            // but it contains %s, execString() parses it incorrectly as format string
+
+            // execRawString() is only used to include lua file:
+            //
+            //    execRawString(BEGIN_LUAINC(char)
+            //        #include "xxx.lua"
+            //    END_LUAINC());
+            //
+            // in xxx.lua there can be string.format() calls and execRawString() doesn't parse it
+
+            return m_luaState.script(s, [](lua_State *, sol::protected_function_result result)
+            {
+                // default handler
+                // do nothing and let the call site handle the errors
+                return result;
+            });
+        }
+
+    public:
+        template<typename Callable> void bindFunction(const std::string &func, Callable && callable)
+        {
+            fflassert(str_haschar(func), func);
+            m_luaState.set_function(func, std::forward<Callable>(callable));
+        }
+
+        template<typename Callable> void bindYielding(const std::string &func, Callable && callable)
+        {
+            fflassert(str_haschar(func), func);
+            m_luaState[func] = sol::yielding(std::forward<Callable>(callable));
+        }
+
     protected:
         virtual void addLogString(int, const char8_t *) = 0;
+
+    public:
+        bool pfrCheck(const sol::protected_function_result &, const std::function<void(const std::string &)> & = nullptr); // parse if pfr is an error
+};
+
+struct LuaCORunner
+{
+    // sol::thread can be reused for multiple coroutines
+    // but I guess changes of previous coroutine persists in the thread stack
+
+    sol::thread runner;
+    sol::coroutine callback;
+
+    LuaCORunner(sol::state &s, const std::string &func)
+        : runner(sol::thread::create(s.lua_state()))
+        , callback(sol::state_view(runner.state())[func])
+    {
+        fflassert(str_haschar(func), func);
+        fflassert(callback, func);
+    }
 };
 
 // directives to include a lua file to C++ src code
@@ -48,9 +116,9 @@ class LuaModule
 //
 //     const auto s
 //     {
-//         INCLUA_BEGIN(char)
+//         BEGIN_LUAINC(char)
 //             #include "script.lua"
-//         INCLUA_END()
+//         END_LUAINC()
 //     };
 //
 // the script need to be in a special format
@@ -64,7 +132,7 @@ class LuaModule
 //     -- )###"      <-- required
 //
 
-#define INCLUA_BEGIN(script_byte_type) \
+#define BEGIN_LUAINC(script_byte_type) \
 []() \
 { \
     using _INCLUA_BYTE_TYPE = script_byte_type; \
@@ -75,7 +143,9 @@ class LuaModule
     { \
         _consume_decr_op
 
-#define INCLUA_END() \
+#define END_LUAINC() \
     }; \
     return (const _INCLUA_BYTE_TYPE *)(_use_second_cstr[1]); \
 }()
+
+static_assert(sizeof(lua_Integer) >= sizeof(uint64_t)); // make sure lua_Integer can hold any UID

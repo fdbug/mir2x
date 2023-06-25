@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: itemlistboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "strf.hpp"
 #include "client.hpp"
 #include "pngtexdb.hpp"
@@ -46,7 +28,12 @@ ItemListBoard::ItemListBoard(int argX, int argY, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           25,
           163,
-          {SYS_TEXNIL, 0X08000007, 0X08000008},
+          {SYS_U32NIL, 0X08000007, 0X08000008},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -71,7 +58,12 @@ ItemListBoard::ItemListBoard(int argX, int argY, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           67,
           163,
-          {SYS_TEXNIL, 0X08000005, 0X08000006},
+          {SYS_U32NIL, 0X08000005, 0X08000006},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -96,7 +88,12 @@ ItemListBoard::ItemListBoard(int argX, int argY, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           115,
           163,
-          {SYS_TEXNIL, 0X08000009, 0X0800000A},
+          {SYS_U32NIL, 0X08000009, 0X0800000A},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -121,14 +118,19 @@ ItemListBoard::ItemListBoard(int argX, int argY, Widget *widgetPtr, bool autoDel
           DIR_UPLEFT,
           158,
           159,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               onClose();
-              show(false);
+              setShow(false);
           },
 
           0,
@@ -142,7 +144,7 @@ ItemListBoard::ItemListBoard(int argX, int argY, Widget *widgetPtr, bool autoDel
           false,
       }
 {
-    show(false);
+    setShow(false);
     if(auto texPtr = g_progUseDB->retrieve(0X08000000)){
         std::tie(m_w, m_h) = SDLDeviceHelper::getTextureSize(texPtr);
     }
@@ -154,11 +156,11 @@ ItemListBoard::ItemListBoard(int argX, int argY, Widget *widgetPtr, bool autoDel
 bool ItemListBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(!show()){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(m_leftButton.processEvent(event, valid)){

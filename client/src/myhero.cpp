@@ -1,23 +1,6 @@
-/*
- * =====================================================================================
- *
- *       Filename: myhero.cpp
- *        Created: 08/31/2015 08:52:57 PM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <algorithm>
 #include "log.hpp"
+#include "pathf.hpp"
 #include "client.hpp"
 #include "myhero.hpp"
 #include "message.hpp"
@@ -65,9 +48,16 @@ bool MyHero::moveNextMotion()
     // oops we get invalid motion queue
     g_log->addLog(LOGTYPE_INFO, "Invalid motion queue:");
 
-    m_currMotion->print();
+    m_currMotion->print([](const std::string &s)
+    {
+        g_log->addLog(LOGTYPE_WARNING, "%s", s.c_str());
+    });
+
     for(auto &m: m_motionQueue){
-        m->print();
+        m->print([](const std::string &s)
+        {
+            g_log->addLog(LOGTYPE_WARNING, "%s", s.c_str());
+        });
     }
     throw fflerror("Current motion is not valid");
 }
@@ -342,14 +332,7 @@ bool MyHero::decompActionAttack()
                                     // one hop we can reach the attack location
                                     // but we know step size between (nX0, nY0) and (nX1, nY1) > 1
 
-                                    int nXm  = -1;
-                                    int nYm  = -1;
-                                    int nDir = PathFind::GetDirection(nX0, nY0, nX1, nY1);
-                                    PathFind::GetFrontLocation(&nXm, &nYm, nX0, nY0, nDir, 1);
-
-                                    nXt = nXm;
-                                    nYt = nYm;
-
+                                    std::tie(nXt, nYt) = pathf::getFrontGLoc(nX0, nY0, pathf::getOffDir(nX0, nY0, nX1, nY1), 1);
                                     break;
                                 }
                             default:
@@ -424,7 +407,7 @@ bool MyHero::decompActionSpell()
                 }
             default:
                 {
-                    return PathFind::GetDirection(nX0, nY0, nX1, nY1);
+                    return pathf::getOffDir(nX0, nY0, nX1, nY1);
                 }
         }
     };
@@ -446,7 +429,7 @@ bool MyHero::decompActionSpell()
     // otherwise server doesn't know client has made direction turn
     // when summon skeleton or dog it appears at wrong place, not in front
 
-    if(directionValid(standDir) && m_currMotion->direction != standDir){
+    if(pathf::dirValid(standDir) && m_currMotion->direction != standDir){
         m_actionQueue.emplace_front(ActionStand
         {
             .x = currAction.x,
@@ -667,15 +650,24 @@ void MyHero::flushForcedMotion()
     m_actionQueue.clear();
 }
 
+void MyHero::setBelt(SDBelt belt)
+{
+    m_sdBelt = std::move(belt);
+}
+
+void MyHero::setBelt(int slot, SDItem item, bool playSound)
+{
+    if(item && playSound){
+        InvPack::playItemSoundEffect(item.itemID);
+    }
+    m_sdBelt.list.at(slot) = std::move(item);
+}
+
 bool MyHero::canWear(uint32_t itemID, int wltype) const
 {
-    if(!(wltype >= WLG_BEGIN && wltype < WLG_END)){
-        throw fflerror("invalid wltype: %d", wltype);
-    }
-
-    if(!itemID){
-        throw fflerror("invalid itemID: %llu", to_llu(itemID));
-    }
+    fflassert(itemID, itemID);
+    fflassert(wltype >= WLG_BEGIN, wltype);
+    fflassert(wltype <  WLG_END  , wltype);
 
     const auto &ir = DBCOM_ITEMRECORD(itemID);
     if(!ir){
@@ -686,7 +678,7 @@ bool MyHero::canWear(uint32_t itemID, int wltype) const
         return false;
     }
 
-    if(wltype == WLG_DRESS && getClothGender(itemID) != gender()){
+    if(wltype == WLG_DRESS && (!ir.clothGender().has_value() || ir.clothGender().value() != gender())){
         return false;
     }
 
@@ -719,4 +711,18 @@ int MyHero::getMagicCoolDownAngle(uint32_t magicID) const
         return 360;
     }
     return mathf::bound<int>(std::lround(360.0 * to_df(castTimeDiff) / coolDown), 0, 360);
+}
+
+bool MyHero::hasTeam() const
+{
+    const auto &memberList = dynamic_cast<TeamStateBoard *>(m_processRun->getWidget("TeamStateBoard"))->getTeamMemberList().memberList;
+    return std::find_if(memberList.begin(), memberList.end(), [this](const auto &member) -> bool
+    {
+        return member.uid == UID();
+    }) != memberList.end();
+}
+
+bool MyHero::isTeamLeader() const
+{
+    return hasTeam() && dynamic_cast<TeamStateBoard *>(m_processRun->getWidget("TeamStateBoard"))->getTeamMemberList().teamLeader == UID();
 }

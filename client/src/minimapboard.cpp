@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: minimapboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <array>
 #include "client.hpp"
 #include "pngtexdb.hpp"
@@ -23,7 +5,6 @@
 #include "minimapboard.hpp"
 #include "maprecord.hpp"
 #include "processrun.hpp"
-#include "dbcomrecord.hpp"
 
 extern PNGTexDB *g_progUseDB;
 extern SDLDevice *g_sdlDevice;
@@ -51,6 +32,12 @@ MiniMapBoard::MiniMapBoard(ProcessRun *runPtr, Widget *parent, bool autoDelete)
               0X09000002,
               0X09000002,
               0X09000002,
+          },
+
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
           },
 
           nullptr,
@@ -87,6 +74,12 @@ MiniMapBoard::MiniMapBoard(ProcessRun *runPtr, Widget *parent, bool autoDelete)
               0X09000004,
           },
 
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
+
           nullptr,
           nullptr,
           [this]()
@@ -113,7 +106,7 @@ MiniMapBoard::MiniMapBoard(ProcessRun *runPtr, Widget *parent, bool autoDelete)
           this,
       }
 {
-    show(false);
+    setShow(false);
 }
 
 void MiniMapBoard::drawEx(int, int, int, int, int, int) const
@@ -260,14 +253,14 @@ int MiniMapBoard::getFrameSize() const
 SDL_Texture *MiniMapBoard::getMiniMapTexture() const
 {
     [[maybe_unused]] const auto [mapID, mapW, mapH] = m_processRun->getMap();
-    if(const auto miniMapID = DBCOM_MAPRECORD(mapID).miniMapID){
-        return g_progUseDB->retrieve(miniMapID);
+    if(const auto miniMapIDOpt = DBCOM_MAPRECORD(mapID).miniMapID; miniMapIDOpt.has_value()){
+        return g_progUseDB->retrieve(miniMapIDOpt.value());
     }
     return nullptr;
 }
 
 void MiniMapBoard::flipMiniMapShow()
 {
-    flipShow(this);
+    flipShow();
     setPLoc();
 }

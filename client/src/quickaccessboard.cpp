@@ -1,23 +1,6 @@
-/*
- * =====================================================================================
- *
- *       Filename: quickaccessboard.cpp
- *        Created: 03/28/2020 05:43:45
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <tuple>
 #include "totype.hpp"
+#include "invpack.hpp"
 #include "pngtexdb.hpp"
 #include "sysconst.hpp"
 #include "sdldevice.hpp"
@@ -46,13 +29,18 @@ QuickAccessBoard::QuickAccessBoard(int x, int y, ProcessRun *proc, Widget *pwidg
           DIR_UPLEFT,
           263,
           32,
-          {SYS_TEXNIL, 0X00000061, 0X00000062},
+          {SYS_U32NIL, 0X00000061, 0X00000062},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
+              setShow(false);
           },
 
           0,
@@ -70,7 +58,7 @@ QuickAccessBoard::QuickAccessBoard(int x, int y, ProcessRun *proc, Widget *pwidg
         throw fflerror("no valid quick access board texture: texID = %llu", to_llu(m_texID));
     }
 
-    show(false);
+    setShow(false);
     std::tie(m_w, m_h) = SDLDeviceHelper::getTextureSize(texPtr);
 }
 
@@ -126,8 +114,7 @@ void QuickAccessBoard::drawEx(int dstX, int dstY, int, int, int, int) const
 bool QuickAccessBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        focus(false);
-        return false;
+        return consumeFocus(false);
     }
 
     if(!show()){
@@ -149,13 +136,9 @@ bool QuickAccessBoard::processEvent(const SDL_Event &event, bool valid)
                     const int newX = std::max<int>(0, std::min<int>(maxX, x() + event.motion.xrel));
                     const int newY = std::max<int>(0, std::min<int>(maxY, y() + event.motion.yrel));
                     moveBy(newX - x(), newY - y());
-
-                    focus(true);
-                    return true;
+                    return consumeFocus(true);
                 }
-
-                focus(false);
-                return false;
+                return consumeFocus(false);
             }
         case SDL_MOUSEBUTTONDOWN:
             {
@@ -185,24 +168,59 @@ bool QuickAccessBoard::processEvent(const SDL_Event &event, bool valid)
                             }
 
                             if(in(event.button.x, event.button.y)){
-                                focus(true);
-                                return true;
+                                return consumeFocus(true);
                             }
                             else{
-                                focus(false);
-                                return false;
+                                return consumeFocus(false);
+                            }
+                        }
+                    case SDL_BUTTON_RIGHT:
+                        {
+                            for(int i = 0; i < 6; ++i){
+                                const auto [gridX, gridY, gridW, gridH] = getGridLoc(i);
+                                if(mathf::pointInRectangle(event.button.x, event.button.y, x() + gridX, y() + gridY, gridW, gridH)){
+                                    gridConsume(i);
+                                    break;
+                                }
+                            }
+
+                            if(in(event.button.x, event.button.y)){
+                                return consumeFocus(true);
+                            }
+                            else{
+                                return consumeFocus(false);
                             }
                         }
                     default:
                         {
-                            focus(false);
-                            return false;
+                            return consumeFocus(false);
                         }
                 }
+            }
+        case SDL_KEYDOWN:
+            {
+                if(focus()){
+                    if(const auto ch = SDLDeviceHelper::getKeyChar(event, false); ch >= '1' && ch <= '6'){
+                        gridConsume(ch - '1');
+                    }
+                    return consumeFocus(true);
+                }
+                return consumeFocus(false);
             }
         default:
             {
                 return false;
             }
+    }
+}
+
+void QuickAccessBoard::gridConsume(int i)
+{
+    fflassert(i >= 0, i);
+    fflassert(i <  6, i);
+
+    if(const auto &beltCRef = m_processRun->getMyHero()->getBelt(); beltCRef.list.at(i)){
+        InvPack::playItemSoundEffect(beltCRef.list.at(i).itemID, true);
+        m_processRun->requestConsumeItem(beltCRef.list.at(i).itemID, beltCRef.list.at(i).seqID, 1);
     }
 }

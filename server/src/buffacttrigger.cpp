@@ -3,6 +3,15 @@
 #include "dbcomid.hpp"
 #include "buffacttrigger.hpp"
 
+void BaseBuffActTrigger::checkTimedTrigger()
+{
+    if(getBAREF().trigger.on & BATGR_TIME){
+        for(const auto neededCount = std::lround(getBuff()->accuTime() * getBAREF().trigger.tps / 1000.0); m_tpsCount < neededCount; ++m_tpsCount){
+            runOnTrigger(BATGR_TIME);
+        }
+    }
+}
+
 template<uint32_t INDEX> class IndexedBuffActTrigger: public BaseBuffActTrigger
 {
     protected:
@@ -49,6 +58,9 @@ template<uint32_t INDEX> class BuffActTrigger: public IndexedBuffActTrigger<INDE
     private: \
         friend class BaseBuffActTrigger; \
  \
+    private: \
+        static_assert(DBCOM_BUFFACTRECORD(name).isTrigger()); \
+ \
     public: \
         BuffActTrigger(BaseBuff *argBuff) \
             : IndexedBuffActTrigger<DBCOM_BUFFACTID(name)>(argBuff) \
@@ -69,14 +81,32 @@ void  BuffActTrigger<DBCOM_BUFFACTID(name)>::runOnTrigger
 //     }
 //
 
-_decl_named_buff_act_trigger(u8"HP")(int)
+_decl_named_buff_act_trigger(u8"HP持续")(int trigger)
 {
-    getBuff()->getBO()->updateHealth(5);
+    if(trigger & BATGR_TIME){
+        const auto [value, percentage] = std::get<BuffValuePercentage>(getBAREF().trigger.arg);
+        getBuff()->getBO()->updateHealth(value + std::lround(percentage * getBuff()->getBO()->getHealth().getMaxHP() / 100.0));
+    }
 }
 
-_decl_named_buff_act_trigger(u8"HP持续")(int)
+_decl_named_buff_act_trigger(u8"MP持续")(int trigger)
 {
-    getBuff()->getBO()->updateHealth(5);
+    if(trigger & BATGR_TIME){
+        const auto [value, percentage] = std::get<BuffValuePercentage>(getBAREF().trigger.arg);
+        getBuff()->getBO()->updateHealth(0, value + std::lround(percentage * getBuff()->getBO()->getHealth().getMaxMP() / 100.0));
+    }
+}
+
+_decl_named_buff_act_trigger(u8"HP移动伤害")(int trigger)
+{
+    if(trigger & BATGR_MOVE){
+        getBuff()->getBO()->updateHealth(-1 * std::get<int>(getBAREF().trigger.arg));
+    }
+}
+
+_decl_named_buff_act_trigger(u8"MP移动伤害")(int)
+{
+    getBuff()->getBO()->updateHealth(0, -1);
 }
 
 #undef _decl_named_buff_act_trigger

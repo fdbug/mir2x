@@ -1,27 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename: purchaseboard.hpp
- *        Created: 10/08/2017 19:06:52
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <vector>
 #include <cstdint>
 #include "widget.hpp"
 #include "serdesmsg.hpp"
-#include "texvslider.hpp"
+#include "texslider.hpp"
 #include "tritexbutton.hpp"
 
 class ProcessRun;
@@ -79,7 +61,7 @@ class PurchaseBoard: public Widget
         TritexButton m_selectExt2Button;
 
     private:
-        TexVSlider m_slider;
+        TexSlider m_slider;
 
     private:
         ProcessRun *m_processRun;

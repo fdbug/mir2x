@@ -1,54 +1,40 @@
-/*
- * =====================================================================================
- *
- *       Filename: slider.hpp
- *        Created: 08/12/2015 09:59:15
- *    Description:
- *
- *                      +---+
- *                +-----|   |----------------+
- *                |     |   |                |
- *                +-----|   |----------------+
- *                      +---+    ^
- *                        ^      |
- *                        |      +-------------- chute
- *                        +--------------------- slider
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+//       +---+
+// +-----|   |----------------+
+// |     |   |                |
+// +-----|   |----------------+
+//       +---+    ^
+//         ^      |
+//         |      +-------------- chute
+//         +--------------------- slider
 
 #pragma once
+#include <SDL2/SDL.h>
 #include <functional>
+#include "mathf.hpp"
 #include "widget.hpp"
 #include "bevent.hpp"
 
 class Slider: public Widget
 {
     private:
-        bool m_hslider = true;
+        const bool m_hslider = true;
 
     protected:
-        int m_sliderW = 0;
-        int m_sliderH = 0;
+        const int m_sliderW = 0;
+        const int m_sliderH = 0;
+
+    protected:
         int m_sliderState = BEVENT_OFF;
 
     private:
         float m_value = 0.0f;
 
     private:
-        std::function<void(float)> m_onChanged;
+        const std::function<void(float)> m_onChanged;
 
     public:
-        Slider(dir8_t dir, int x, int y, int w, int h, std::function<void(float)> onChanged, bool hslider, int sliderW, int sliderH, Widget *parent = nullptr, bool autoDelete = false)
-            : Widget(dir, x, y, w, h, parent, autoDelete)
+        Slider(dir8_t argDir, int argX, int argY, int argW, int argH, bool hslider, int sliderW, int sliderH, std::function<void(float)> onChanged, Widget *parent = nullptr, bool autoDelete = false)
+            : Widget(argDir, argX, argY, argW, argH, parent, autoDelete)
             , m_hslider(hslider)
             , m_sliderW(sliderW)
             , m_sliderH(sliderH)
@@ -59,9 +45,14 @@ class Slider: public Widget
         bool processEvent(const SDL_Event &, bool) override;
 
     public:
-        void setValue(float value)
+        virtual void setValue(float value, bool triggerCallback)
         {
-            m_value = std::min<float>(1.0, std::max<float>(0.0, value));
+            if(const auto newValue = mathf::bound<float>(value, 0.0f, 1.0f); newValue != getValue()){
+                m_value = newValue;
+                if(triggerCallback && m_onChanged){
+                    m_onChanged(getValue());
+                }
+            }
         }
 
         float getValue() const
@@ -70,15 +61,15 @@ class Slider: public Widget
         }
 
     public:
-        void addValue(float diff)
+        void addValue(float diff, bool triggerCallback)
         {
-            setValue(m_value + diff);
+            setValue(m_value + diff, triggerCallback);
         }
 
     protected:
         float pixel2Value(int pixel) const
         {
-            return pixel * 1.0f / (m_hslider ? w() : h());
+            return pixel * 1.0f / std::max<int>(m_hslider ? w() : h(), 1);
         }
 
     public:

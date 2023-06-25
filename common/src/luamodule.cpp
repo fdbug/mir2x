@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: luamodule.cpp
- *        Created: 06/03/2017 20:26:17
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <ctime>
 #include <chrono>
 #include <thread>
@@ -23,46 +5,161 @@
 #include "uidf.hpp"
 #include "luaf.hpp"
 #include "totype.hpp"
+#include "hexstr.hpp"
 #include "sysconst.hpp"
 #include "fflerror.hpp"
 #include "luamodule.hpp"
 #include "raiitimer.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 
 LuaModule::LuaModule()
     : m_luaState()
+    , m_replaceEnv(m_luaState, sol::create)
 {
     m_luaState.open_libraries();
-    m_luaState.script(str_printf("UID_ERR = %d", UID_ERR));
-    m_luaState.script(str_printf("UID_COR = %d", UID_COR));
-    m_luaState.script(str_printf("UID_NPC = %d", UID_NPC));
-    m_luaState.script(str_printf("UID_MAP = %d", UID_MAP));
-    m_luaState.script(str_printf("UID_PLY = %d", UID_PLY));
-    m_luaState.script(str_printf("UID_MON = %d", UID_MON));
-    m_luaState.script(str_printf("UID_ETC = %d", UID_ETC));
-    m_luaState.script(str_printf("UID_INN = %d", UID_INN));
+    execRawString(R"###(
+        local _G = _G
+        local error = error
+        local coroutine = coroutine
+        local _RSVD_NAME_G_sandbox = {}
 
-    m_luaState.script(str_printf("INVOP_TRADE  = %d", INVOP_TRADE ));
-    m_luaState.script(str_printf("INVOP_SECURE = %d", INVOP_SECURE));
-    m_luaState.script(str_printf("INVOP_REPAIR = %d", INVOP_REPAIR));
+        function getTLSTable()
+            local threadId, inMainThread = coroutine.running()
+            if inMainThread then
+                error('call getTLSTable() in main thread')
+            else
+                if _RSVD_NAME_G_sandbox[threadId] == nil then
+                    _RSVD_NAME_G_sandbox[threadId] = {}
+                end
+                return _RSVD_NAME_G_sandbox[threadId]
+            end
+        end
 
-    m_luaState.script(str_printf("DIR_UP        = %d", DIR_UP       ));
-    m_luaState.script(str_printf("DIR_UPRIGHT   = %d", DIR_UPRIGHT  ));
-    m_luaState.script(str_printf("DIR_RIGHT     = %d", DIR_RIGHT    ));
-    m_luaState.script(str_printf("DIR_DOWNRIGHT = %d", DIR_DOWNRIGHT));
-    m_luaState.script(str_printf("DIR_DOWN      = %d", DIR_DOWN     ));
-    m_luaState.script(str_printf("DIR_DOWNLEFT  = %d", DIR_DOWNLEFT ));
-    m_luaState.script(str_printf("DIR_LEFT      = %d", DIR_LEFT     ));
-    m_luaState.script(str_printf("DIR_UPLEFT    = %d", DIR_UPLEFT   ));
+        function clearTLSTable()
+            local threadId, inMainThread = coroutine.running()
+            if inMainThread then
+                error('call clearTLSTable() in main thread')
+            else
+                _RSVD_NAME_G_sandbox[threadId] = nil
+            end
+        end
 
-    m_luaState.script(str_printf("SYS_NPCINIT  = \"%s\"", SYS_NPCINIT ));
-    m_luaState.script(str_printf("SYS_NPCDONE  = \"%s\"", SYS_NPCDONE ));
-    m_luaState.script(str_printf("SYS_NPCQUERY = \"%s\"", SYS_NPCQUERY));
-    m_luaState.script(str_printf("SYS_NPCERROR = \"%s\"", SYS_NPCERROR));
-    m_luaState.script(str_printf("math.randomseed(%d)", to_d(hres_tstamp().to_nsec() % 1000000ULL)));
+        local _RSVD_NAME_clearTLSTable = {}
+        setmetatable(_RSVD_NAME_clearTLSTable, {__close = function()
+            clearTLSTable()
+        end})
 
-    m_luaState.set_function("addLogString", [this](sol::object logType, sol::object logInfo)
+        function autoClearTLSTable()
+            return _RSVD_NAME_clearTLSTable
+        end
+
+        _RSVD_NAME_replaceEnvMetaTable = {
+            __index = function(_, key)
+                local threadId, inMainThread = coroutine.running()
+                if not inMainThread then
+                    if _RSVD_NAME_G_sandbox[threadId] ~= nil and _RSVD_NAME_G_sandbox[threadId][key] ~= nil then
+                        return _RSVD_NAME_G_sandbox[threadId][key]
+                    end
+                end
+                return _G[key]
+            end,
+
+            __newindex = function(_, key, value)
+                local threadId, inMainThread = coroutine.running()
+                if inMainThread then
+                    _G[key] = value
+                else
+                    if _RSVD_NAME_G_sandbox[threadId] == nil then
+                        _RSVD_NAME_G_sandbox[threadId] = {}
+                    end
+                    _RSVD_NAME_G_sandbox[threadId][key] = value
+                end
+            end
+        }
+    )###");
+
+    m_replaceEnv[sol::metatable_key] = sol::table(m_luaState["_RSVD_NAME_replaceEnvMetaTable"]);
+
+    // idea from: https://blog.rubenwardy.com/2020/07/26/sol3-script-sandbox/
+    // set replaceEnv as default environment, otherwise I don't know how to setup replaceEnv to thread/coroutine
+
+    lua_rawgeti(m_luaState.lua_state(), LUA_REGISTRYINDEX, m_replaceEnv.registry_index());
+    lua_rawseti(m_luaState.lua_state(), LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+
+    execString("LOGTYPE_INFO    = 0");
+    execString("LOGTYPE_WARNING = 1");
+    execString("LOGTYPE_FATAL   = 2");
+    execString("LOGTYPE_DEBUG   = 3");
+
+    execString("UID_NONE  = %d", UID_NONE );
+    execString("UID_BEGIN = %d", UID_BEGIN);
+    execString("UID_COR   = %d", UID_COR  );
+    execString("UID_MAP   = %d", UID_MAP  );
+    execString("UID_NPC   = %d", UID_NPC  );
+    execString("UID_MON   = %d", UID_MON  );
+    execString("UID_PLY   = %d", UID_PLY  );
+    execString("UID_RCV   = %d", UID_RCV  );
+    execString("UID_END   = %d", UID_END  );
+
+    execString("INVOP_TRADE  = %d", INVOP_TRADE );
+    execString("INVOP_SECURE = %d", INVOP_SECURE);
+    execString("INVOP_REPAIR = %d", INVOP_REPAIR);
+
+    execString("DIR_UP        = %d", DIR_UP       );
+    execString("DIR_UPRIGHT   = %d", DIR_UPRIGHT  );
+    execString("DIR_RIGHT     = %d", DIR_RIGHT    );
+    execString("DIR_DOWNRIGHT = %d", DIR_DOWNRIGHT);
+    execString("DIR_DOWN      = %d", DIR_DOWN     );
+    execString("DIR_DOWNLEFT  = %d", DIR_DOWNLEFT );
+    execString("DIR_LEFT      = %d", DIR_LEFT     );
+    execString("DIR_UPLEFT    = %d", DIR_UPLEFT   );
+
+    execString("SYS_DEBUG = %s", to_boolcstr(SYS_DEBUG));
+    execString("SYS_GOLDNAME = \'%s\'", SYS_GOLDNAME);
+
+    execString("SYS_LABEL = \'%s\'", SYS_LABEL);
+    execString("SYS_ENTER = \'%s\'", SYS_ENTER);
+    execString("SYS_EXIT  = \'%s\'", SYS_EXIT );
+    execString("SYS_ABORT = \'%s\'", SYS_ABORT);
+
+    execString("SYS_POSINF = %s", str_quoted(SYS_POSINF).c_str());
+    execString("SYS_NEGINF = %s", str_quoted(SYS_NEGINF).c_str());
+
+    execString("SYS_QUESTVAR_STATE = \'%s\'", SYS_QUESTVAR_STATE);
+
+    execString("SYS_QUESTVAR_TEAM = \'%s\'", SYS_QUESTVAR_TEAM);
+    execString("SYS_QUESTVAR_TEAMLEADER = \'%s\'", SYS_QUESTVAR_TEAMLEADER);
+    execString("SYS_QUESTVAR_TEAMROLELIST = \'%s\'", SYS_QUESTVAR_TEAMROLELIST);
+    execString("SYS_QUESTVAR_TEAMMEMBERLIST = \'%s\'", SYS_QUESTVAR_TEAMMEMBERLIST);
+
+    execString("SYS_NPCERROR = \'%s\'", SYS_NPCERROR);
+
+    execString("SYS_EXECDONE   = %s", str_quoted(SYS_EXECDONE  ).c_str());
+    execString("SYS_EXECCLOSE  = %s", str_quoted(SYS_EXECCLOSE ).c_str());
+    execString("SYS_EXECBADUID = %s", str_quoted(SYS_EXECBADUID).c_str());
+
+    execString("SYS_EPDEF = \'%s\'", SYS_EPDEF);
+    execString("SYS_EPUID = \'%s\'", SYS_EPUID);
+    execString("SYS_EPQST = \'%s\'", SYS_EPQST);
+
+    execString("SYS_ON_BEGIN    = %d", SYS_ON_BEGIN);
+    execString("SYS_ON_GAINEXP  = %d", SYS_ON_GAINEXP);
+    execString("SYS_ON_GAINITEM = %d", SYS_ON_GAINITEM);
+    execString("SYS_ON_GAINGOLD = %d", SYS_ON_GAINGOLD);
+    execString("SYS_ON_ONLINE   = %d", SYS_ON_ONLINE);
+    execString("SYS_ON_OFFLINE  = %d", SYS_ON_OFFLINE);
+    execString("SYS_ON_LEVELUP  = %d", SYS_ON_LEVELUP);
+    execString("SYS_ON_KILL     = %d", SYS_ON_KILL);
+    execString("SYS_ON_TEAMUP   = %d", SYS_ON_TEAMUP);
+    execString("SYS_ON_TEAMDOWN = %d", SYS_ON_TEAMDOWN);
+    execString("SYS_ON_END      = %d", SYS_ON_END);
+
+    execString("SYS_COOP        = \'%s\'", SYS_COOP);
+    execString("SYS_CHECKACTIVE = \'%s\'", SYS_CHECKACTIVE);
+
+    execString("math.randomseed(%d)", to_d(hres_tstamp().to_nsec() % 1000000ULL));
+
+    bindFunction("addLogString", [this](sol::object logType, sol::object logInfo)
     {
         if(logType.is<int>() && logInfo.is<std::string>()){
             addLogString(logType.as<int>(), to_u8cstr(logInfo.as<std::string>()));
@@ -82,85 +179,92 @@ LuaModule::LuaModule()
         addLogString(1, u8"Invalid argument: addLogString(?, \"?\")");
     });
 
-    m_luaState.set_function("getTime", [timer = hres_timer()]() -> int
+    bindFunction("getTime", [timer = hres_timer()]() -> double
     {
-        return to_d(timer.diff_msec());
+        return timer.diff_msecf();
     });
 
-    m_luaState.set_function("getAbsTime", []() -> int
+    bindFunction("getNanoTstamp", []() -> uint64_t
+    {
+        return hres_tstamp().to_nsec();
+    });
+
+    bindFunction("getAbsTime", []() -> int
     {
         return to_d(std::time(nullptr));
     });
 
-    m_luaState.script(INCLUA_BEGIN(char)
+    m_luaState.script(BEGIN_LUAINC(char)
 #include "luamodule.lua"
-    INCLUA_END());
+    END_LUAINC());
 
-    m_luaState.set_function("uidType", [](std::string uidString)
+    bindFunction("getUIDType", [](uint64_t uid)
     {
-        return uidf::getUIDType(uidf::toUIDEx(uidString));
+        return uidf::getUIDType(uid);
     });
 
-    m_luaState.set_function("isUID", [](std::string uidString)
-    {
-        try{
-            uidf::toUIDEx(uidString);
-            return true;
-        }
-        catch(...){
-            return false;
-        }
-    });
-
-    m_luaState.set_function("sleep", [](int nSleepMS)
+    bindFunction("sleep", [](int nSleepMS)
     {
         if(nSleepMS > 0){
             std::this_thread::sleep_for(std::chrono::milliseconds(nSleepMS));
         }
     });
 
-    m_luaState.set_function("exit", [](int nExitCode)
+    bindFunction("exit", [](int exitCode)
     {
-        std::exit(nExitCode);
+        std::exit(exitCode);
     });
 
-    m_luaState.set_function("getItemName", [](int itemID) -> std::string
+    bindFunction("getItemName", [](int itemID, sol::this_state s) -> sol::object
     {
-        if(const auto s = to_cstr(DBCOM_ITEMRECORD(itemID).name)){
-            return s;
+        sol::state_view sv(s);
+        if(const auto name = DBCOM_ITEMRECORD(itemID).name; str_haschar(name)){
+            return sol::object(sv, sol::in_place_type<std::string>, std::string(to_cstr(name)));
         }
-        return "";
+        return sol::make_object(sv, sol::nil);
     });
 
-    m_luaState.set_function("getItemID", [](std::string itemName) -> int
+    bindFunction("getItemID", [](std::string itemName) -> int
     {
         return DBCOM_ITEMID(to_u8cstr(itemName));
     });
 
-    m_luaState.set_function("getMonsterName", [](int monsterID) -> std::string
+    bindFunction("getMonsterName", [](int monsterID, sol::this_state s) -> sol::object
     {
-        if(const auto s = to_cstr(DBCOM_MONSTERRECORD(monsterID).name)){
-            return s;
+        sol::state_view sv(s);
+        if(const auto name = DBCOM_MONSTERRECORD(monsterID).name; str_haschar(name)){
+            return sol::object(sv, sol::in_place_type<std::string>, std::string(to_cstr(name)));
         }
-        return "";
+        return sol::make_object(sv, sol::nil);
     });
 
-    m_luaState.set_function("getMonsterID", [](std::string monsterName) -> int
+    bindFunction("getMonsterID", [](std::string monsterName) -> int
     {
         return DBCOM_MONSTERID(to_u8cstr(monsterName));
     });
 
-    m_luaState.set_function("getMapName", [](int mapID) -> std::string
+    bindFunction("getMapName", [](int mapID) -> std::string
     {
         return to_cstr(DBCOM_MAPRECORD(mapID).name);
     });
 
-    m_luaState.set_function("getMapID", [](std::string mapName) -> int
+    bindFunction("getMapID", [](std::string mapName) -> int
     {
         return DBCOM_MAPID(to_u8cstr(mapName));
     });
 
-    m_luaState.set_function("randString", [this](sol::variadic_args args) -> std::string
+    bindFunction("hexString", [](std::string s)
+    {
+        char buf[8];
+        std::string hexStr;
+
+        for(const auto ch: s){
+            hexStr.insert(hexStr.end(), hexstr::to_string((unsigned char)(ch), buf, false), (const char *)(buf) + 2);
+        }
+        return hexStr;
+    });
+
+    bindFunction("randString", [this](sol::variadic_args args) -> std::string
     {
         // generate random string
         // for debug purpose of utf8 layout board
@@ -218,34 +322,25 @@ LuaModule::LuaModule()
         }
         return result;
     });
+}
 
-    m_luaState.set_function("scalarAsString", [this](sol::object obj) -> std::string
-    {
-        return luaf::buildBlob<sol::object>(obj);
-    });
+bool LuaModule::pfrCheck(const sol::protected_function_result &pfr, const std::function<void(const std::string &)> &errDrainFunc)
+{
+    if(pfr.valid()){
+        return true;
+    }
 
-    m_luaState.set_function("convTableAsString", [this](sol::as_table_t<luaf::conv_table> convTable) -> std::string
-    {
-        return luaf::buildBlob<luaf::conv_table>(convTable.source);
-    });
+    const sol::error err = pfr;
+    std::stringstream errStream(err.what());
 
-    m_luaState.set_function("scalarFromString", [this](std::string s, sol::this_state state)
-    {
-        return luaf::buildLuaObj(sol::state_view(state), s);
-    });
-
-    m_luaState.set_function("convTableFromString", [this](std::string s)
-    {
-        return luaf::buildLuaConvTable(s);
-    });
-
-    m_luaState.set_function("asKeyString", [this](std::string s) -> std::string
-    {
-        return luaf::asKeyString(s);
-    });
-
-    m_luaState.set_function("fromKeyString", [this](std::string s) -> std::string
-    {
-        return luaf::fromKeyString(s);
-    });
+    std::string errStr;
+    while(std::getline(errStream, errStr, '\n')){
+        if(errDrainFunc){
+            errDrainFunc(errStr);
+        }
+        else{
+            addLogString(Log::LOGTYPEV_WARNING, to_u8cstr(errStr));
+        }
+    }
+    return false;
 }

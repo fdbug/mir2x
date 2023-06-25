@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: inputstringboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "widget.hpp"
 #include "colorf.hpp"
 #include "pngtexdb.hpp"
@@ -61,7 +43,7 @@ InputStringBoard::InputStringBoard(dir8_t dir, int x, int y, bool security, Widg
           [this]()
           {
               inputLineDone();
-              show(false);
+              setShow(false);
           },
 
           this,
@@ -74,13 +56,18 @@ InputStringBoard::InputStringBoard(dir8_t dir, int x, int y, bool security, Widg
           66,
           190,
           {0X07000001, 0X07000002, 0X07000003},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
               inputLineDone();
-              show(false);
+              setShow(false);
           },
 
           0,
@@ -100,12 +87,17 @@ InputStringBoard::InputStringBoard(dir8_t dir, int x, int y, bool security, Widg
           212,
           190,
           {0X07000004, 0X07000005, 0X07000006},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
+              setShow(false);
               m_input.clear();
           },
 
@@ -120,7 +112,7 @@ InputStringBoard::InputStringBoard(dir8_t dir, int x, int y, bool security, Widg
           false,
       }
 {
-    show(false);
+    setShow(false);
     if(auto texPtr = g_progUseDB->retrieve(0X07000000)){
         std::tie(m_w, m_h) = SDLDeviceHelper::getTextureSize(texPtr);
     }
@@ -176,11 +168,11 @@ void InputStringBoard::drawEx(int dstX, int dstY, int, int, int, int) const
 bool InputStringBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(!show()){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(m_input.processEvent(event, valid)){
@@ -204,7 +196,7 @@ void InputStringBoard::inputLineDone()
     const std::string realInput = (inputPos == std::string::npos) ? "" : fullInput.substr(inputPos);
 
     m_input.clear();
-    m_input.focus(false);
+    m_input.setFocus(false);
 
     if(m_onDone){
         m_onDone(to_u8cstr(realInput));
@@ -217,6 +209,6 @@ void InputStringBoard::waitInput(std::u8string layoutString, std::function<void(
     m_onDone = std::move(onDone);
 
     clear();
-    show(true);
-    focus(true);
+    setShow(true);
+    setFocus(true);
 }

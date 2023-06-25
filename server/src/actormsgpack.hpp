@@ -1,23 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: actormsgpack.hpp
- *        Created: 04/20/2016 21:57:08
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
-
 #include <cstring>
 #include <cstdint>
 #include <utility>
@@ -36,8 +17,8 @@ template<size_t SBUFSIZE = 64> class InnActorMsgPack final
         uint64_t m_from;
 
     private:
-        uint32_t m_seqID;
-        uint32_t m_respID;
+        uint64_t m_seqID;
+        uint64_t m_respID;
 
     private:
         uint8_t m_sbuf[SBUFSIZE];
@@ -48,7 +29,7 @@ template<size_t SBUFSIZE = 64> class InnActorMsgPack final
         size_t   m_dbufSize;
 
     public:
-        InnActorMsgPack(int argType = AM_NONE, const uint8_t *argData = nullptr, size_t argSize = 0, uint64_t argFrom = 0, uint32_t argSeqID = 0, uint32_t argRespID = 0)
+        InnActorMsgPack(int argType = AM_NONE, const uint8_t *argData = nullptr, size_t argSize = 0, uint64_t argFrom = 0, uint64_t argSeqID = 0, uint64_t argRespID = 0)
             : m_type(argType)
             , m_from(argFrom)
             , m_seqID(argSeqID)
@@ -75,7 +56,7 @@ template<size_t SBUFSIZE = 64> class InnActorMsgPack final
             }
         }
 
-        InnActorMsgPack(const ActorMsgBuf &mbuf, uint64_t argFrom = 0, uint32_t argSeqID = 0, uint32_t argRespID = 0)
+        InnActorMsgPack(const ActorMsgBuf &mbuf, uint64_t argFrom = 0, uint64_t argSeqID = 0, uint64_t argRespID = 0)
             : InnActorMsgPack(mbuf.type(), mbuf.data(), mbuf.size(), argFrom, argSeqID, argRespID)
         {}
 
@@ -196,12 +177,17 @@ template<size_t SBUFSIZE = 64> class InnActorMsgPack final
            return m_from;
        }
 
-       uint32_t seqID() const
+       std::pair<uint64_t, uint64_t> fromAddr() const
+       {
+           return {m_from, m_seqID};
+       }
+
+       uint64_t seqID() const
        {
            return m_seqID;
        }
 
-       uint32_t respID() const
+       uint64_t respID() const
        {
            return m_respID;
        }
@@ -216,6 +202,8 @@ inline const char *mpkName(int type)
         _add_mpk_type_case(AM_ERROR)
         _add_mpk_type_case(AM_BADACTORPOD)
         _add_mpk_type_case(AM_BADCHANNEL)
+        _add_mpk_type_case(AM_SDBUFFER)
+        _add_mpk_type_case(AM_REMOTECALL)
         _add_mpk_type_case(AM_TIMEOUT)
         _add_mpk_type_case(AM_UID)
         _add_mpk_type_case(AM_PING)
@@ -237,6 +225,11 @@ inline const char *mpkName(int type)
         _add_mpk_type_case(AM_SPACEMOVEOK)
         _add_mpk_type_case(AM_SPACEMOVEERROR)
         _add_mpk_type_case(AM_TRYLEAVE)
+        _add_mpk_type_case(AM_ALLOWLEAVE)
+        _add_mpk_type_case(AM_REJECTLEAVE)
+        _add_mpk_type_case(AM_LEAVEOK)
+        _add_mpk_type_case(AM_LEAVEERROR)
+        _add_mpk_type_case(AM_FINISHLEAVE)
         _add_mpk_type_case(AM_LOGINOK)
         _add_mpk_type_case(AM_LOGINQUERYDB)
         _add_mpk_type_case(AM_SENDPACKAGE)
@@ -247,8 +240,11 @@ inline const char *mpkName(int type)
         _add_mpk_type_case(AM_QUERYMAPLIST)
         _add_mpk_type_case(AM_MAPLIST)
         _add_mpk_type_case(AM_MAPSWITCHTRIGGER)
-        _add_mpk_type_case(AM_MAPSWITCHOK)
         _add_mpk_type_case(AM_TRYMAPSWITCH)
+        _add_mpk_type_case(AM_ALLOWMAPSWITCH)
+        _add_mpk_type_case(AM_REJECTMAPSWITCH)
+        _add_mpk_type_case(AM_MAPSWITCHOK)
+        _add_mpk_type_case(AM_MAPSWITCHERROR)
         _add_mpk_type_case(AM_LOADMAP)
         _add_mpk_type_case(AM_LOADMAPOK)
         _add_mpk_type_case(AM_LOADMAPERROR)
@@ -260,10 +256,13 @@ inline const char *mpkName(int type)
         _add_mpk_type_case(AM_ATTACK)
         _add_mpk_type_case(AM_UPDATEHP)
         _add_mpk_type_case(AM_DEADFADEOUT)
+        _add_mpk_type_case(AM_QUERYUIDBUFF)
         _add_mpk_type_case(AM_QUERYCORECORD)
         _add_mpk_type_case(AM_QUERYCOCOUNT)
         _add_mpk_type_case(AM_QUERYPLAYERWLDESP)
         _add_mpk_type_case(AM_COCOUNT)
+        _add_mpk_type_case(AM_ADDBUFF)
+        _add_mpk_type_case(AM_REMOVEBUFF)
         _add_mpk_type_case(AM_EXP)
         _add_mpk_type_case(AM_MISS)
         _add_mpk_type_case(AM_HEAL)
@@ -290,12 +289,17 @@ inline const char *mpkName(int type)
         _add_mpk_type_case(AM_NAMECOLOR)
         _add_mpk_type_case(AM_MASTERKILL)
         _add_mpk_type_case(AM_MASTERHITTED)
-        _add_mpk_type_case(AM_NPCQUERY)
         _add_mpk_type_case(AM_NPCEVENT)
         _add_mpk_type_case(AM_NPCERROR)
         _add_mpk_type_case(AM_BUY)
         _add_mpk_type_case(AM_BUYCOST)
         _add_mpk_type_case(AM_BUYERROR)
+        _add_mpk_type_case(AM_MODIFYQUESTTRIGGERTYPE)
+        _add_mpk_type_case(AM_QUERYQUESTUID)
+        _add_mpk_type_case(AM_QUERYQUESTTRIGGERLIST)
+        _add_mpk_type_case(AM_RUNQUESTTRIGGER)
+        _add_mpk_type_case(AM_SENDNOTIFY)
+        _add_mpk_type_case(AM_REGISTERQUEST)
         default: return "AM_UNKNOWN";
     }
 #undef _add_mpk_type_case

@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: xmlparagraphleaf.cpp
- *        Created: 12/22/2018 07:38:31
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <utf8.h>
 #include <tinyxml2.h>
 
@@ -60,7 +42,7 @@ XMLParagraphLeaf::XMLParagraphLeaf(tinyxml2::XMLNode *pNode)
 
           throw fflerror("invalid argument: node type not recognized");
       }())
-    , m_U64Key([this]() -> uint64_t
+    , m_u64Key([this]() -> uint64_t
       {
           switch(m_type){
               case LEAF_EMOJI:
@@ -84,7 +66,27 @@ XMLParagraphLeaf::XMLParagraphLeaf(tinyxml2::XMLNode *pNode)
     , m_event(BEVENT_OFF)
 {
     if(type() == LEAF_UTF8GROUP){
-        m_UTF8CharOff = utf8f::buildUTF8Off(UTF8Text());
+        m_utf8CharOff = utf8f::buildUTF8Off(UTF8Text());
+        if(auto par = m_node->Parent(); par && par->ToElement()){
+            std::string tagName = par->ToElement()->Name();
+            std::transform(tagName.begin(), tagName.end(), tagName.begin(), [](unsigned char c)
+            {
+                return std::tolower(c);
+            });
+
+            if(tagName == "event"){
+                std::unordered_map<std::string, std::string> attrList;
+                for(auto attrPtr = par->ToElement()->FirstAttribute(); attrPtr; attrPtr = attrPtr->Next()){
+                    std::string attrName = attrPtr->Name();
+                    std::transform(attrName.begin(), attrName.end(), attrName.begin(), [](unsigned char c)
+                    {
+                        return std::tolower(c);
+                    });
+                    attrList.emplace(std::move(attrName), attrPtr->Value());
+                }
+                m_attrListOpt = std::move(attrList);
+            }
+        }
     }
 
     // pre-save for color() and bgColor(), these two get called very frequently in drawEx()
@@ -135,7 +137,7 @@ std::optional<uint32_t> XMLParagraphLeaf::color() const
         return m_fontColor;
     }
 
-    if(hasEvent().first){
+    if(hasEvent()){
         switch(m_event){
             case BEVENT_ON  : return colorf::GREEN   + colorf::A_SHF(255);
             case BEVENT_OFF : return colorf::YELLOW  + colorf::A_SHF(255);

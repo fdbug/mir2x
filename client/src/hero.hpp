@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: hero.hpp
- *        Created: 09/03/2015 03:48:41
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <tuple>
 #include <array>
@@ -40,8 +22,9 @@ class Hero: public CreatureMovable
         bool    m_onHorse;
 
     protected:
-        std::string m_name;
-        uint32_t    m_nameColor;
+        mutable bool m_nameQueried = false;
+        std::string  m_name;
+        uint32_t     m_nameColor;
 
     protected:
         SDWLDesp m_sdWLDesp;
@@ -137,7 +120,7 @@ class Hero: public CreatureMovable
 
         void setName(const char *name, uint32_t nameColor)
         {
-            m_name = to_cstr(name);
+            m_name = str_haschar(name) ? name : "";
             m_nameColor = (colorf::maskRGB(nameColor) ? nameColor : colorf::WHITE) + colorf::A_SHF(0XFF);
         }
 
@@ -149,17 +132,28 @@ class Hero: public CreatureMovable
     public:
         std::string getName() const
         {
+            if(m_name.empty() && !m_nameQueried){
+                queryName();
+                m_nameQueried = true;
+            }
             return m_name;
         }
 
         uint32_t getNameColor() const
         {
+            if(m_name.empty() && !m_nameQueried){
+                queryName();
+                m_nameQueried = true;
+            }
             return m_nameColor;
         }
 
+    private:
+        void queryName() const;
+
     public:
         const SDItem &getWLItem(int) const;
-        bool          setWLItem(int, SDItem);
+        bool          setWLItem(int, SDItem, bool playSound = false);
 
     public:
         void jumpLoc(int, int, int);
@@ -185,4 +179,15 @@ class Hero: public CreatureMovable
     public:
         bool hasSwingMagic(uint32_t) const;
         void toggleSwingMagic(uint32_t, std::optional<bool> = {});
+
+    public:
+        virtual bool hasTeam() const
+        {
+            return false;
+        }
+
+        virtual bool isTeamLeader() const
+        {
+            return false;
+        }
 };

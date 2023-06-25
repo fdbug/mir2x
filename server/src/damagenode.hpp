@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: damagenode.hpp
- *        Created: 07/21/2017 17:12:19
- *    Description: description of a damage
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <array>
 #include <utility>
@@ -31,7 +13,7 @@ struct DamageNode
 
     int dcHit;
     int mcHit;
-    int effect; // 穿刺 吸血 etc
+    int modifierID; // 穿刺 吸血 etc
 
     operator bool () const
     {
@@ -44,6 +26,7 @@ struct PlainPhyDamage
 {
     int damage = 0;
     int dcHit = 0;
+    int modifierID = 0;
     operator DamageNode() const;
 };
 
@@ -52,5 +35,6 @@ struct MagicDamage
     int magicID = 0;
     int damage = 0;
     int mcHit = 0;
+    int modifierID = 0;
     operator DamageNode() const;
 };

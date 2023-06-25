@@ -7,16 +7,20 @@
 #include "motion.hpp"
 #include "fflerror.hpp"
 #include "sysconst.hpp"
+#include "sdldevice.hpp"
 #include "ascendstr.hpp"
 #include "processrun.hpp"
 #include "magicrecord.hpp"
 #include "protocoldef.hpp"
-#include "dbcomrecord.hpp"
 #include "attachmagic.hpp"
+#include "soundeffectdb.hpp"
 #include "clientcreature.hpp"
 #include "clientmonster.hpp"
 
 extern Log *g_log;
+extern SDLDevice *g_sdlDevice;
+extern SoundEffectDB *g_seffDB;
+
 bool ClientCreature::advanceMotionFrame()
 {
     m_currMotion->frame = (m_currMotion->frame + 1) % getFrameCountEx(m_currMotion->type, m_currMotion->direction);
@@ -164,4 +168,15 @@ bool ClientCreature::isMonster(const char8_t *name) const
 void ClientCreature::setBuff(int, int)
 {
     // do nothing by default
+}
+
+void ClientCreature::playSoundEffect(uint32_t seffID)
+{
+    if(seffID == SYS_U32NIL){
+        return;
+    }
+
+    fflassert(m_processRun);
+    fflassert(m_processRun->getMyHero());
+    m_processRun->playSoundEffectAt(seffID, x(), y(), 1);
 }

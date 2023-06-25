@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: monsterop.cpp
- *        Created: 05/03/2016 21:49:38
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <algorithm>
 #include "player.hpp"
 #include "monster.hpp"
@@ -62,13 +44,22 @@ void Monster::on_AM_QUERYCORECORD(const ActorMsgPack &rstMPK)
     reportCO(amQCOR.UID);
 }
 
+void Monster::on_AM_QUERYUIDBUFF(const ActorMsgPack &mpk)
+{
+    forwardNetPackage(mpk.from(), SM_BUFFIDLIST, cerealf::serialize(SDBuffIDList
+    {
+        .uid = UID(),
+        .idList = m_buffList.getIDList(),
+    }));
+}
+
 void Monster::on_AM_ADDBUFF(const ActorMsgPack &mpk)
 {
     const auto amAB = mpk.conv<AMAddBuff>();
     fflassert(amAB.id);
     fflassert(DBCOM_BUFFRECORD(amAB.id));
 
-    checkFriend(amAB.from, [amAB, this](int friendType)
+    checkFriend(amAB.fromUID, [amAB, this](int friendType)
     {
         const auto &br = DBCOM_BUFFRECORD(amAB.id);
         fflassert(br);
@@ -77,20 +68,20 @@ void Monster::on_AM_ADDBUFF(const ActorMsgPack &mpk)
             case FT_FRIEND:
                 {
                     if(br.favor >= 0){
-                        addBuff(amAB.from, amAB.id);
+                        addBuff(amAB.fromUID, amAB.fromBuffSeq, amAB.id);
                     }
                     return;
                 }
             case FT_ENEMY:
                 {
                     if(br.favor <= 0){
-                        addBuff(amAB.from, amAB.id);
+                        addBuff(amAB.fromUID, amAB.fromBuffSeq, amAB.id);
                     }
                     return;
                 }
             case FT_NEUTRAL:
                 {
-                    addBuff(amAB.from, amAB.id);
+                    addBuff(amAB.fromUID, amAB.fromBuffSeq, amAB.id);
                     return;
                 }
             default:
@@ -99,6 +90,12 @@ void Monster::on_AM_ADDBUFF(const ActorMsgPack &mpk)
                 }
         }
     });
+}
+
+void Monster::on_AM_REMOVEBUFF(const ActorMsgPack &mpk)
+{
+    const auto amRB = mpk.conv<AMRemoveBuff>();
+    removeFromBuff(amRB.fromUID, amRB.fromBuffSeq, true);
 }
 
 void Monster::on_AM_EXP(const ActorMsgPack &rstMPK)

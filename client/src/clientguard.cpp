@@ -1,21 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: clientguard.cpp
- *        Created: 08/31/2015 08:26:57
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include "pathf.hpp"
 #include "fflerror.hpp"
 #include "processrun.hpp"
 #include "clientguard.hpp"
@@ -40,7 +23,7 @@ ClientGuard::ClientGuard(uint64_t uid, ProcessRun *proc, const ActionNode &actio
                 m_currMotion.reset(new MotionNode
                 {
                     .type = MOTION_MON_STAND,
-                    .direction = directionValid(action.direction) ? action.direction : to_d(DIR_UP),
+                    .direction = pathf::dirValid(action.direction) ? action.direction : to_d(DIR_UP),
                     .x = action.x,
                     .y = action.y,
                 });
@@ -83,7 +66,7 @@ bool ClientGuard::parseAction(const ActionNode &action)
             }
         default:
             {
-                throw fflreach();
+                throw fflvalue(actionName(action.type));
             }
     }
 }

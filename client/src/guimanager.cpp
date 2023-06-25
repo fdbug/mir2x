@@ -1,30 +1,14 @@
-/*
- * =====================================================================================
- *
- *       Filename: guimanager.cpp
- *        Created: 08/12/2015 09:59:15
- *    Description: public API for class client only
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "fflerror.hpp"
 #include "sdldevice.hpp"
+#include "imeboard.hpp"
 #include "processrun.hpp"
 #include "guimanager.hpp"
 
+extern IMEBoard *g_imeBoard;
 extern SDLDevice *g_sdlDevice;
 
 GUIManager::GUIManager(ProcessRun *proc)
-    : WidgetGroup
+    : WidgetContainer
       {
           DIR_UPLEFT,
           0,
@@ -65,6 +49,14 @@ GUIManager::GUIManager(ProcessRun *proc)
           this,
       }
 
+    , m_teamStateBoard
+      {
+          g_sdlDevice->getRendererWidth()  / 2 - 129,
+          g_sdlDevice->getRendererHeight() / 2 - 122,
+          proc,
+          this,
+      }
+
     , m_inventoryBoard
       {
           g_sdlDevice->getRendererWidth()  / 2 - 141,
@@ -98,6 +90,14 @@ GUIManager::GUIManager(ProcessRun *proc)
           this,
       }
 
+    , m_runtimeConfigBoard
+      {
+          g_sdlDevice->getRendererWidth()  / 2 - 255,
+          g_sdlDevice->getRendererHeight() / 2 - 234,
+          proc,
+          this,
+      }
+
     , m_securedItemListBoard
       {
           0,
@@ -107,6 +107,7 @@ GUIManager::GUIManager(ProcessRun *proc)
       }
 {
     fflassert(m_processRun);
+    g_imeBoard->dropFocus();
 }
 
 void GUIManager::drawEx(int, int, int, int, int, int) const
@@ -117,22 +118,21 @@ void GUIManager::drawEx(int, int, int, int, int, int) const
     m_purchaseBoard.draw();
 
     const auto [w, h] = g_sdlDevice->getRendererSize();
-    WidgetGroup::drawEx(0, 0, 0, 0, w, h);
+    WidgetContainer::drawEx(0, 0, 0, 0, w, h);
+    g_imeBoard->draw();
 }
 
 void GUIManager::update(double fUpdateTime)
 {
-    WidgetGroup  ::update(fUpdateTime);
+    WidgetContainer::update(fUpdateTime);
     m_controlBoard.update(fUpdateTime);
     m_NPCChatBoard.update(fUpdateTime);
+    g_imeBoard->update(fUpdateTime);
 }
 
 bool GUIManager::processEvent(const SDL_Event &event, bool valid)
 {
-    if(!valid){
-        throw fflerror("event passed to GUIManager is not valid");
-    }
-
+    fflassert(valid);
     switch(event.type){
         case SDL_WINDOWEVENT:
             {
@@ -156,10 +156,11 @@ bool GUIManager::processEvent(const SDL_Event &event, bool valid)
     }
 
     bool tookEvent = false;
-    tookEvent |= WidgetGroup  ::processEvent(event, valid && !tookEvent);
-    tookEvent |= m_controlBoard.processEvent(event, valid && !tookEvent);
-    tookEvent |= m_NPCChatBoard.processEvent(event, valid && !tookEvent);
-    tookEvent |= m_miniMapBoard.processEvent(event, valid && !tookEvent);
+    tookEvent |=      g_imeBoard->processEvent(event, valid && !tookEvent);
+    tookEvent |= WidgetContainer::processEvent(event, valid && !tookEvent);
+    tookEvent |=   m_controlBoard.processEvent(event, valid && !tookEvent);
+    tookEvent |=   m_NPCChatBoard.processEvent(event, valid && !tookEvent);
+    tookEvent |=   m_miniMapBoard.processEvent(event, valid && !tookEvent);
 
     return tookEvent;
 }
@@ -190,6 +191,10 @@ Widget *GUIManager::getWidget(const std::string &name)
         return &m_miniMapBoard;
     }
 
+    else if(name == "TeamStateBoard"){
+        return &m_teamStateBoard;
+    }
+
     else if(name == "PlayerStateBoard"){
         return &m_playerStateBoard;
     }
@@ -202,11 +207,17 @@ Widget *GUIManager::getWidget(const std::string &name)
         return &m_inputStringBoard;
     }
 
+    else if(name == "RuntimeConfigBoard"){
+        return &m_runtimeConfigBoard;
+    }
+
     else if(name == "SecuredItemListBoard"){
         return &m_securedItemListBoard;
     }
 
-    return nullptr;
+    else{
+        throw fflvalue(name);
+    }
 }
 
 void GUIManager::onWindowResize()
@@ -230,6 +241,7 @@ void GUIManager::onWindowResize()
         widgetPtr->moveBy(-moveDX, -moveDY);
     };
 
+    fnSetWidgetPLoc(g_imeBoard);
     fnSetWidgetPLoc(&m_skillBoard);
     fnSetWidgetPLoc(&m_inventoryBoard);
     fnSetWidgetPLoc(&m_quickAccessBoard);

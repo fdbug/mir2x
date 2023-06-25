@@ -1,27 +1,8 @@
-/*
- * =====================================================================================
- *
- *       Filename: npcharop.cpp
- *        Created: 04/12/2020 16:27:40
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "mathf.hpp"
 #include "npchar.hpp"
 #include "dbcomid.hpp"
 #include "servermsg.hpp"
 #include "serdesmsg.hpp"
-#include "dbcomrecord.hpp"
 #include "actormsgpack.hpp"
 
 void NPChar::on_AM_ATTACK(const ActorMsgPack &)
@@ -47,27 +28,20 @@ void NPChar::on_AM_ACTION(const ActorMsgPack &mpk)
 
 void NPChar::on_AM_NPCEVENT(const ActorMsgPack &mpk)
 {
-    if(!mpk.from()){
-        throw fflerror("NPC event comes from zero uid");
-    }
-
+    fflassert(mpk.from());
     const auto sdNPCE = mpk.deserialize<SDNPCEvent>();
 
-    // when CO initiatively sends a message to NPC, we assume it's UID is the callStackUID
+    // when CO initially sends a message to NPC, we assume its UID is the callStackUID
     // when NPC querys CO attributes the response should be handled in actor response handler, not here
 
     if(false
-            || sdNPCE.event == SYS_NPCDONE
+            || sdNPCE.event == SYS_EXIT
             || sdNPCE.event == SYS_NPCERROR){
-        m_luaModulePtr->close(mpk.from());
+        m_luaRunner->close(mpk.from());
         return;
     }
 
-    if(sdNPCE.event == SYS_NPCQUERY){
-        throw fflerror("unexcepted NPC event: event = %s, value = %s", to_cstr(sdNPCE.event), to_cstr(sdNPCE.value.value_or("(nil)")));
-    }
-
-    // can be SYS_NPCINIT or scritp event
+    // can be SYS_ENTER or scritp event
     // script event defines like text button pressed etc
 
     if(sdNPCE.mapID != mapID() || mathf::LDistance2(sdNPCE.x, sdNPCE.y, X(), Y()) >= SYS_MAXNPCDISTANCE * SYS_MAXNPCDISTANCE){
@@ -77,18 +51,20 @@ void NPChar::on_AM_NPCEVENT(const ActorMsgPack &mpk)
         amNPCE.errorID = NPCE_TOOFAR;
         m_actorPod->forward(mpk.from(), {AM_NPCERROR, amNPCE});
 
-        m_luaModulePtr->close(mpk.from());
+        m_luaRunner->close(mpk.from());
         return;
     }
 
-    // last call stack has not been done yet
+    // last call stack may have not been done yet
     // but player initializes new call stack, have to abandon last call stack and start a new one
 
-    if(m_luaModulePtr->getCallStackSeqID(mpk.from())){
-        m_luaModulePtr->close(mpk.from());
+    if(m_luaRunner->getSeqID(mpk.from())){
+        m_luaRunner->close(mpk.from());
     }
 
-    m_luaModulePtr->setEvent(mpk.from(), mpk.from(), sdNPCE.event, sdNPCE.value);
+    const auto  pathOptStr = str_haschar(sdNPCE.path) ? str_printf("\'%s\'", sdNPCE.path         .c_str()) : std::string("nil");
+    const auto valueOptStr = sdNPCE.value.has_value() ? str_printf("\'%s\'", sdNPCE.value.value().c_str()) : std::string("nil");
+    m_luaRunner->spawn(mpk.from(), str_printf("return _RSVD_NAME_npc_main(%llu, %s, \'%s\', %s)", to_llu(mpk.from()), pathOptStr.c_str(), sdNPCE.event.c_str(), valueOptStr.c_str()));
 }
 
 void NPChar::on_AM_NOTIFYNEWCO(const ActorMsgPack &mpk)
@@ -150,10 +126,16 @@ void NPChar::on_AM_QUERYSELLITEMLIST(const ActorMsgPack &mpk)
     forwardNetPackage(mpk.from(), SM_SELLITEMLIST, cerealf::serialize(sdSIL, true));
 }
 
+void NPChar::on_AM_REMOTECALL(const ActorMsgPack &mpk)
+{
+    const auto sdRC = mpk.deserialize<SDRemoteCall>();
+    m_luaRunner->spawn(mpk.from(), mpk.fromAddr(), sdRC.code);
+}
+
 void NPChar::on_AM_BADACTORPOD(const ActorMsgPack &mpk)
 {
     const auto amBAP = mpk.conv<AMBadActorPod>();
-    m_luaModulePtr->close(amBAP.UID);
+    m_luaRunner->close(amBAP.UID);
 }
 
 void NPChar::on_AM_BUY(const ActorMsgPack &mpk)

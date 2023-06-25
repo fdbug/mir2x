@@ -1,96 +1,92 @@
-/*
- * =====================================================================================
- *
- *       Filename: strf.hpp
- *        Created: 11/27/2018 22:28:55
- *    Description: 
- *                  try to support printf to a std::string
- *                  need to take care of va_list
- *
- *                  a). C++14 say nothing for va_list, it's from C
- *                  b). C99/11 states that(C99-7.15, C11-7.16)
- *                     1. va_list can be re-initialized after called va_end()
- *
- *                          void func_a(format, ...)
- *                          {
- *                              va_list ap;
- *                              va_start(format, ap);
- *                              ...
- *                              va_end(ap);
- *
- *                              va_start(format, ap);
- *                              ...
- *                              va_end(ap);
- *                          }
- *
- *                     2. va_list declared in func_a can be passed to func_b as an
- *                        argument, if func_b access va_list via va_arg then va_list
- *                        in func_a is indeterminate and shall be passed to va_end()
- *                        before any further reference
- *
- *                          void func_b(va_list ap)
- *                          {
- *                              ...
- *                          }
- *
- *                          void func_a(format, ...)
- *                          {
- *                              va_list ap;
- *                              va_start(format, ap);
- *
- *                              func_b(ap)
- *
- *                              // now ap is indeterminate
- *                              // no reference to ap before va_end()
- *                              // means func_a() can't see any change of ap in func_b()
- *
- *                              va_end(ap);
- *                          }
- *
- *                     3. va_list declared in func_a can be passed to func_b via a pointer
- *                        to it, in which case the original function may make further use
- *                        of the original va_list after func_b returns
- *                      
- *                          void func_b(va_list *ap)
- *                          {
- *                              // pull out one argument from ap
- *                              // and handle it
- *                          }
- *
- *                          void func_a(format, ...)
- *                          {
- *                              va_list ap;
- *                              va_start(format, ap);
- *
- *                              func_b(&ap)
- *
- *                              // now ap is still ok
- *                              // func_a() can see changes of ap in func_b()
- *
- *                              func_b(&ap)
- *                              ...
- *
- *                              va_end(ap);
- *                          }
- *
- *                  if we want to use this va_list in C++ safely, make a .a with a C99/11
- *                  compiler and and call it from C++
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// try to support printf to a std::string
+// need to take care of va_list
+//
+// a). C++14 say nothing for va_list, it's from C
+// b). C99/11 states that(C99-7.15, C11-7.16)
+//    1. va_list can be re-initialized after called va_end()
+//
+//         void func_a(format, ...)
+//         {
+//             va_list ap;
+//             va_start(format, ap);
+//             ...
+//             va_end(ap);
+//
+//             va_start(format, ap);
+//             ...
+//             va_end(ap);
+//         }
+//
+//    2. va_list declared in func_a can be passed to func_b as an
+//       argument, if func_b access va_list via va_arg then va_list
+//       in func_a is indeterminate and shall be passed to va_end()
+//       before any further reference
+//
+//         void func_b(va_list ap)
+//         {
+//             ...
+//         }
+//
+//         void func_a(format, ...)
+//         {
+//             va_list ap;
+//             va_start(format, ap);
+//
+//             func_b(ap)
+//
+//             // now ap is indeterminate
+//             // no reference to ap before va_end()
+//             // means func_a() can't see any change of ap in func_b()
+//
+//             va_end(ap);
+//         }
+//
+//    3. va_list declared in func_a can be passed to func_b via a pointer
+//       to it, in which case the original function may make further use
+//       of the original va_list after func_b returns
+//
+//         void func_b(va_list *ap)
+//         {
+//             // pull out one argument from ap
+//             // and handle it
+//         }
+//
+//         void func_a(format, ...)
+//         {
+//             va_list ap;
+//             va_start(format, ap);
+//
+//             func_b(&ap)
+//
+//             // now ap is still ok
+//             // func_a() can see changes of ap in func_b()
+//
+//             func_b(&ap)
+//             ...
+//
+//             va_end(ap);
+//         }
+//
+// if we want to use this va_list in C++ safely, make a .a with a C99/11
+// compiler and and call it from C++
 
 #pragma once
+#include <set>
+#include <map>
+#include <unordered_set>
+#include <unordered_map>
+#include <list>
+#include <vector>
+#include <deque>
 #include <string>
+#include <cstring>
 #include <cstdarg>
 #include <concepts>
+#include <sstream>
+#include <optional>
+#include <variant>
+#include <iomanip>
+#include <algorithm>
 #include <filesystem>
 
 #ifdef __GNUC__
@@ -99,8 +95,121 @@
     #define STR_PRINTF_CHECK_FORMAT(n)
 #endif
 
-bool str_haschar(const char *);
-bool str_haschar(const char8_t *);
+template<typename T, typename S> std::string str_join(const T &t, const S &sep)
+{
+    std::ostringstream oss;
+    auto iter = std::cbegin(t);
+
+    if(iter != std::cend(t)){
+        oss << *iter++;
+    }
+
+    while(iter != std::cend(t)){
+        oss << sep << *iter++;
+    }
+
+    return oss.str();
+}
+
+template<typename T> std::string str_join(const T &t)
+{
+    return str_join(t, "");
+}
+
+inline std::vector<std::string> str_split(const std::string &s, char sep)
+{
+    std::istringstream iss(s);
+    std::vector<std::string> result;
+
+    for(std::string token; std::getline(iss, token, sep);){
+        result.push_back(token);
+    }
+    return result;
+}
+
+template<typename Iter> std::string str_toupper(Iter i1, Iter i2)
+{
+    std::string result;
+    result.reserve(static_cast<std::string::size_type>(std::distance(i1, i2)));
+
+    auto iter = i1;
+    while(iter != i2){
+        result.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(*iter))));
+        ++iter;
+    }
+    return result;
+}
+
+template<typename Iter> std::string str_tolower(Iter i1, Iter i2)
+{
+    std::string result;
+    result.reserve(static_cast<std::string::size_type>(std::distance(i1, i2)));
+
+    auto iter = i1;
+    while(iter != i2){
+        result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(*iter))));
+        ++iter;
+    }
+    return result;
+}
+
+inline std::string str_toupper(const char *s) // undefined if s is null
+{
+    return str_toupper(s, s + std::strlen(s));
+}
+
+inline std::string str_toupper(const std::string &s)
+{
+    return str_toupper(s.begin(), s.end());
+}
+
+inline std::string str_tolower(const char *s) // undefined if s is null
+{
+    return str_tolower(s, s + std::strlen(s));
+}
+
+inline std::string str_tolower(const std::string &s)
+{
+    return str_tolower(s.begin(), s.end());
+}
+
+inline std::string str_trim(std::string s)
+{
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch)
+    {
+        return !std::isspace(ch);
+    }));
+
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch)
+    {
+        return !std::isspace(ch);
+    }).base(), s.end());
+
+    return s;
+}
+
+constexpr bool str_haschar(const char *s)
+{
+    return s && s[0] != '\0';
+}
+
+constexpr bool str_haschar(const char8_t *s)
+{
+    return s && s[0] != '\0';
+}
+
+bool str_haschar(const std::string &);
+bool str_haschar(const std::u8string &);
+
+bool str_haschar(const std::string_view &);
+bool str_haschar(const std::u8string_view &);
+
+template<typename T> std::string str_quoted(const T &s)
+{
+    std::stringstream ss;
+    ss << std::quoted(s);
+    return ss.str();
+}
 
 template<std::integral T> [[nodiscard]] std::string str_ksep(T t, char sep = ',')
 {
@@ -162,6 +271,141 @@ template<std::integral T> [[nodiscard]] std::string str_ksep(T t, char sep = ','
         throw std::runtime_error(str_printf("call str_vprintf(%s) failed", (const char *)(format)));\
     }\
 }while(0)\
+
+inline std::string str_any(const char *s)
+{
+    if(!s){
+        return "(null)";
+    }
+    else if(!s[0]){
+        return "(empty)";
+    }
+    else{
+        return str_printf("\"%s\"", s);
+    }
+}
+
+inline std::string str_any(const char8_t *s)
+{
+    return str_any((const char *)(s));
+}
+
+inline std::string str_any(const std::string &s)
+{
+    return str_any(s.c_str());
+}
+
+inline std::string str_any(const std::u8string &s)
+{
+    return str_any((const char *)(s.c_str()));
+}
+
+inline std::string str_any(const std::string_view &s)
+{
+    return str_any(std::string(s.data(), s.size()));
+}
+
+inline std::string str_any(const std::u8string_view &s)
+{
+    return str_any(std::u8string(s.data(), s.size()));
+}
+
+inline std::string str_any(char ch)
+{
+    if(ch == '\0'){
+        return "\'\\0\'";
+    }
+    else{
+        return str_printf("\'%c\'", ch);
+    }
+}
+
+inline std::string str_any(bool b)
+{
+    return b ? "true" : "false";
+}
+
+inline std::string str_any(const std::monostate &)
+{
+    return "(monostate)";
+}
+
+template<typename T, typename... Args> std::string str_any(const std::          set<T, Args...> &);
+template<typename T, typename... Args> std::string str_any(const std::unordered_set<T, Args...> &);
+
+template<typename K, typename V, typename... Args> std::string str_any(const std::          map<K, V, Args...> &);
+template<typename K, typename V, typename... Args> std::string str_any(const std::unordered_map<K, V, Args...> &);
+
+template<typename T, typename... Args> std::string str_any(const std::list  <T, Args...> &);
+template<typename T, typename... Args> std::string str_any(const std::deque <T, Args...> &);
+template<typename T, typename... Args> std::string str_any(const std::vector<T, Args...> &);
+
+template<typename U, typename V> std::string str_any(const std::pair<U, V> &);
+
+template<typename T> std::string str_any(const T &t)
+{
+    std::stringstream ss;
+    return dynamic_cast<std::stringstream &>(ss << t).str();
+}
+
+#define _str_any_container_helper(c) \
+{ \
+    std::string result = "{"; \
+    for(const auto &item_in_c: c){ \
+        if(result.size() > 1){ \
+            result += ","; \
+        } \
+        result += str_any(item_in_c); \
+    } \
+    return result + "}"; \
+}
+
+template<typename T, typename... Args> std::string str_any(const std::          set<T, Args...> &s) _str_any_container_helper(s)
+template<typename T, typename... Args> std::string str_any(const std::unordered_set<T, Args...> &s) _str_any_container_helper(s)
+
+template<typename K, typename V, typename... Args> std::string str_any(const std::          map<K, V, Args...> &m) _str_any_container_helper(m)
+template<typename K, typename V, typename... Args> std::string str_any(const std::unordered_map<K, V, Args...> &m) _str_any_container_helper(m)
+
+template<typename T, typename... Args> std::string str_any(const std::list  <T, Args...> &l) _str_any_container_helper(l)
+template<typename T, typename... Args> std::string str_any(const std::deque <T, Args...> &q) _str_any_container_helper(q)
+template<typename T, typename... Args> std::string str_any(const std::vector<T, Args...> &v) _str_any_container_helper(v)
+
+#undef _str_any_container_helper
+
+template<typename K, typename V> std::string str_any(const std::pair<K, V> &p)
+{
+    return std::string("{") + str_any(p.first) + "," + str_any(p.second) + "}";
+}
+
+template<std::size_t I, typename... T> inline typename std::enable_if<I == sizeof...(T), std::string>::type _str_any_tuple_helper(const std::tuple<T...> &)
+{
+    return {};
+}
+
+template<std::size_t I, typename... T> inline typename std::enable_if<I <  sizeof...(T), std::string>::type _str_any_tuple_helper(const std::tuple<T...> &t)
+{
+    return std::string((I == 0) ? "" : ",") + str_any(std::get<I>(t)) + _str_any_tuple_helper<I + 1>(t);
+}
+
+template<typename... T> std::string str_any(const std::tuple<T...> &t)
+{
+    return "{" + _str_any_tuple_helper<0>(t) + "}";
+}
+
+template<typename T> std::string str_any(const std::optional<T> &opt)
+{
+    if(opt.has_value()){
+        return str_any(opt.value());
+    }
+    else{
+        return "(nullopt)";
+    }
+}
+
+template<typename... Ts> std::string str_any(const std::variant<Ts...> &v)
+{
+    return std::visit([](const auto &x)-> std::string { return str_any(x); }, v);
+}
 
 // copy from boost
 // definition of BOOST_CURRENT_FUNCTION

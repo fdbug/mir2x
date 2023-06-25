@@ -1,26 +1,9 @@
-/*
- * =====================================================================================
- *
- *       Filename: serdesmsg.hpp
- *        Created: 01/24/2016 19:30:45
- *    Description: net message used by client and mono-server
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <array>
 #include <string>
 #include <numeric>
 #include <variant>
+#include <utility>
 #include <optional>
 #include <algorithm>
 #include <unordered_set>
@@ -29,14 +12,25 @@
 #include "fflerror.hpp"
 #include "protocoldef.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
+#include "luaf.hpp"
+
+struct SDInitQuest
+{
+    uint32_t questID = 0;
+    std::string fullScriptName {};
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(questID, fullScriptName);
+    }
+};
 
 struct SDInitPlayer
 {
     uint32_t dbid = 0;
     uint32_t channID = 0;
 
-    std::string name;
+    std::string name {};
     uint32_t nameColor = 0;
 
     int x = 0;
@@ -62,26 +56,91 @@ struct SDInitPlayer
 
 struct SDInitNPChar
 {
-    std::string filePath;
+    uint16_t lookID = 0;
+    std::string npcName {};
+    std::string fullScriptName {};
+
     uint32_t mapID = 0;
-    std::string npcName;
+    int x = 0;
+    int y = 0;
+    int gfxDir = 0;
 
     template<typename Archive> void serialize(Archive & ar)
     {
-        ar(filePath, mapID, npcName);
+        ar(lookID, npcName, fullScriptName, mapID, x, y, gfxDir);
     }
+};
 
-    std::string getFileName() const;
+struct SDQuestTriggerLevelUp
+{
+    int oldLevel = 0;
+    int newLevel = 0;
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(oldLevel, newLevel);
+    }
+};
+
+struct SDQuestTriggerKill
+{
+    uint32_t monsterID = 0;
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(monsterID);
+    }
+};
+
+struct SDQuestTriggerGainExp
+{
+    int addedExp = 0;
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(addedExp);
+    }
+};
+
+struct SDQuestTriggerGainGold
+{
+    int addedGold = 0;
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(addedGold);
+    }
+};
+
+struct SDQuestTriggerGainItem
+{
+    uint32_t itemID = 0;
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(itemID);
+    }
+};
+
+using SDQuestTriggerVar = std::variant<
+    SDQuestTriggerLevelUp,
+    SDQuestTriggerKill,
+    SDQuestTriggerGainExp,
+    SDQuestTriggerGainGold,
+    SDQuestTriggerGainItem
+>;
+
+template<typename... Ts> struct SDQuestTriggerDispatcher: Ts...
+{
+    using Ts::operator()...;
 };
 
 struct SDNPCXMLLayout
 {
     uint64_t npcUID = 0;
-    std::string xmlLayout;
+    std::string eventPath {};
+    std::string xmlLayout {};
 
     template<typename Archive> void serialize(Archive & ar)
     {
-        ar(npcUID, xmlLayout);
+        ar(npcUID, eventPath, xmlLayout);
     }
 };
 
@@ -90,8 +149,8 @@ struct SDStartInvOp
     int invOp = INVOP_NONE;
 
     uint64_t uid = 0;
-    std::string queryTag;
-    std::string commitTag;
+    std::string queryTag {};
+    std::string commitTag {};
     std::vector<std::u8string> typeList;
 
     template<typename Archive> void serialize(Archive & ar)
@@ -118,8 +177,8 @@ struct SDStartInvOp
 struct SDStartInput
 {
     uint64_t uid = 0;
-    std::string title;
-    std::string commitTag;
+    std::string title {};
+    std::string commitTag {};
     bool show = false;
 
     template<typename Archive> void serialize(Archive & ar)
@@ -155,9 +214,6 @@ struct SDCostItem
     }
 };
 
-using SDItemExtAttr      = std::variant<int, double, uint32_t, std::array<int, 2>, std::string>;
-using SDItemExtAttrList  = std::unordered_map<int, SDItemExtAttr>;
-
 struct SDItem
 {
     enum SDItemXMLLayoutParamType: int
@@ -175,70 +231,98 @@ struct SDItem
         XML_END,
     };
 
-    enum SDItemExtAttrType: int
-    {
-        EA_NONE  = 0,
-        EA_BEGIN = 1,
-        EA_DC    = 1,
-        EA_MC,
-        EA_SC,
-        EA_AC,
-        EA_MAC,
+    constexpr static int EA_NONE  = 0;
+    constexpr static int EA_BEGIN = 1;
 
-        EA_DCHIT,
-        EA_MCHIT,
+    constexpr static int _ea_add_type_counter_begin = __COUNTER__;
+#define _MACRO_ADD_EA_TYPE(eaType, eaValType) \
+    constexpr static int eaType = __COUNTER__ - _ea_add_type_counter_begin; \
+    struct eaType##_t \
+    { \
+        constexpr static int value = eaType; \
+        using type = eaValType; \
+    }; \
+    template<typename ... Args> static std::pair<const int, std::string> build_##eaType(Args && ... args) \
+    { \
+        return {eaType, cerealf::serialize<eaValType>(eaValType(std::forward<Args>(args)...), -1)}; \
+    } \
 
-        EA_DCDODGE,
-        EA_MCDODGE,
+    /**/ // begin of extra-attributes
+    /**/ // each line provides three types, take EA_DC as example:
+    /**/ //
+    /**/ //     SDItem::EA_DC           : an integer used as key
+    /**/ //     SDItem::EA_DC_t         : an type contains: EA_DC_t::value and EA_DC_t::type
+    /**/ //     SDItem::build_EA_DC()   : an function returns std::pair<int, std::string> where second is the serialized extra-attributes value
+    /**/ //
+    /**/ // don't put any other code except the macro defines and type aligns
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_DC , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_MC , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_SC , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_AC , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_MAC, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCHIT, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_MCHIT, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCDODGE, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_MCDODGE, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_SPEED, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_COMFORT, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_LUCKCURSE, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_HPADD, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_HPSTEAL, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_HPRECOVER, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_MPADD, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_MPSTEAL, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_MPRECOVER, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCFIRE   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCICE    , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCLIGHT  , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCWIND   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCHOLY   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCDARK   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_DCPHANTOM, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACFIRE   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACICE    , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACLIGHT  , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACWIND   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACHOLY   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACDARK   , int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_ACPHANTOM, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_LOADBODY, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_LOADWEAPON, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_LOADINVENTORY, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_EXTEXP, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_EXTGOLD, int)
+    /**/ _MACRO_ADD_EA_TYPE(EA_EXTDROP, int)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_BUFFID, int)
+    /**/
+    /**/ using _helper_type_EA_TELEPORT_t = std::tuple<uint32_t, int, int>;
+    /**/ _MACRO_ADD_EA_TYPE(EA_TELEPORT, _helper_type_EA_TELEPORT_t)
+    /**/
+    /**/ _MACRO_ADD_EA_TYPE(EA_COLOR, uint32_t)
+    /**/
+    /**/ // end of extra-attributes
+    /**/ // any extra-attributes should be put inside above region
 
-        EA_SPEED,
-        EA_COMFORT,
-        EA_LUCKCURSE,
-
-        EA_HPADD,
-        EA_HPSTEAL,
-        EA_HPRECOVER,
-
-        EA_MPADD,
-        EA_MPSTEAL,
-        EA_MPRECOVER,
-
-        EA_DCFIRE,
-        EA_DCICE,
-        EA_DCLIGHT,
-        EA_DCWIND,
-        EA_DCHOLY,
-        EA_DCDARK,
-        EA_DCPHANTOM,
-
-        EA_ACFIRE,
-        EA_ACICE,
-        EA_ACLIGHT,
-        EA_ACWIND,
-        EA_ACHOLY,
-        EA_ACDARK,
-        EA_ACPHANTOM,
-
-        EA_LOADBODY,
-        EA_LOADWEAPON,
-        EA_LOADINVENTORY,
-
-        EA_EXTEXP,
-        EA_EXTGOLD,
-        EA_EXTDROP,
-
-        EA_BUFFID,
-
-        EA_COLOR, // u32
-        EA_END,
-    };
+#undef _MACRO_ADD_EA_TYPE
+    constexpr static int EA_END = __COUNTER__ - _ea_add_type_counter_begin;
 
     uint32_t itemID = 0;
     uint32_t  seqID = 0;
 
     size_t count = 1;
     size_t duration[2] = {0, 0};
-    SDItemExtAttrList extAttrList = {};
+    std::unordered_map<int, std::string> extAttrList = {};
 
     template<typename Archive> void serialize(Archive & ar)
     {
@@ -260,13 +344,13 @@ struct SDItem
     operator bool () const;
     static std::vector<SDItem> buildGoldItem(size_t);
 
-    template<typename T> std::optional<T> getExtAttr(int attrType) const
+    template<typename T> std::optional<typename T::type> getExtAttr() const
     {
-        fflassert(attrType >= EA_BEGIN);
-        fflassert(attrType <  EA_END);
+        static_assert(T::value >= EA_BEGIN);
+        static_assert(T::value <  EA_END  );
 
-        if(const auto p = extAttrList.find(attrType); p != extAttrList.end()){
-            return std::get<T>(p->second);
+        if(const auto p = extAttrList.find(T::value); p != extAttrList.end()){
+            return cerealf::deserialize<typename T::type>(p->second);
         }
         return {};
     }
@@ -417,6 +501,18 @@ class SDInventory final
         std::unordered_set<uint64_t> getItemSeqIDSet() const;
 };
 
+struct SDPlayerName
+{
+    uint64_t uid = 0;
+    std::string name {};
+    uint32_t nameColor {};
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(uid, name, nameColor);
+    }
+};
+
 struct SDWLDesp
 {
     SDWear wear;
@@ -457,7 +553,7 @@ struct SDStartGameScene
     int direction = DIR_NONE;
 
     SDWLDesp desp;
-    std::string name;
+    std::string name {};
     uint32_t nameColor = 0;
 
     template<typename Archive> void serialize(Archive & ar)
@@ -657,17 +753,32 @@ struct SDMagicKeyList
 
 struct SDRuntimeConfig
 {
-    int mute = 0;
-    SDMagicKeyList magicKeyList;
+    // keep all variables the same type
+    // variables in this class get bound to RuntimeConfigBoard switches
+
+    int bgm = 1;                        // bool 0/1
+    int bgmValue = 50;                  // value 0 ~ 100
+
+    int soundEff = 1;                   // bool 0/1
+    int soundEffValue = 50;             // value 0 ~ 100
+
+    int ime = 1;                        // bool 0/1
+    int attackMode = ATKMODE_BEGIN;     // value ATKMODE_BEGIN ~ ATKMODE_END - 1
+
     template<typename Archive> void serialize(Archive & ar)
     {
-        ar(mute, magicKeyList);
+        ar(bgm, bgmValue, soundEff, soundEffValue, ime, attackMode);
     }
+};
 
-    void clear()
+struct SDPlayerConfig
+{
+    SDMagicKeyList magicKeyList;
+    SDRuntimeConfig runtimeConfig;
+
+    template<typename Archive> void serialize(Archive & ar)
     {
-        mute = 0;
-        magicKeyList.clear();
+        ar(magicKeyList, runtimeConfig);
     }
 };
 
@@ -677,12 +788,13 @@ struct SDNPCEvent
     int y = 0;
     uint32_t mapID = 0;
 
-    std::string event;
-    std::optional<std::string> value;
+    std::string path {};
+    std::string event {};
+    std::optional<std::string> value {};
 
     template<typename Archive> void serialize(Archive & ar)
     {
-        ar(x, y, mapID, event, value);
+        ar(x, y, mapID, path, event, value);
     }
 };
 
@@ -813,5 +925,130 @@ struct SDBuffIDList
     template<typename Archive> void serialize(Archive & ar)
     {
         ar(uid, idList);
+    }
+};
+
+struct SDRemoteCall
+{
+    std::string code {};
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(code);
+    }
+};
+
+struct SDRemoteCallResult
+{
+    std::vector<std::string> error {}; // a multiline error
+    std::string serVarList {}; // serialization of multiple results, lua supports return-multiple-results syntax
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(error, serVarList);
+    }
+};
+
+struct SDSendNotify
+{
+    uint64_t key = 0;
+    uint64_t seqID = 0;
+    std::vector<luaf::luaVar> varList {};
+
+    bool waitConsume = false; // if send response after notification has been consumed
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(key, seqID, varList, waitConsume);
+    }
+};
+
+struct SDRegisterQuest
+{
+    std::string name {};
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(name);
+    }
+};
+
+struct SDQueryQuestUID
+{
+    std::string name {};
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(name);
+    }
+};
+
+struct SDTeamPlayer
+{
+    uint64_t uid = 0;
+    uint32_t level = 0;
+    std::string name {};
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(uid, level, name);
+    }
+};
+
+struct SDTeamCandidate
+{
+    SDTeamPlayer player {};
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(player);
+    }
+};
+
+struct SDRequestJoinTeam
+{
+    SDTeamPlayer player {};
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(player);
+    }
+};
+
+struct SDTeamMemberList
+{
+    uint64_t teamLeader = 0;
+    std::vector<SDTeamPlayer> memberList {};
+
+    template<typename Archive> void serialize(Archive & ar)
+    {
+        ar(teamLeader, memberList);
+    }
+
+    void clear()
+    {
+        teamLeader = 0;
+        memberList.clear();
+    }
+
+    bool hasMember(uint64_t uid) const
+    {
+        if(teamLeader){
+            return std::find_if(memberList.begin(), memberList.end(), [uid](const auto &member) -> bool
+            {
+                return member.uid == uid;
+            }) != memberList.end();
+        }
+        return false;
+    }
+
+    std::vector<uint64_t> getUIDList() const
+    {
+        if(teamLeader){
+            std::vector<uint64_t> uidList;
+            uidList.reserve(memberList.size());
+
+            for(const auto &member: memberList){
+                uidList.push_back(member.uid);
+            }
+
+            return uidList;
+        }
+        return {};
     }
 };

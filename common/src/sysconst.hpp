@@ -1,31 +1,43 @@
-/*
- * =====================================================================================
- *
- *       Filename: sysconst.hpp
- *        Created: 04/11/2016 22:24:56
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 #include <type_traits>
+
+#ifdef MIR2X_DEBUG_MODE
+    constexpr bool SYS_DEBUG = true;
+#else
+    constexpr bool SYS_DEBUG = false;
+#endif
+
+enum SysTriggerType: int
+{
+    SYS_ON_BEGIN = 0,
+
+    SYS_ON_GAINEXP = SYS_ON_BEGIN,
+    SYS_ON_GAINITEM,
+    SYS_ON_GAINGOLD,
+
+    SYS_ON_ONLINE,
+    SYS_ON_OFFLINE,
+
+    SYS_ON_LEVELUP,
+    SYS_ON_KILL,
+
+    SYS_ON_TEAMUP,
+    SYS_ON_TEAMDOWN,
+
+    SYS_ON_END,
+};
 
 // In code of mirx, the MAX_Y_COUNT_FOR_OBJ_H is 44, means we need to check 44 * 32 in
 // height when drawing map because of the long object slice. Do some math the screen
 // height is 600, then for object slice it's (44 * 32 - 600) / 32 = 25.25, means there
 // are 26 cells of one object slice at most, then design data structure for object
 // rendering method based on this information
+
+constexpr int SYS_WINDOW_MIN_W = 800;
+constexpr int SYS_WINDOW_MIN_H = 600;
 
 constexpr double SYS_PI = 3.14159265359;
 constexpr int SYS_DEFFPS = 10;
@@ -75,13 +87,49 @@ constexpr size_t SYS_IDSIZE = 64;
 constexpr size_t SYS_PWDSIZE = 64;
 constexpr size_t SYS_NAMESIZE = 64;
 
-constexpr uint32_t SYS_TEXNIL = 0XFFFFFFFF;
-constexpr int SYS_MAXNPCDISTANCE = 10;
+constexpr size_t SYS_SEFFSIZE = 16;
+constexpr uint32_t SYS_MONSEFFBASE(int lookID)
+{
+    return 0X02000000 + lookID * SYS_SEFFSIZE;
+}
 
-constexpr char SYS_NPCINIT [] = "RSVD_NPC_INIT__2967391362393263";
-constexpr char SYS_NPCDONE [] = "RSVD_NPC_DONE__6381083734343264";
-constexpr char SYS_NPCQUERY[] = "RSVD_NPC_QUERY_8619263917692639";
-constexpr char SYS_NPCERROR[] = "RSVD_NPC_ERROR_8619263917692639";
+constexpr uint32_t SYS_U32NIL = 0XFFFFFFFF;
+constexpr uint64_t SYS_U64NIL = 0XFFFFFFFFFFFFFFFFULL;
+
+constexpr int SYS_MAXNPCDISTANCE = 10;
+constexpr char SYS_GOLDNAME[] = "金币（小）"; // always use 金币（小）to represent the gold item
+constexpr char SYS_QUEST_TBL_PREFIX[] = "tbl_questdb_";
+
+// commonly used quest variable name in fld_vars
+// use key in luaTable instead of key in database table to avoid change table structure
+constexpr char SYS_QUESTVAR_STATE[] = "_RSVD_NAME_QUESTVAR_STATE_837517653";
+
+constexpr char SYS_QUESTVAR_TEAM[]           = "_RSVD_NAME_QUESTVAR_TEAM_628693877";
+constexpr char SYS_QUESTVAR_TEAMLEADER[]     = "_RSVD_NAME_QUESTVAR_TEAMLEADER_622091631";
+constexpr char SYS_QUESTVAR_TEAMROLELIST[]   = "_RSVD_NAME_QUESTVAR_TEAMROLELIST_556867549";
+constexpr char SYS_QUESTVAR_TEAMMEMBERLIST[] = "_RSVD_NAME_QUESTVAR_TEAMMEMBERLIST_694437683";
+
+constexpr char SYS_NPCERROR[] = "_RSVD_NAME_NPC_ERROR_45421406723";
+
+constexpr char SYS_LABEL [] = "_RSVD_NAME_LABEL_78921733019";
+constexpr char SYS_ENTER [] = "_RSVD_NAME_ENTER_90360178872";
+constexpr char SYS_EXIT  [] = "_RSVD_NAME_EXIT__14208236065";
+constexpr char SYS_ABORT [] = "_RSVD_NAME_ABORT_72061294738";
+
+constexpr char SYS_POSINF[] = "_RSVD_NAME_POS_INF_63583688";
+constexpr char SYS_NEGINF[] = "_RSVD_NAME_NEG_INF_55461872";
+
+constexpr char SYS_EXECDONE  [] = "_RSVD_NAME_EXEC_DONE___1952748411";
+constexpr char SYS_EXECCLOSE [] = "_RSVD_NAME_EXEC_CLOSE__8553768451";
+constexpr char SYS_EXECBADUID[] = "_RSVD_NAME_EXEC_BADUID_7259708252";
+
+constexpr char SYS_CHECKACTIVE[] = "_RSVD_NAME_CHECK_ACTIVE_4054544333";
+
+constexpr char SYS_EPDEF[] = "_RSVD_NAME_EVENT_PATH_DEF_2965316381";
+constexpr char SYS_EPUID[] = "_RSVD_NAME_EVENT_PATH_UID_3623042653";
+constexpr char SYS_EPQST[] = "_RSVD_NAME_EVENT_PATH_QST_6329204623";
+
+constexpr char SYS_COOP[] = "_RSVD_NAME_COOP_293173013";
 
 constexpr inline size_t SYS_SUMEXP(uint32_t level)
 {

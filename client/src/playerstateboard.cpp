@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: playerstateboard.cpp
- *        Created: 10/08/2017 19:22:30
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <type_traits>
 #include "strf.hpp"
 #include "uidf.hpp"
@@ -23,14 +5,15 @@
 #include "sdldevice.hpp"
 #include "combatnode.hpp"
 #include "processrun.hpp"
-#include "dbcomrecord.hpp"
 #include "pngtexoffdb.hpp"
+#include "soundeffectdb.hpp"
 #include "inventoryboard.hpp"
 #include "clientargparser.hpp"
 
 extern PNGTexDB *g_itemDB;
 extern PNGTexDB *g_progUseDB;
 extern PNGTexOffDB *g_equipDB;
+extern SoundEffectDB *g_seffDB;
 extern SDLDevice *g_sdlDevice;
 extern ClientArgParser *g_clientArgParser;
 
@@ -102,13 +85,18 @@ PlayerStateBoard::PlayerStateBoard(int argX, int argY, ProcessRun *runPtr, Widge
           DIR_UPLEFT,
           288,
           13,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
           [this]()
           {
-              show(false);
+              setShow(false);
           },
 
           0,
@@ -123,7 +111,7 @@ PlayerStateBoard::PlayerStateBoard(int argX, int argY, ProcessRun *runPtr, Widge
       }
     , m_processRun(runPtr)
 {
-    show(false);
+    setShow(false);
     if(auto texPtr = g_progUseDB->retrieve(0X06000000)){
         std::tie(m_w, m_h) = SDLDeviceHelper::getTextureSize(texPtr);
     }
@@ -359,11 +347,11 @@ void PlayerStateBoard::drawEx(int, int, int, int, int, int) const
 bool PlayerStateBoard::processEvent(const SDL_Event &event, bool valid)
 {
     if(!valid){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(!show()){
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(m_closeButton.processEvent(event, valid)){
@@ -381,9 +369,9 @@ bool PlayerStateBoard::processEvent(const SDL_Event &event, bool valid)
                     const int newX = std::max<int>(0, std::min<int>(maxX, x() + event.motion.xrel));
                     const int newY = std::max<int>(0, std::min<int>(maxY, y() + event.motion.yrel));
                     moveBy(newX - x(), newY - y());
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
         case SDL_MOUSEBUTTONDOWN:
             {
@@ -409,17 +397,17 @@ bool PlayerStateBoard::processEvent(const SDL_Event &event, bool valid)
                                     break;
                                 }
                             }
-                            return focusConsume(this, in(event.button.x, event.button.y));
+                            return consumeFocus(in(event.button.x, event.button.y));
                         }
                     default:
                         {
-                            return focusConsume(this, false);
+                            return consumeFocus(false);
                         }
                 }
             }
         default:
             {
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
     }
 }

@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: clientnpc.cpp
- *        Created: 04/12/2020 12:53:00
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "uidf.hpp"
 #include "mathf.hpp"
 #include "sdldevice.hpp"
@@ -52,10 +34,10 @@ std::optional<uint32_t> NPCFrameGfxSeq::gfxID(const ClientNPC *npcPtr, std::opti
         fflassert(frame < count);
 
         return 0
-            + (to_u32(npcPtr->lookID()                & 0X07FF) << 12)
-            + (to_u32(npcPtr->currMotion()->type      & 0X000F) <<  8)
-            + (to_u32(npcPtr->currMotion()->direction & 0X0007) <<  5)
-            + (to_u32(frame                           & 0X001F) <<  0);
+            + (to_u32((npcPtr->lookID()                           ) & 0X07FF) << 12)
+            + (to_u32((npcPtr->currMotion()->type                 ) & 0X000F) <<  8)
+            + (to_u32((npcPtr->currMotion()->direction - DIR_BEGIN) & 0X0007) <<  5)
+            + (to_u32((frame                                      ) & 0X001F) <<  0);
     }
     return {};
 }
@@ -275,12 +257,12 @@ bool ClientNPC::motionValid(const std::unique_ptr<MotionNode> &motionPtr) const
 
 ClientCreature::TargetBox ClientNPC::getTargetBox() const
 {
-    const auto texBaseID = getFrameGfxSeq(currMotion()->type, currMotion()->direction).gfxID(this);
-    if(!texBaseID.has_value()){
+    const auto texBodyID = getFrameGfxSeq(currMotion()->type, currMotion()->direction).gfxID(this);
+    if(!texBodyID.has_value()){
         return {};
     }
 
-    auto [bodyFrameTexPtr, dx, dy] = g_standNPCDB->retrieve(texBaseID.value() + m_currMotion->frame);
+    auto [bodyFrameTexPtr, dx, dy] = g_standNPCDB->retrieve(texBodyID.value());
     if(!bodyFrameTexPtr){
         return {};
     }

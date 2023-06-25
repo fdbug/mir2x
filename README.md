@@ -17,9 +17,7 @@
        src="https://badges.gitter.im/org.png"/>
 </a>
 
-With C++20 coroutine feature support, you need a compiler supports c++20 to compile.
-
-mir2x is a c/s based mir2ei implementation with various platforms supported. It contains all need components for game players and developers:
+mir2x is an experimental project that verifies actor-model based parallelism for MMORPG, it's c/s based with various platforms supported and contains all need components for game players and developers:
 
   - client
   - monoserver
@@ -27,12 +25,28 @@ mir2x is a c/s based mir2ei implementation with various platforms supported. It 
   - animaker
   - mapeditor
 
-YouTube links: [1](https://youtu.be/3Xne8UHlOl0) [2](https://youtu.be/jl1LPxe2EAA) [3](https://youtu.be/TtGONA83Mb8)
+### Notes
+- This repo uses C++20 coroutine, developer needs a compiler supports c++20 to build.
+- This repo uses classic v1.45 mir2 as a reference implementation, you can try the original game:
+  - Install [win-xp](https://github.com/etorth/winxp-zh) to host and run the game server/client, tested on real machine or virtualbox machine.
+  - Install server/client from [mir2-v1.45](https://github.com/etorth/CBWCQ3).
+  - Change screen resolution to 16bit mode to run the game.
 
-<https://user-images.githubusercontent.com/1754214/148706980-5d0b5d53-10cf-41f2-b9bb-0ba2b2e301fe.mp4>
+### Public Server
+- Check the tutorial [here](https://github.com/etorth/mir2x/wiki/Host-your-monoserver-on-Oracle-Cloud) for how to run the ```monoserver``` with Oracle Cloud as a public server.
+- You can try the public test server ```192.9.241.118``` by
+  ```shell
+  client --server-ip=192.9.241.118
+  ```
 
-<img src="https://github.com/etorth/mir2x/raw/master/readme/screencapture6.gif" width="800" height="600"/>
-<img src="https://github.com/etorth/mir2x/raw/master/readme/mapeditor.png" width="800" height="520"/>
+YouTube links: [1](https://youtu.be/Yz-bGOkDyEQ) [2](https://youtu.be/jl1LPxe2EAA) [3](https://youtu.be/TtGONA83Mb8)
+
+<https://user-images.githubusercontent.com/1754214/162589720-7dd9453b-55e4-4119-a1ee-c879093cf017.mp4>
+
+
+An IME for SDL fullscreen mode:
+
+<https://user-images.githubusercontent.com/1754214/213572554-785e826c-226d-43fa-a196-ee4f92112db2.mp4>
 
 
 ### Windows
@@ -43,9 +57,12 @@ https://ci.appveyor.com/project/etorth/mir2x/build/artifacts
 ```
 If complains missing dll, you may need to copy .dll files from mir2x/bin to mir2x/client and mir2x/server.
 
+If running on WSL/WSL2, check the following to configure PulseAudio to support sound effect, the sound may get played with noticable delay.
+<img src="https://github.com/etorth/mir2x/raw/master/readme/pulseaudio.png"/>
+
 ### Building from source
 
-mir2x requires [cmake](https://cmake.org/) v3.12 and [gcc](https://gcc.gnu.org/) support c++20 to run. Mir2x needs some pre-installed packages before compile:
+mir2x game is developed for Linux-only environment, however I finished all coding and testing with Windows WSL, please refer [here](https://github.com/etorth/mir2x/wiki/How-to-compile-and-run-on-windows) how to setup and run everything on windows. mir2x requires [cmake](https://cmake.org/) v3.12 and [gcc](https://gcc.gnu.org/) support c++20 to run. Mir2x needs some pre-installed packages before compile:
 
 ```sh
 libsdl2-dev
@@ -53,8 +70,7 @@ libsdl2-image-dev
 libsdl2-mixer-dev
 libsdl2-ttf-dev
 libsdl2-gfx-dev
-libpng-dev
-liblua5.3-dev
+liblua5.4-dev
 libfltk1.3-dev
 ```
 
@@ -70,7 +86,7 @@ $ make
 $ make install
 ```
 ### First time run
-The above steps install binaries in mir2x/b/install, to start the monoserver, click menu server/launch to start the service before start client:
+To start the monoserver, find a linux machine to host the monoserver, I tried to host it on ```Oracle Cloud Infrastructure```, it works perfectly with the ```always-free``` plan. Click menu server/launch to start the service before start client:
 
 ```sh
 $ cd mir2x/b/install/server
@@ -119,7 +135,6 @@ mir2x uses a number of open source projects to work properly, and of course itse
 * [sol2](https://github.com/ThePhD/sol2) - A fast, simple C++ and Lua binding.
 * [tinyxml2](http://www.grinninglizard.com/tinyxml2/) - A simple, small, efficient, C++ XML parser.
 * [utf8-cpp](http://utfcpp.sourceforge.net/) - A simple, portable and lightweigt C++ library for UTF-8 string handling.
-* [libpng](http://www.libpng.org/pub/png/libpng.html) - The official PNG reference library.
+* [libpng](https://github.com/etorth/libpng-apng-support) - The official PNG reference library patched with APNG support.
 * [ThreadPool](https://github.com/progschj/ThreadPool) - A simple C++11 Thread Pool implementation.
-* [astar-algorithm](https://github.com/justinhj/astar-algorithm-cpp) - Implementation of the A* algorithm in C++ and C#.
 * [SQLiteCpp](https://github.com/SRombauts/SQLiteCpp) - SQLiteC++ (SQLiteCpp) is a smart and easy to use C++ SQLite3 wrapper.

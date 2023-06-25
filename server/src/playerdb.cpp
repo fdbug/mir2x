@@ -1,25 +1,6 @@
-/*
- * =====================================================================================
- *
- *       Filename: playerdb.cpp
- *        Created: 04/07/2016 03:48:41 AM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "dbpod.hpp"
 #include "player.hpp"
 #include "monoserver.hpp"
-#include "dbcomrecord.hpp"
 
 extern DBPod *g_dbPod;
 extern MonoServer *g_monoServer;
@@ -32,6 +13,11 @@ void Player::dbUpdateExp()
 void Player::dbUpdateMapGLoc()
 {
     g_dbPod->exec(u8R"###( update tbl_char set fld_map = %d, fld_mapx = %d, fld_mapy = %d where fld_dbid = %llu )###", to_d(mapID()), X(), Y(), to_llu(dbid()));
+}
+
+void Player::dbUpdateHealth()
+{
+    g_dbPod->exec(u8R"###( update tbl_char set fld_hp = %d, fld_mp = %d where fld_dbid = %llu )###", m_sdHealth.hp, m_sdHealth.mp, to_llu(dbid()));
 }
 
 void Player::dbLoadInventory()
@@ -56,7 +42,7 @@ void Player::dbLoadInventory()
                 check_cast<size_t, unsigned>(query.getColumn("fld_duration")),
                 check_cast<size_t, unsigned>(query.getColumn("fld_maxduration")),
             },
-            .extAttrList = cerealf::deserialize<SDItemExtAttrList>(query.getColumn("fld_extattrlist")),
+            .extAttrList = cerealf::deserialize<std::unordered_map<int, std::string>>(query.getColumn("fld_extattrlist")),
         };
 
         fflassert(item);
@@ -145,7 +131,7 @@ SDItem Player::dbRetrieveSecuredItem(uint32_t itemID, uint32_t seqID)
                 check_cast<size_t, unsigned>(query.getColumn("fld_duration")),
                 check_cast<size_t, unsigned>(query.getColumn("fld_maxduration")),
             },
-            .extAttrList = cerealf::deserialize<SDItemExtAttrList>(query.getColumn("fld_extattrlist")),
+            .extAttrList = cerealf::deserialize<std::unordered_map<int, std::string>>(query.getColumn("fld_extattrlist")),
         };
 
         fflassert(item);
@@ -177,7 +163,7 @@ std::vector<SDItem> Player::dbLoadSecuredItemList() const
                 check_cast<size_t, unsigned>(query.getColumn("fld_duration")),
                 check_cast<size_t, unsigned>(query.getColumn("fld_maxduration")),
             },
-            .extAttrList = cerealf::deserialize<SDItemExtAttrList>(query.getColumn("fld_extattrlist")),
+            .extAttrList = cerealf::deserialize<std::unordered_map<int, std::string>>(query.getColumn("fld_extattrlist")),
         };
 
         fflassert(item);
@@ -186,19 +172,25 @@ std::vector<SDItem> Player::dbLoadSecuredItemList() const
     return itemList;
 }
 
-void Player::dbLoadRuntimeConfig()
+void Player::dbLoadPlayerConfig()
 {
-    // tbl_runtimeconfig:
-    // +----------+----------+--------------+
-    // | fld_dbid | fld_mute | fld_magickey |
-    // +----------+----------+--------------+
+    // tbl_playerconfig:
+    // +----------+------------------+-------------------+
+    // | fld_dbid | fld_magickeylist | fld_runtimeconfig |
+    // +----------+------------------+-------------------+
 
-    m_sdRuntimeConfig.clear();
-    auto query = g_dbPod->createQuery("select * from tbl_runtimeconfig where fld_dbid = %llu", to_llu(dbid()));
+    m_sdPlayerConfig.magicKeyList.clear();
+
+    auto query = g_dbPod->createQuery("select * from tbl_playerconfig where fld_dbid = %llu", to_llu(dbid()));
 
     if(query.executeStep()){
-        m_sdRuntimeConfig.mute = query.getColumn("fld_mute");
-        m_sdRuntimeConfig.magicKeyList = cerealf::deserialize<SDMagicKeyList>(query.getColumn("fld_magickeylist"));
+        if(const std::string buf = query.getColumn("fld_magickeylist"); !buf.empty()){
+            m_sdPlayerConfig.magicKeyList = cerealf::deserialize<SDMagicKeyList>(buf);
+        }
+
+        if(const std::string buf = query.getColumn("fld_runtimeconfig"); !buf.empty()){
+            m_sdPlayerConfig.runtimeConfig = cerealf::deserialize<SDRuntimeConfig>(buf);
+        }
     }
 }
 
@@ -207,19 +199,39 @@ void Player::dbUpdateMagicKey(uint32_t magicID, char key)
     fflassert(m_sdLearnedMagicList.has(magicID));
     fflassert((key >= 'a' && key <= 'z') || (key >= '0' && key <= '9'));
 
-    if(!m_sdRuntimeConfig.magicKeyList.setMagicKey(magicID, key)){
+    if(!m_sdPlayerConfig.magicKeyList.setMagicKey(magicID, key)){
         return;
     }
 
-    const auto keyBuf = cerealf::serialize(m_sdRuntimeConfig.magicKeyList);
+    const auto keyBuf = cerealf::serialize(m_sdPlayerConfig.magicKeyList);
     auto query = g_dbPod->createQuery(
-            u8R"###( replace into tbl_runtimeconfig(fld_dbid, fld_magickeylist) )###"
-            u8R"###( values                                                     )###"
-            u8R"###(     (%llu, ?)                                              )###",
+            u8R"###( insert into tbl_playerconfig(fld_dbid, fld_magickeylist) )###"
+            u8R"###( values                                                   )###"
+            u8R"###(     (%llu, ?)                                            )###"
+            u8R"###(                                                          )###"
+            u8R"###( on conflict(fld_dbid) do update set                      )###"
+            u8R"###(     fld_magickeylist = excluded.fld_magickeylist         )###",
 
             to_llu(dbid()));
 
     query.bind(1, keyBuf.data(), keyBuf.length());
+    query.exec();
+}
+
+void Player::dbUpdateRuntimeConfig()
+{
+    const auto configBuf = cerealf::serialize(m_sdPlayerConfig.runtimeConfig);
+    auto query = g_dbPod->createQuery(
+            u8R"###( insert into tbl_playerconfig(fld_dbid, fld_runtimeconfig) )###"
+            u8R"###( values                                                    )###"
+            u8R"###(     (%llu, ?)                                             )###"
+            u8R"###(                                                           )###"
+            u8R"###( on conflict(fld_dbid) do update set                       )###"
+            u8R"###(     fld_runtimeconfig = excluded.fld_runtimeconfig        )###",
+
+            to_llu(dbid()));
+
+    query.bind(1, configBuf.data(), configBuf.length());
     query.exec();
 }
 
@@ -315,7 +327,7 @@ void Player::dbLoadWear()
                 check_cast<size_t, unsigned>(query.getColumn("fld_duration")),
                 check_cast<size_t, unsigned>(query.getColumn("fld_maxduration")),
             },
-            .extAttrList = cerealf::deserialize<SDItemExtAttrList>(query.getColumn("fld_extattrlist")),
+            .extAttrList = cerealf::deserialize<std::unordered_map<int, std::string>>(query.getColumn("fld_extattrlist")),
         };
 
         if(!DBCOM_ITEMRECORD(item.itemID).wearable(wltype)){
@@ -410,4 +422,29 @@ void Player::dbLoadLearnedMagic()
             .exp = query.getColumn("fld_exp"),
         });
     }
+}
+
+std::vector<std::string> Player::dbLoadQuestNameList() const
+{
+    std::vector<std::string> questNameList;
+    for(auto queryQuests = g_dbPod->createQuery(u8R"###(select name from sqlite_master where type='table')###"); queryQuests.executeStep();){
+        if(const std::string tableName = queryQuests.getColumn("name"); tableName.starts_with(SYS_QUEST_TBL_PREFIX)){
+            if(auto queryVars = g_dbPod->createQuery(u8R"###(select fld_vars from %s where fld_dbid = %llu)###", tableName.c_str(), to_llu(dbid())); queryVars.executeStep()){
+                const auto vars = cerealf::deserialize<luaf::luaVar>(queryVars.getColumn(0));
+                if(const auto tblVarPtr = std::get_if<luaf::luaTable>(&vars)){
+                    for(const auto &[k, v]: *tblVarPtr){
+                        const auto luaKey = luaf::luaVar(k);
+                        const auto luaVal = luaf::luaVar(v);
+                        if(luaKey == luaf::luaVar(SYS_QUESTVAR_STATE) && luaVal != luaf::luaVar(SYS_EXIT)){
+                            const auto questName = tableName.substr(std::strlen(SYS_QUEST_TBL_PREFIX));
+                            fflassert(!questName.empty(), tableName);
+                            questNameList.push_back(questName);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return questNameList;
 }

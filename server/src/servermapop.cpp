@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: servermapop.cpp
- *        Created: 05/03/2016 20:21:32
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #include <cinttypes>
 #include "player.hpp"
 #include "npchar.hpp"
@@ -28,7 +11,6 @@
 #include "servermap.hpp"
 #include "monoserver.hpp"
 #include "rotatecoord.hpp"
-#include "dbcomrecord.hpp"
 #include "serverargparser.hpp"
 
 extern MonoServer *g_monoServer;
@@ -37,8 +19,8 @@ extern ServerArgParser *g_serverArgParser;
 void ServerMap::on_AM_METRONOME(const ActorMsgPack &)
 {
     updateMapGrid();
-    if(m_luaModulePtr && !g_serverArgParser->disableMapScript){
-        m_luaModulePtr->resumeLoop();
+    if(!g_serverArgParser->disableMapScript){
+        m_luaRunner->resume(m_mainScriptThreadKey);
     }
 }
 
@@ -199,7 +181,7 @@ void ServerMap::on_AM_TRYSPACEMOVE(const ActorMsgPack &mpk)
         nDstY = std::rand() % H();
     }
 
-    const auto loc = GetValidGrid(false, false, amTSM.StrictMove ? 1 : 100, nDstX, nDstY);
+    const auto loc = getRCValidGrid(false, false, amTSM.StrictMove ? 1 : 100, nDstX, nDstY);
     if(!loc.has_value()){
         m_actorPod->forward(mpk.from(), AM_REJECTSPACEMOVE, mpk.seqID());
         return;
@@ -433,7 +415,7 @@ void ServerMap::on_AM_TRYJUMP(const ActorMsgPack &mpk)
                         AMMapSwitchTrigger amMST;
                         std::memset(&amMST, 0, sizeof(amMST));
 
-                        amMST.UID   = uidf::getMapUID(getGrid(amTJ.EndX, amTJ.EndY).mapID); // TODO
+                        amMST.UID   = uidf::getMapBaseUID(getGrid(amTJ.EndX, amTJ.EndY).mapID); // TODO
                         amMST.mapID = getGrid(amTJ.EndX, amTJ.EndY).mapID;
                         amMST.X     = getGrid(amTJ.EndX, amTJ.EndY).switchX;
                         amMST.Y     = getGrid(amTJ.EndX, amTJ.EndY).switchY;
@@ -537,7 +519,7 @@ void ServerMap::on_AM_TRYMOVE(const ActorMsgPack &rstMPK)
                 // we check the end grids for CO and Lock
                 // but for middle grids we only check the CO, no Lock
 
-                condcheck(nStepSize == 2 || nStepSize == 3);
+                fflassert(nStepSize == 2 || nStepSize == 3, nStepSize);
 
                 int nDX = (amTM.EndX > amTM.X) - (amTM.EndX < amTM.X);
                 int nDY = (amTM.EndY > amTM.Y) - (amTM.EndY < amTM.Y);
@@ -674,7 +656,7 @@ void ServerMap::on_AM_TRYMOVE(const ActorMsgPack &rstMPK)
                         AMMapSwitchTrigger amMST;
                         std::memset(&amMST, 0, sizeof(amMST));
 
-                        amMST.UID   = uidf::getMapUID(getGrid(nMostX, nMostY).mapID); // TODO
+                        amMST.UID   = uidf::getMapBaseUID(getGrid(nMostX, nMostY).mapID); // TODO
                         amMST.mapID = getGrid(nMostX, nMostY).mapID;
                         amMST.X     = getGrid(nMostX, nMostY).switchX;
                         amMST.Y     = getGrid(nMostX, nMostY).switchY;
@@ -845,8 +827,10 @@ void ServerMap::on_AM_PATHFIND(const ActorMsgPack &rstMPK)
     AMPathFind amPF;
     std::memcpy(&amPF, rstMPK.data(), sizeof(amPF));
 
-    int nX0 = amPF.X;
-    int nY0 = amPF.Y;
+    int nX0  = amPF.X;
+    int nY0  = amPF.Y;
+    int nDir = amPF.direction;
+
     int nX1 = amPF.EndX;
     int nY1 = amPF.EndY;
 
@@ -877,14 +861,15 @@ void ServerMap::on_AM_PATHFIND(const ActorMsgPack &rstMPK)
     }
 
     ServerPathFinder stPathFinder(this, amPF.MaxStep, amPF.CheckCO);
-    if(!stPathFinder.Search(nX0, nY0, nX1, nY1)){
+    if(!stPathFinder.search(nX0, nY0, nDir, nX1, nY1).hasPath()){
         m_actorPod->forward(rstMPK.from(), AM_ERROR, rstMPK.seqID());
         return;
     }
 
     // drop the first node
     // it's should be the provided start point
-    if(!stPathFinder.GetSolutionStart()){
+    const auto pathList = stPathFinder.getPathNode();
+    if(pathList.size() < 2){
         m_actorPod->forward(rstMPK.from(), AM_ERROR, rstMPK.seqID());
         return;
     }
@@ -893,12 +878,13 @@ void ServerMap::on_AM_PATHFIND(const ActorMsgPack &rstMPK)
     int nCurrX = nX0;
     int nCurrY = nY0;
 
-    while(auto pNode1 = stPathFinder.GetSolutionNext()){
+    for(size_t i = 1; i < pathList.size(); ++i){
+        const auto pNode1 = pathList.data() + i;
         if(nCurrN >= to_d(nPathCount)){
             break;
         }
-        int nEndX = pNode1->X();
-        int nEndY = pNode1->Y();
+        int nEndX = pNode1->X;
+        int nEndY = pNode1->Y;
         switch(mathf::LDistance2(nCurrX, nCurrY, nEndX, nEndY)){
             case 1:
             case 2:
@@ -1155,6 +1141,14 @@ void ServerMap::on_AM_CASTFIREWALL(const ActorMsgPack &mpk)
             .duration = amCFW.duration,
             .dps      = amCFW.dps,
         });
+
+        m_fireWallLocList.insert({amCFW.x, amCFW.y});
         postGridFireWallList(amCFW.x, amCFW.y);
     }
+}
+
+void ServerMap::on_AM_REMOTECALL(const ActorMsgPack &mpk)
+{
+    const auto sdRC = mpk.deserialize<SDRemoteCall>();
+    m_luaRunner->spawn(m_threadKey++, mpk.fromAddr(), sdRC.code);
 }

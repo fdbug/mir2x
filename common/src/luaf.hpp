@@ -1,34 +1,19 @@
-/*
- * =====================================================================================
- *
- *       Filename: luaf.hpp
- *        Created: 04/22/2021 20:24:34
- *    Description:
- *
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
+#include <memory>
 #include <string>
+#include <ostream>
 #include <cstddef>
 #include <variant>
 #include <unordered_map>
 #include <type_traits>
 #include <sol/sol.hpp>
+#include "strf.hpp"
+#include "totype.hpp"
 #include "cerealf.hpp"
 #include "fflerror.hpp"
 
-// c++ internal types <----> blob <----> lua types as sol::object
-//    int                std::string       sol::object
+// c++ internal types <----> luaVar <----> lua types as sol::object
+//    lua_Integer         std::variant     sol::object
 //    bool                                 sol::as_table_t<...>
 //    double
 //    std::string
@@ -36,144 +21,171 @@
 
 namespace luaf
 {
-    // define an distinct nil type
-    // cereal doesn't support std::nullptr_t
-    struct nil
+    template<typename... Ts> struct luaVarDispatcher: Ts...
     {
-        char unused = 0;
-        template<typename Archive> void serialize(Archive & ar)
-        {
-            ar(unused);
-        }
+        using Ts::operator()...;
+    };
 
-        bool operator == (const luaf::nil &) const
+    struct luaNil
+    {
+        char placeholder = 0;
+
+        bool operator == (const luaNil &) const
         {
             return true;
         }
 
-        bool operator < (const luaf::nil &) const
+        template<typename Archive> void serialize(Archive & ar)
         {
-            return false;
+            ar(placeholder);
         }
     };
+}
 
-    using scalar = std::variant<luaf::nil, int, bool, double, std::string>;
-    using table  = std::map<luaf::scalar, luaf::scalar>;
-
-    // conv_table is the povit for lua types serdes
-    // it's an ascii-string-to-string-table used to serialize/deserialize general lua table
-    using conv_table = std::map<std::string, std::string>;
-
-    template<typename T> constexpr char getBlobType()
+namespace luaf
+{
+    class luaVarWrapper;
+    namespace _details
     {
-        if constexpr(std::is_same_v<T, luaf::nil>){
-            return 'n';
-        }
-        else if constexpr(std::is_same_v<T, int>){
-            return 'i';
-        }
-        if constexpr(std::is_same_v<T, bool>){
-            return 'b';
-        }
-        else if constexpr(std::is_same_v<T, double>){
-            return 'f';
-        }
-        else if constexpr(std::is_same_v<T, std::string>){
-            return 's';
-        }
-        else if constexpr(std::is_same_v<T, std::map<std::string, std::string>>){
-            return 't';
-        }
-        else{
-            throw fflerror("no blob type char defined for given type");
-        }
-    }
-
-    template<typename T> std::string buildBlob(T t)
-    {
-        auto s = cerealf::serialize<T>(std::move(t));
-        s.push_back(getBlobType<T>());
-        return s;
-    }
-
-    template<> inline std::string buildBlob<luaf::nil>(luaf::nil)
-    {
-        return std::string("nn");
-    }
-
-    template<> inline std::string buildBlob<sol::object>(sol::object obj)
-    {
-        if(obj == sol::lua_nil){
-            return std::string("nn");
-        }
-        else if(obj.is<int>()){
-            return buildBlob<int>(obj.as<int>());
-        }
-        else if(obj.is<bool>()){
-            return buildBlob<bool>(obj.as<bool>());
-        }
-        else if(obj.is<double>()){
-            return buildBlob<double>(obj.as<double>());
-        }
-        else if(obj.is<std::string>()){
-            return buildBlob<std::string>(obj.as<std::string>());
-        }
-        else{
-            throw fflerror("invalid object type");
-        }
-    }
-
-    inline sol::object buildLuaObj(sol::state_view sv, std::string s)
-    {
-        // string created by cerealf::serialize()
-        // [0, n-2] data
-        // [   n-1] compression
-        // [   n  ] type information
-        fflassert(s.length() >= 2);
-        const char ch = s.back();
-        s.pop_back();
-
-        switch(ch){
-            case getBlobType<luaf::nil  >(): return sol::make_object(sv, sol::nil);
-            case getBlobType<int        >(): return sol::object(sv, sol::in_place_type<int        >, cerealf::deserialize<int        >(std::move(s)));
-            case getBlobType<bool       >(): return sol::object(sv, sol::in_place_type<bool       >, cerealf::deserialize<bool       >(std::move(s)));
-            case getBlobType<double     >(): return sol::object(sv, sol::in_place_type<double     >, cerealf::deserialize<double     >(std::move(s)));
-            case getBlobType<std::string>(): return sol::object(sv, sol::in_place_type<std::string>, cerealf::deserialize<std::string>(std::move(s)));
-            default: throw fflerror("invalid blob type: %c", ch);
-        }
-    }
-
-    inline std::string asKeyString(std::string s)
-    {
-        std::string key;
-        key.reserve(s.size() * 2);
-
-        for(const auto ch: s){
-            key.push_back(((ch & 0XF0) >> 4) + '0');
-            key.push_back(((ch & 0X0F) >> 0) + '0');
-        }
-        return key;
-    }
-
-    inline std::string fromKeyString(std::string key)
-    {
-        fflassert(key.size() % 2 == 0);
-
-        std::string s;
-        s.reserve(key.size() / 2);
-
-        for(size_t i = 0; i < key.size(); i += 2){
-            s.push_back(((key[i] - '0') << 4) + (key[i + 1] - '0'));
-        }
-        return s;
-    }
-
-    inline auto buildLuaConvTable(std::string s)
-    {
-        fflassert(s.length() >= 2);
-        fflassert(s.back() == getBlobType<luaf::conv_table>());
-
-        s.pop_back();
-        return sol::as_table_t<luaf::conv_table>(cerealf::deserialize<luaf::conv_table>(s));
+        struct _luaVarWrapperHash
+        {
+            size_t operator() (const luaVarWrapper &) const noexcept;
+        };
     }
 }
+
+namespace luaf
+{
+    class luaVarWrapper;
+    using luaTable = std::unordered_map<luaVarWrapper, luaVarWrapper, _details::_luaVarWrapperHash>; // TODO using incomplete type, is it UB ?
+
+    using luaVar = std::variant<
+        // default initialized as nil
+        luaNil,
+        luaTable,
+
+        // try integer then decimal
+        // lua integer is always a number
+        lua_Integer,
+        double,
+        bool,
+        std::string>;
+}
+
+namespace luaf
+{
+    // luaVarWrapper behaves exactly same as luaVar
+    // use it to avoid type dependency, C++ can not recursively define types
+    class luaVarWrapper final
+    {
+        private:
+            friend struct _details::_luaVarWrapperHash;
+
+        private:
+            std::unique_ptr<luaVar> m_ptr; // don't share underlaying variable
+
+        public:
+            /**/  luaVarWrapper() = default; // default initialized as luaNil
+            /**/ ~luaVarWrapper() = default;
+
+        public:
+            template<typename T> luaVarWrapper(T t)
+                : m_ptr(std::make_unique<luaVar>(std::move(t)))
+            {}
+
+        public:
+            luaVarWrapper(luaNil) // no need to allocate memory if holding luaNil
+                : luaVarWrapper()
+            {}
+
+        public:
+            luaVarWrapper(luaVar v): m_ptr(std::visit(luaVarDispatcher
+            {
+                [](luaNil) -> std::unique_ptr<luaVar>
+                {
+                    return nullptr;
+                },
+
+                [](auto &&arg) -> std::unique_ptr<luaVar>
+                {
+                    return std::make_unique<luaVar>(std::move(arg));
+                },
+            }, std::move(v))){}
+
+        public:
+            luaVarWrapper              (const luaVarWrapper & );
+            luaVarWrapper              (      luaVarWrapper &&);
+            luaVarWrapper & operator = (      luaVarWrapper   );
+
+        public:
+            operator luaVar () const
+            {
+                if(m_ptr){
+                    return *m_ptr; // coping
+                }
+                else{
+                    return luaNil{};
+                }
+            }
+
+        public:
+            /* */ luaVar &get()       { return *m_ptr; }
+            const luaVar &get() const { return *m_ptr; }
+
+        public:
+            bool operator == (const luaVarWrapper &) const;
+            bool operator == (const luaVar        &) const;
+            bool operator == (const luaNil        &) const;
+
+        public:
+            template<typename Archive> void serialize(Archive & ar)
+            {
+                ar(m_ptr);
+            }
+    };
+}
+
+namespace luaf
+{
+    // sol is overly flexible to create sol::object
+    // don't use generic template
+    //
+    //   template<typename T> sol::object buildLuaObj(sol::state_view, T)
+    //
+    // implement all possible types explicitly instead
+
+    sol::object buildLuaObj(sol::state_view, luaNil);
+    sol::object buildLuaObj(sol::state_view, luaVar);
+    sol::object buildLuaObj(sol::state_view, luaVarWrapper);
+
+    sol::object buildLuaObj(sol::state_view sv, lua_Integer);
+    sol::object buildLuaObj(sol::state_view sv, double);
+    sol::object buildLuaObj(sol::state_view sv, bool);
+    sol::object buildLuaObj(sol::state_view sv, std::string);
+
+    template<typename T> luaVar buildLuaVar(T t)
+    {
+        return luaVar(std::move(t));
+    }
+
+    template<template<typename> typename C, typename T, typename... Args> luaVar buildLuaVar(C<T, Args...> varList)
+    {
+        luaTable table;
+        for(lua_Integer i = 1; auto &v: varList){
+            table.emplace(luaVarWrapper(i++), std::move(v));
+        }
+        return table;
+    }
+
+    luaVar buildLuaVar(luaVarWrapper);
+    luaVar buildLuaVar(const sol::object &);
+
+    std::vector<luaVar> vargBuildLuaVarList(const sol::variadic_args             &, size_t = 0, std::optional<size_t> = std::nullopt);
+    std::vector<luaVar>  pfrBuildLuaVarList(const sol::protected_function_result &, size_t = 0, std::optional<size_t> = std::nullopt);
+}
+
+std::ostream & operator << (std::ostream &, const sol::object &);
+std::ostream & operator << (std::ostream &, const sol::variadic_args &);
+std::ostream & operator << (std::ostream &, const sol::protected_function_result &);
+std::ostream & operator << (std::ostream &, const luaf::luaNil &);
+std::ostream & operator << (std::ostream &, const luaf::luaVarWrapper &);

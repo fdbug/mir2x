@@ -1,22 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: main.cpp
- *        Created: 08/31/2015 08:52:57 PM
- *    Description: 
- *
- *                 Usage: followuidmagiceditor 大火球 /home/anhong/mir2x/client/bin/Res/Texture/magic.zsdb
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// Usage: followuidmagiceditor 大火球 /home/anhong/mir2x/client/bin/Res/Texture/magic.zsdb
 
 #include <string>
 #include <cstdint>
@@ -26,7 +8,7 @@
 #include "totype.hpp"
 #include "fflerror.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
+#include "dbcomid.hpp"
 #include "mainwindow.hpp"
 #include "aboutwindow.hpp"
 
@@ -41,8 +23,8 @@ int main(int argc, char *argv[])
 
     const auto &mr = DBCOM_MAGICRECORD(magicID);
     fflassert(mr);
-    fflassert(mr.getGfxEntry(u8"运行").first);
-    fflassert(mr.getGfxEntry(u8"运行").first.checkType(u8"跟随"));
+    fflassert(DBCOM_MAGICGFXENTRY(magicID, u8"运行").first);
+    fflassert(DBCOM_MAGICGFXENTRY(magicID, u8"运行").first->checkType(u8"跟随"));
 
     fl_register_images();
 

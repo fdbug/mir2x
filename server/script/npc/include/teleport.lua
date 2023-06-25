@@ -1,28 +1,11 @@
 local tp = {}
 
-function tp.uidSpaceMove(uid, mapName, x, y)
-    local mapID = getMapID(mapName)
-    if mapID == 0 then
-        return false
-    end
-
-    local value = uidQuery(uid, "SPACEMOVE %d %d %d", mapID, x, y)
-    if value == '1' then
-        return true
-    elseif value == '0' then
-        return false
-    else
-        fatalPrintf('invalid value: %s', value)
-    end
-end
-
 function tp.uidReqSpaceMove(uid, mapName, x, y, gold, level)
-    gold  = argDef(gold,  0)
-    level = argDef(level, 0)
+    gold  = argDefault(gold,  0)
+    level = argDefault(level, 0)
 
-    if type(gold) ~= 'number' or type(level) ~= 'number' then
-        fatalPrintf("invalid argument type: gold: %s, level: %s", type(gold), type(level))
-    end
+    assertType(gold, 'integer')
+    assertType(level, 'integer')
 
     if gold > 0 and gold > uidQueryGold(uid) then
         uidPostXML(uid,
@@ -31,7 +14,7 @@ function tp.uidReqSpaceMove(uid, mapName, x, y, gold, level)
                 <par>你没有%d金币！</par>
                 <par><event id="%s">关闭</event></par>
             </layout>
-        ]], gold, SYS_NPCDONE)
+        ]], gold, SYS_EXIT)
         return
     end
 
@@ -42,11 +25,11 @@ function tp.uidReqSpaceMove(uid, mapName, x, y, gold, level)
                 <par>你还没达到%d级！</par>
                 <par><event id="%s">关闭</event></par>
             </layout>
-        ]], level, SYS_NPCDONE)
+        ]], level, SYS_EXIT)
         return
     end
 
-    if tp.uidSpaceMove(uid, mapName, x, y) then
+    if uidSpaceMove(uid, mapName, x, y) then
         uidRemoveGold(uid, gold)
     end
 end
@@ -94,9 +77,9 @@ function tp.setTeleport(titlePar, dst)
                 elseif type(d.x) ~= 'number' or type(d.y) ~= 'number' then
                     addLog(LOGTYPE_WARNING, 'ignore invalid map location: npc = %s, map = %s', getNPCName(), d.map)
                 else
-                    local gold = argDef(d.gold, 0)
-                    local level = argDef(d.level, 0)
-                    local gotoTag = string.format('tp_goto_%d::%s', i, SYS_NPCDONE)
+                    local gold = argDefault(d.gold, 0)
+                    local level = argDefault(d.level, 0)
+                    local gotoTag = string.format('tp_goto_%d::%s', i, SYS_EXIT)
 
                     local mapName = ''
                     if d.name ~= nil then
@@ -136,7 +119,7 @@ function tp.setTeleport(titlePar, dst)
         fatalPrintf('no valid destination specified in the argument list')
     end
 
-    processHandle[SYS_NPCINIT] = function(uid, value)
+    processHandle[SYS_ENTER] = function(uid, value)
         uidPostXML(uid,
         [[
             <layout>
@@ -145,9 +128,9 @@ function tp.setTeleport(titlePar, dst)
                 %s
                 <par><event id="%s">关闭</event></par>
             </layout>
-        ]], titlePar, dstParList, SYS_NPCDONE)
+        ]], titlePar, dstParList, SYS_EXIT)
     end
-    processNPCEvent = processHandle
+    setEventHandler(processHandle)
 end
 
 return tp

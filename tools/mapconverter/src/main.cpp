@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: main.cpp
- *        Created: 08/31/2017 16:12:32
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <regex>
 #include <memory>
 #include <string>
@@ -434,7 +416,7 @@ static void convertMap(std::string mapDir, std::string mapFileName, std::string 
             codeList.push_back(R"#(    {             )#");
             for(const auto &switchPoint: switchPointList){
                 const auto toMapNameList = parser->hasMapName(switchPoint.to_fileName);
-                for(const auto toMapName: toMapNameList){
+                for(const auto &toMapName: toMapNameList){
                     const auto switchCodeLine = str_printf(R"#(        {.x = %d, .y = %d, .w = %d, .h = %d, .endName = u8"%s_%s", .endX = %d, .endY = %d},%s)#", switchPoint.from_x, switchPoint.from_y, switchPoint.from_w, switchPoint.from_h, toMapName.c_str(), switchPoint.to_fileName.c_str(), switchPoint.to_x, switchPoint.to_y, (toMapNameList.size() == 1) ? "" : "// TODO select one");
                     if(!seenSwitchCodeList.count(switchCodeLine)){
                         seenSwitchCodeList.insert(switchCodeLine);

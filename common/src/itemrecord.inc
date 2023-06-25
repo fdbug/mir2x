@@ -10191,6 +10191,12 @@
         {
             .level = 8,
         },
+        .weapon
+        {
+            .mine = 1,
+            .doubleHand = 1,
+            .category = u8"镐",
+        },
     },
 },
 
@@ -10203,6 +10209,14 @@
     {
         .duration = 35,
         .dc = {1, 50},
+        .req
+        {
+            .level = 1,
+        },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10218,6 +10232,10 @@
         .req
         {
             .level = 1,
+        },
+        .weapon
+        {
+            .category = u8"木剑",
         },
     },
 },
@@ -10235,6 +10253,10 @@
         .req
         {
             .level = 7,
+        },
+        .weapon
+        {
+            .category = u8"木剑",
         },
     },
 },
@@ -10258,6 +10280,10 @@
         {
             .level = 7,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10273,6 +10299,10 @@
         .req
         {
             .level = 5,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -10290,6 +10320,10 @@
         {
             .level = 10,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10305,6 +10339,10 @@
         .req
         {
             .level = 15,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -10322,6 +10360,10 @@
         {
             .level = 25,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10338,6 +10380,10 @@
         {
             .level = 26,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10353,6 +10399,10 @@
         .req
         {
             .level = 28,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -10376,6 +10426,10 @@
         {
             .level = 3,
         },
+        .weapon
+        {
+            .category = u8"匕首",
+        },
     },
 },
 
@@ -10394,6 +10448,10 @@
         .req
         {
             .level = 10,
+        },
+        .weapon
+        {
+            .category = u8"匕首",
         },
     },
 },
@@ -10417,6 +10475,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10430,6 +10492,10 @@
         .duration = 19,
         .dc = {6, 22},
         .mc = {4, 21},
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -10454,6 +10520,12 @@
         {
             .level = 20,
         },
+        .weapon
+        {
+            .mine = 1,
+            .doubleHand = 1,
+            .category = u8"镐",
+        },
     },
 },
 
@@ -10469,6 +10541,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -10493,6 +10569,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10515,6 +10595,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -10539,6 +10623,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10561,6 +10649,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -10585,6 +10677,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10607,6 +10703,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -10631,6 +10731,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10646,6 +10750,10 @@
         .req
         {
             .level = 14,
+        },
+        .weapon
+        {
+            .category = u8"斧",
         },
     },
 },
@@ -10675,6 +10783,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10697,6 +10809,10 @@
         {
             .level = 10,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -10712,6 +10828,10 @@
         .req
         {
             .level = 17,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -10729,6 +10849,10 @@
         {
             .level = 18,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -10743,6 +10867,10 @@
         .dc = {10, 12},
         .mc = {1, 2},
         .sc = {1, 2},
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -10762,6 +10890,7 @@
         .weapon
         {
             .doubleHand = true,
+            .category = u8"斧",
         },
     },
 },
@@ -10781,7 +10910,8 @@
         },
         .weapon
         {
-            .doubleHand = true,
+            .doubleHand = 1,
+            .category = u8"斧",
         },
     },
 },
@@ -10799,6 +10929,11 @@
         .req
         {
             .level = 33,
+        },
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"斧",
         },
     },
 },
@@ -10851,6 +10986,10 @@
         {
             .level = 29,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -10870,6 +11009,11 @@
         .req
         {
             .level = 35,
+        },
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"刀",
         },
     },
 },
@@ -10891,6 +11035,11 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"刀",
+        },
     },
 },
 
@@ -10906,6 +11055,11 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"锏",
         },
     },
 },
@@ -10925,6 +11079,11 @@
     {
         .duration = 36,
         .dc = {2, 46},
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"刀",
+        },
     },
     .description = u8"用天外玄铁打造，刀身刻有龙纹，潜藏着强大的气场，是荣耀和力量的象征。",
 },
@@ -10943,6 +11102,11 @@
         {
             .level = 36,
         },
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"刀",
+        },
     },
 },
 
@@ -10958,6 +11122,11 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .doubleHand = 1,
+            .category = u8"刀",
         },
     },
 },
@@ -10981,6 +11150,10 @@
         {
             .level = 10,
         },
+        .weapon
+        {
+            .category = u8"飞镖",
+        },
     },
 },
 
@@ -10996,6 +11169,10 @@
         .req
         {
             .level = 30,
+        },
+        .weapon
+        {
+            .category = u8"飞镖",
         },
     },
 },
@@ -11013,6 +11190,10 @@
         {
             .level = 20,
         },
+        .weapon
+        {
+            .category = u8"飞镖",
+        },
     },
 },
 
@@ -11025,6 +11206,10 @@
     {
         .duration = 35,
         .dc = {8, 38},
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -11043,6 +11228,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -11064,6 +11253,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11084,6 +11277,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11096,6 +11293,10 @@
     {
         .duration = 42,
         .dc = {10, 47},
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11112,6 +11313,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -11130,6 +11335,10 @@
         {
             .level = 11,
         },
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11146,6 +11355,10 @@
         .req
         {
             .level = 14,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },
@@ -11164,6 +11377,10 @@
         {
             .level = 18,
         },
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11181,6 +11398,10 @@
         {
             .level = 20,
         },
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11197,6 +11418,10 @@
         .req
         {
             .level = 28,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },
@@ -11228,6 +11453,10 @@
         {
             .level = 33,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -11245,6 +11474,10 @@
         .req
         {
             .level = 33,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -11268,6 +11501,10 @@
         {
             .level = 34,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -11284,6 +11521,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },
@@ -11308,6 +11549,10 @@
         {
             .fire = 4,
         },
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11325,6 +11570,10 @@
         {
             .level = 36,
         },
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11341,6 +11590,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },
@@ -11362,6 +11615,10 @@
         .dc = {9, 20},
         .mc = {3, 17},
         .dcHit = 7,
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11375,6 +11632,10 @@
         .duration = 20,
         .dc = {10, 10},
         .mc = {10, 10},
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11388,6 +11649,10 @@
         .duration = 30,
         .dc = {10, 34},
         .mc = {10, 30},
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11402,6 +11667,10 @@
         .dc = {10, 20},
         .mc = {8, 20},
         .dcHit = 7,
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11419,6 +11688,10 @@
         {
             .level = 14,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11435,6 +11708,10 @@
         .req
         {
             .level = 11,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -11454,6 +11731,10 @@
         {
             .level = 18,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11472,6 +11753,10 @@
         {
             .level = 20,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11489,6 +11774,10 @@
         .req
         {
             .level = 28,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -11542,6 +11831,10 @@
         {
             .level = 60,
         },
+        .weapon
+        {
+            .category = u8"棍",
+        },
     },
 },
 
@@ -11563,6 +11856,10 @@
         .req
         {
             .level = 34,
+        },
+        .weapon
+        {
+            .category = u8"棍",
         },
     },
 },
@@ -11588,7 +11885,12 @@
         {
             .holy = 5,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
+    .description = u8"为龙纹之路,以入血,持者不伤也。",
 },
 
 {   .name = u8"墨龙龙纹剑",
@@ -11610,6 +11912,10 @@
         {
             .level = 36,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -11627,6 +11933,10 @@
         .req
         {
             .level = 60,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -11652,6 +11962,10 @@
         {
             .holy = 6,
         },
+        .weapon
+        {
+            .category = u8"扇",
+        },
     },
 },
 
@@ -11666,6 +11980,10 @@
         .dc = {9, 21},
         .sc = {5, 20},
         .dcHit = 4,
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -11680,6 +11998,10 @@
         .dc = {14, 22},
         .sc = {6, 22},
         .dcHit = 4,
+        .weapon
+        {
+            .category = u8"扇",
+        },
     },
 },
 
@@ -11696,6 +12018,10 @@
         .sc = {2, 2},
         .dcHit = 3,
         .speed = 1,
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11715,6 +12041,10 @@
         {
             .level = 30,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -11731,6 +12061,10 @@
         .req
         {
             .level = 1,
+        },
+        .weapon
+        {
+            .category = u8"剑",
         },
     },
 },
@@ -11750,6 +12084,10 @@
         {
             .level = 33,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11765,6 +12103,10 @@
         .req
         {
             .level = 1,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -11784,6 +12126,10 @@
         {
             .level = 1,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11801,6 +12147,10 @@
         .req
         {
             .level = 1,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -11820,6 +12170,10 @@
         {
             .level = 33,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -11837,6 +12191,10 @@
         .req
         {
             .level = 1,
+        },
+        .weapon
+        {
+            .category = u8"刀",
         },
     },
 },
@@ -12090,6 +12448,10 @@
         {
             .level = 23,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -12110,6 +12472,10 @@
         {
             .level = 33,
         },
+        .weapon
+        {
+            .category = u8"刀",
+        },
     },
 },
 
@@ -12126,6 +12492,10 @@
         .req
         {
             .level = 33,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },
@@ -12149,6 +12519,10 @@
         {
             .level = 27,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -12171,6 +12545,10 @@
         {
             .level = 31,
         },
+        .weapon
+        {
+            .category = u8"剑",
+        },
     },
 },
 
@@ -12186,6 +12564,10 @@
         .req
         {
             .level = 29,
+        },
+        .weapon
+        {
+            .category = u8"斧",
         },
     },
 },
@@ -12203,6 +12585,10 @@
         {
             .level = 27,
         },
+        .weapon
+        {
+            .category = u8"斧",
+        },
     },
 },
 
@@ -12219,6 +12605,10 @@
         .req
         {
             .level = 23,
+        },
+        .weapon
+        {
+            .category = u8"斧",
         },
     },
 },
@@ -12242,6 +12632,10 @@
         {
             .level = 33,
         },
+        .weapon
+        {
+            .category = u8"棍",
+        },
     },
 },
 
@@ -12262,6 +12656,10 @@
         .req
         {
             .level = 27,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },
@@ -12302,6 +12700,10 @@
         {
             .level = 31,
         },
+        .weapon
+        {
+            .category = u8"法杖",
+        },
     },
 },
 
@@ -12319,6 +12721,10 @@
         {
             .level = 33,
         },
+        .weapon
+        {
+            .category = u8"锏",
+        },
     },
 },
 
@@ -12335,6 +12741,10 @@
         .req
         {
             .level = 23,
+        },
+        .weapon
+        {
+            .category = u8"法杖",
         },
     },
 },

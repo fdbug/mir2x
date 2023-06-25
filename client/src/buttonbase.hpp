@@ -1,34 +1,17 @@
-/*
- * =====================================================================================
- *
- *       Filename: buttonbase.hpp
- *        Created: 08/25/2016 04:12:57
- *    Description:
- *
- *              basic button class to handle event logic only
- *              1. no draw
- *              2. no texture id field
- *
- *              I support two callbacks only: off->on and on->click
- *              this class ask user to configure whether the on->click is triggered
- *              at the PRESS or RELEASE event.
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// basic button class to handle event logic only
+// 1. no draw
+// 2. no texture id field
+//
+// I support two callbacks only: off->on and on->click
+// this class ask user to configure whether the on->click is triggered
+// at the PRESS or RELEASE event.
 
 #pragma once
 #include <cstdint>
 #include <functional>
 
 #include "widget.hpp"
+#include "sysconst.hpp"
 #include "pngtexdb.hpp"
 #include "sdldevice.hpp"
 
@@ -72,6 +55,9 @@ class ButtonBase: public Widget
         const bool m_onClickDone;
 
     protected:
+        const uint32_t m_seffID[3];
+
+    protected:
         const int m_offset[3][2];
 
     protected:
@@ -91,6 +77,10 @@ class ButtonBase: public Widget
                 std::function<void()> fnOnOverOut = nullptr,
                 std::function<void()> fnOnClick   = nullptr,
 
+                uint32_t seffIDOnOverIn  = SYS_U32NIL,
+                uint32_t seffIDOnOverOut = SYS_U32NIL,
+                uint32_t seffIDOnClick   = SYS_U32NIL,
+
                 int offXOnOver  = 0,
                 int offYOnOver  = 0,
                 int offXOnClick = 0,
@@ -101,6 +91,12 @@ class ButtonBase: public Widget
                 bool    autoFree    = false)
             : Widget(argDir, argX, argY, argW, argH, widgetPtr, autoFree)
             , m_onClickDone(onClickDone)
+            , m_seffID
+              {
+                  seffIDOnOverIn,
+                  seffIDOnOverOut,
+                  seffIDOnClick,
+              }
             , m_offset
               {
                   {0            , 0          },

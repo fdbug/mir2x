@@ -1,22 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: xmlparagraph.hpp
- *        Created: 12/11/2018 04:16:22
- *    Description:
- *
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <vector>
 #include <stdexcept>
@@ -115,14 +96,14 @@ class XMLParagraph
     public:
         void insertUTF8String(int, int, const char *);
 
-    public:
-        tinyxml2::XMLNode *Clone(tinyxml2::XMLDocument *pDoc)
-        {
-            return m_XMLDocument.RootElement()->DeepClone(pDoc);
-        }
-
-    public:
-        tinyxml2::XMLNode *Clone(tinyxml2::XMLDocument *, int, int, int);
+    // public:
+    //     tinyxml2::XMLNode *Clone(tinyxml2::XMLDocument *pDoc)
+    //     {
+    //         return m_XMLDocument.RootElement()->DeepClone(pDoc);
+    //     }
+    //
+    // public:
+    //     tinyxml2::XMLNode *Clone(tinyxml2::XMLDocument *, int, int, int);
 
     public:
         tinyxml2::XMLNode *CloneLeaf(tinyxml2::XMLDocument *pDoc, int leaf) const

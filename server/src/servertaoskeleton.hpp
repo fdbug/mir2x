@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: servertaoskeleton.hpp
- *        Created: 04/10/2016 02:32:45
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #pragma once
 #include "dbcomid.hpp"
 #include "fflerror.hpp"
@@ -28,7 +11,7 @@ class ServerTaoSkeleton final: public ServerTaoSummon
         {}
 
     protected:
-        DamageNode getAttackDamage(int dc) const override
+        DamageNode getAttackDamage(int dc, int) const override
         {
             fflassert(to_u32(dc) == DBCOM_MAGICID(u8"物理攻击"));
             return PlainPhyDamage

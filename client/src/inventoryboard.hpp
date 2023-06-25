@@ -1,31 +1,15 @@
-/*
- * =====================================================================================
- *
- *       Filename: inventoryboard.hpp
- *        Created: 10/08/2017 19:06:52
- *    Description: inventory class
- *                 server won't store the item place
- *                 it only stores the item weight in total
- *
- *                 client can use different strategy to store them
- *                 player has max weight to hold only
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
+// inventory class
+// server won't store the item place
+// it only stores the item weight in total
+//
+// client can use different strategy to store them
+// player has max weight to hold only
 
 #pragma once
 #include <string>
 #include "widget.hpp"
 #include "labelboard.hpp"
-#include "texvslider.hpp"
+#include "texslider.hpp"
 #include "tritexbutton.hpp"
 
 class ProcessRun;
@@ -50,7 +34,7 @@ class InventoryBoard: public Widget
         WMDAniBoard m_wmdAniBoard;
 
     private:
-        TexVSlider m_slider;
+        TexSlider m_slider;
 
     private:
         TritexButton m_sortButton;

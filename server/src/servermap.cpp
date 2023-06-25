@@ -1,21 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: servermap.cpp
- *        Created: 04/06/2016 08:52:57 PM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
+#include <regex>
 #include <sstream>
 #include <fstream>
 #include <algorithm>
@@ -32,11 +15,9 @@
 #include "sysconst.hpp"
 #include "fflerror.hpp"
 #include "mapbindb.hpp"
-#include "condcheck.hpp"
 #include "servermap.hpp"
 #include "charobject.hpp"
 #include "monoserver.hpp"
-#include "dbcomrecord.hpp"
 #include "rotatecoord.hpp"
 #include "serverargparser.hpp"
 #include "serverconfigurewindow.hpp"
@@ -68,379 +49,29 @@ extern MonoServer *g_monoServer;
 extern ServerArgParser *g_serverArgParser;
 extern ServerConfigureWindow *g_serverConfigureWindow;
 
-ServerMap::ServerMapLuaModule::ServerMapLuaModule(ServerMap *mapPtr)
-{
-    if(!mapPtr){
-        throw fflerror("ServerMapLuaModule binds to empty ServerMap");
-    }
-
-    getLuaState().set_function("getMapID", [mapPtr]() -> int
-    {
-        return to_d(mapPtr->ID());
-    });
-
-    getLuaState().set_function("getMapName", [mapPtr]() -> std::string
-    {
-        return std::string(to_cstr(DBCOM_MAPRECORD(mapPtr->ID()).name));
-    });
-
-    getLuaState().set_function("getMapSize", [mapPtr]()
-    {
-        return sol::as_returns(std::vector<int>{mapPtr->W(), mapPtr->H()});
-    });
-
-    getLuaState().set_function("getCanThroughGridCount", [mapPtr, gridCount = to_d(-1)]() mutable -> int
-    {
-        if(gridCount >= 0){
-            return gridCount;
-        }
-
-        gridCount = 0;
-        for(int x = 0; x < mapPtr->W(); ++x){
-            for(int y = 0; y < mapPtr->H(); ++y){
-                if(mapPtr->groundValid(x, y)){
-                    gridCount++;
-                }
-            }
-        }
-        return gridCount;
-    });
-
-    getLuaState().set_function("getRandLoc", [mapPtr]()
-    {
-        std::array<int, 2> loc;
-        while(true){
-            const int x = std::rand() % mapPtr->W();
-            const int y = std::rand() % mapPtr->H();
-
-            if(mapPtr->groundValid(x, y)){
-                loc[0] = x;
-                loc[1] = y;
-                break;
-            }
-        }
-        return sol::as_returns(loc);
-    });
-
-    getLuaState().set_function("countGLoc", [fullCount = -1, mapPtr](sol::variadic_args args) mutable
-    {
-        const std::vector<sol::object> argList(args.begin(), args.end());
-        const auto [useFullMap, regionX, regionY, regionW, regionH] = [&argList, mapPtr]() -> std::tuple<bool, int, int, int, int>
-        {
-            switch(argList.size()){
-                case 0:
-                    {
-                        return
-                        {
-                            true,
-                            0,
-                            0,
-                            mapPtr->W(),
-                            mapPtr->H(),
-                        };
-                    }
-                case 4:
-                    {
-                        return
-                        {
-                            false,
-                            argList[0].as<int>(),
-                            argList[1].as<int>(),
-                            argList[2].as<int>(),
-                            argList[3].as<int>(),
-                        };
-                    }
-                default:
-                    {
-                        throw fflerror("invalid argument count: %zu", argList.size());
-                    }
-            }
-        }();
-
-        fflassert(regionW > 0);
-        fflassert(regionH > 0);
-
-        int roiX = regionX;
-        int roiY = regionY;
-        int roiW = regionW;
-        int roiH = regionH;
-
-        if(!mathf::rectangleOverlapRegion<int>(0, 0, mapPtr->W(), mapPtr->H(), roiX, roiY, roiW, roiH)){
-            throw fflerror("invalid region: map = %s, x = %d, y = %d, w = %d, h = %d", to_cstr(DBCOM_MAPRECORD(mapPtr->ID()).name), regionX, regionY, regionW, regionH);
-        }
-
-        int count = 0;
-        for(int yi = roiY; yi < roiY + roiH; ++yi){
-            for(int xi = roiX; xi < roiX + roiW; ++xi){
-                if(mapPtr->groundValid(xi, yi)){
-                    count++;
-                }
-            }
-        }
-
-        if(useFullMap){
-            fullCount = count; // cache
-        }
-        return count;
-    });
-
-    getLuaState().set_function("randGLoc", [mapPtr](sol::variadic_args args)
-    {
-        const std::vector<sol::object> argList(args.begin(), args.end());
-        const auto [useFullMap, regionX, regionY, regionW, regionH] = [&argList, mapPtr]() -> std::tuple<bool, int, int, int, int>
-        {
-            switch(argList.size()){
-                case 0:
-                    {
-                        return
-                        {
-                            true,
-                            0,
-                            0,
-                            mapPtr->W(),
-                            mapPtr->H(),
-                        };
-                    }
-                case 4:
-                    {
-                        return
-                        {
-                            false,
-                            argList[0].as<int>(),
-                            argList[1].as<int>(),
-                            argList[2].as<int>(),
-                            argList[3].as<int>(),
-                        };
-                    }
-                default:
-                    {
-                        throw fflerror("invalid argument count: %zu", argList.size());
-                    }
-            }
-        }();
-
-        if(const auto locopt = mapPtr->GetValidGrid(false, false, -1, regionX, regionY, regionW, regionH); locopt.has_value()){
-            return sol::as_returns(std::array<int, 2>
-            {
-                std::get<0>(locopt.value()),
-                std::get<1>(locopt.value()),
-            });
-        }
-
-        // give detailed failure message
-        // need it to validate map monster gen coroutine
-
-        if(useFullMap){
-            throw fflerror("no valid grid on map: map = %s", to_cstr(DBCOM_MAPRECORD(mapPtr->ID()).name));
-        }
-        else{
-            throw fflerror("no valid grid in region: map = %s, x = %d, y = %d, w = %d, h = %d", to_cstr(DBCOM_MAPRECORD(mapPtr->ID()).name), regionX, regionY, regionW, regionH);
-        }
-    });
-
-    getLuaState().set_function("getMonsterCount", [mapPtr](sol::variadic_args args) -> int
-    {
-        const std::vector<sol::object> argList(args.begin(), args.end());
-        switch(argList.size()){
-            case 0:
-                {
-                    return mapPtr->getMonsterCount(0);
-                }
-            case 1:
-                {
-                    if(argList[0].is<int>()){
-                        if(const int monID = argList[0].as<int>(); monID >= 0){
-                            return mapPtr->getMonsterCount(monID);
-                        }
-                    }
-
-                    else if(argList[0].is<std::string>()){
-                        if(const int monID = DBCOM_MONSTERID(to_u8cstr(argList[0].as<std::string>().c_str())); monID >= 0){
-                            return mapPtr->getMonsterCount(monID);
-                        }
-                    }
-                    break;
-                }
-            default:
-                {
-                    break;
-                }
-        }
-        return -1;
-    });
-
-    getLuaState().set_function("addMonster", [mapPtr](sol::object monInfo, sol::variadic_args args, sol::this_state s) -> sol::object
-    {
-        sol::state_view sv(s);
-        const auto fnGetLuaUIDString = [&sv](const Monster *monPtr) -> sol::object
-        {
-            if(monPtr){
-                return sol::object(sv, sol::in_place_type<std::string>, std::to_string(monPtr->UID()));
-            }
-            return sol::make_object(sv, sol::nil);
-        };
-
-        const uint32_t monID = [&monInfo]() -> uint32_t
-        {
-            if(monInfo.is<int>()){
-                return monInfo.as<int>();
-            }
-
-            if(monInfo.is<std::string>()){
-                return DBCOM_MONSTERID(to_u8cstr(monInfo.as<std::string>().c_str()));
-            }
-
-            return 0;
-        }();
-
-        if(!monID){
-            return fnGetLuaUIDString(nullptr);
-        }
-
-        const std::vector<sol::object> argList(args.begin(), args.end());
-        switch(argList.size()){
-            case 0:
-                {
-                    return fnGetLuaUIDString(mapPtr->addMonster(monID, 0, -1, -1, false));
-                }
-            case 2:
-                {
-                    if(true
-                            && argList[0].is<int>()
-                            && argList[1].is<int>()){
-
-                        const auto nX = argList[0].as<int>();
-                        const auto nY = argList[1].as<int>();
-                        return fnGetLuaUIDString(mapPtr->addMonster(monID, 0, nX, nY, false));
-                    }
-                    break;
-                }
-            case 3:
-                {
-                    if(true
-                            && argList[0].is<int >()
-                            && argList[1].is<int >()
-                            && argList[2].is<bool>()){
-
-                        const auto nX = argList[0].as<int >();
-                        const auto nY = argList[1].as<int >();
-                        const auto bStrictLoc = argList[2].as<bool>();
-                        return fnGetLuaUIDString(mapPtr->addMonster(monID, 0, nX, nY, bStrictLoc));
-                    }
-                    break;
-                }
-            default:
-                {
-                    break;
-                }
-        }
-        return fnGetLuaUIDString(nullptr);
-    });
-
-    getLuaState().set_function("addGuard", [mapPtr](std::string type, int x, int y, int direction) -> bool
-    {
-        const uint32_t monID = DBCOM_MONSTERID(to_u8cstr(type));
-        if(!monID){
-            return false;
-        }
-        return mapPtr->addGuard(monID, x, y, direction);
-    });
-
-    getLuaState().script_file([mapPtr]() -> std::string
-    {
-        const auto configScriptPath = g_serverConfigureWindow->getConfig().scriptPath;
-        const auto scriptPath = configScriptPath.empty() ? std::string("script/map") : (configScriptPath + "/map");
-
-        const auto scriptName = str_printf("%s/%s.lua", scriptPath.c_str(), to_cstr(DBCOM_MAPRECORD(mapPtr->ID()).name));
-        if(filesys::hasFile(scriptName.c_str())){
-            return scriptName;
-        }
-
-        const auto defaultScriptName = scriptPath + "/default.lua";
-        if(filesys::hasFile(defaultScriptName.c_str())){
-            return defaultScriptName;
-        }
-        throw fflerror("can't load proper script for map %s", to_cstr(DBCOM_MAPRECORD(mapPtr->ID()).name));
-    }());
-
-    m_coHandler = getLuaState()["main"];
-    if(!m_coHandler){
-        throw fflerror("can't load lua entry function: main()");
-    }
-
-    // checkResult(m_coHandler());
-}
-
-ServerMap::ServerPathFinder::ServerPathFinder(const ServerMap *pMap, int nMaxStep, int nCheckCO)
-    : AStarPathFinder([this](int nSrcX, int nSrcY, int nDstX, int nDstY) -> double
+ServerMap::ServerPathFinder::ServerPathFinder(const ServerMap *mapPtr, int argMaxStep, int argCheckCO)
+    : AStarPathFinder(0, argMaxStep, [this](int srcX, int srcY, int srcDir, int dstX, int dstY) -> std::optional<double>
       {
-          // comment the following code out
-          // seems it triggers some wired msvc compilation error:
-          // error C2248: 'AStarPathFinder::MaxStep': cannot access protected member declared in class 'AStarPathFinder'
+          // treat checkCO and checkLock same
+          // from server's view occupied and to-be-occupied are equivlent
+          fflassert(pathf::hopValid(maxStep(), srcX, srcY, dstX, dstY));
+          return m_map->oneStepCost(m_checkCO, m_checkCO, srcX, srcY, srcDir, dstX, dstY);
+      })
 
-          // if(0){
-          //     if(true
-          //             && MaxStep() != 1
-          //             && MaxStep() != 2
-          //             && MaxStep() != 3){
-          //
-          //         g_monoServer->addLog(LOGTYPE_FATAL, "Invalid MaxStep provided: %d, should be (1, 2, 3)", MaxStep());
-          //         return 10000.00;
-          //     }
-          //
-          //     int nDistance2 = mathf::LDistance2(nSrcX, nSrcY, nDstX, nDstY);
-          //     if(true
-          //             && nDistance2 != 1
-          //             && nDistance2 != 2
-          //             && nDistance2 != MaxStep() * MaxStep()
-          //             && nDistance2 != MaxStep() * MaxStep() * 2){
-          //
-          //         g_monoServer->addLog(LOGTYPE_FATAL, "Invalid step checked: (%d, %d) -> (%d, %d)", nSrcX, nSrcY, nDstX, nDstY);
-          //         return 10000.00;
-          //     }
-          // }
-
-          const int nCheckLock = m_checkCO;
-          return m_map->OneStepCost(m_checkCO, nCheckLock, nSrcX, nSrcY, nDstX, nDstY);
-      }, nMaxStep)
-    , m_map(pMap)
-    , m_checkCO(nCheckCO)
+    , m_map(mapPtr)
+    , m_checkCO(argCheckCO)
 {
-    if(!pMap){
-        g_monoServer->addLog(LOGTYPE_FATAL, "Invalid argument: ServerMap = %p, CheckCreature = %d", pMap, nCheckCO);
-    }
+    fflassert(m_map);
 
-    switch(nCheckCO){
-        case 0:
-        case 1:
-        case 2:
-            {
-                break;
-            }
-        default:
-            {
-                g_monoServer->addLog(LOGTYPE_FATAL, "Invalid CheckCO provided: %d, should be (0, 1, 2)", nCheckCO);
-                break;
-            }
-    }
+    fflassert(m_checkCO >= 0, m_checkCO);
+    fflassert(m_checkCO <= 2, m_checkCO);
 
-    switch(MaxStep()){
-        case 1:
-        case 2:
-        case 3:
-            {
-                break;
-            }
-        default:
-            {
-                g_monoServer->addLog(LOGTYPE_FATAL, "Invalid MaxStep provided: %d, should be (1, 2, 3)", MaxStep());
-                break;
-            }
-    }
+    fflassert(maxStep() >= 1, maxStep());
+    fflassert(maxStep() <= 3, maxStep());
 }
 
 ServerMap::ServerMap(uint32_t mapID)
-    : ServerObject(uidf::getMapUID(mapID))
+    : ServerObject(uidf::getMapBaseUID(mapID))
     , m_ID(mapID)
     , m_mir2xMapData([mapID]()
       {
@@ -469,7 +100,8 @@ ServerMap::ServerMap(uint32_t mapID)
                     getGrid(entry.x + nW, entry.y + nH).switchY = entry.endY;
                 }
             }
-        }else{
+        }
+        else{
             break;
         }
     }
@@ -563,6 +195,11 @@ void ServerMap::operateAM(const ActorMsgPack &rstMPK)
                 on_AM_OFFLINE(rstMPK);
                 break;
             }
+        case AM_REMOTECALL:
+            {
+                on_AM_REMOTECALL(rstMPK);
+                break;
+            }
         case AM_STRIKEFIXEDLOCDAMAGE:
             {
                 on_AM_STRIKEFIXEDLOCDAMAGE(rstMPK);
@@ -601,128 +238,97 @@ bool ServerMap::canMove(bool bCheckCO, bool bCheckLock, int nX, int nY) const
     return false;
 }
 
-double ServerMap::OneStepCost(int nCheckCO, int nCheckLock, int nX0, int nY0, int nX1, int nY1) const
+std::optional<double> ServerMap::oneStepCost(int checkCO, int checkLock, int srcX, int srcY, int srcDir, int dstX, int dstY) const
 {
-    switch(nCheckCO){
-        case 0:
-        case 1:
-        case 2:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid CheckCO provided: %d, should be (0, 1, 2)", nCheckCO);
-            }
-    }
+    fflassert(checkCO >= 0, checkCO);
+    fflassert(checkCO <= 2, checkCO);
 
-    switch(nCheckLock){
-        case 0:
-        case 1:
-        case 2:
-            {
-                break;
-            }
-        default:
-            {
-                throw fflerror("invalid CheckLock provided: %d, should be (0, 1, 2)", nCheckLock);
-            }
-    }
+    fflassert(checkLock >= 0, checkLock);
+    fflassert(checkLock <= 2, checkLock);
 
-    int nMaxIndex = -1;
-    switch(mathf::LDistance2(nX0, nY0, nX1, nY1)){
-        case 0:
-            {
-                nMaxIndex = 0;
-                break;
-            }
-        case 1:
-        case 2:
-            {
-                nMaxIndex = 1;
-                break;
-            }
-        case 4:
-        case 8:
-            {
-                nMaxIndex = 2;
-                break;
-            }
+    int hopSize = -1;
+    switch(mathf::LDistance2(srcX, srcY, dstX, dstY)){
+        case  1:
+        case  2: hopSize = 1; break;
+        case  4:
+        case  8: hopSize = 2; break;
         case  9:
-        case 18:
-            {
-                nMaxIndex = 3;
-                break;
-            }
-        default:
-            {
-                return -1.00;
-            }
+        case 18: hopSize = 3; break;
+        case  0: return .0;
+        default: return {};
     }
 
-    const int nDX = (nX1 > nX0) - (nX1 < nX0);
-    const int nDY = (nY1 > nY0) - (nY1 < nY0);
+    double gridExtraPen = 0.00;
+    const auto hopDir = pathf::getOffDir(srcX, srcY, dstX, dstY);
 
-    double fExtraPen = 0.00;
-    for(int nIndex = 0; nIndex <= nMaxIndex; ++nIndex){
-        switch(auto nGrid = CheckPathGrid(nX0 + nDX * nIndex, nY0 + nDY * nIndex)){
-            case PathFind::FREE:
+    for(int stepSize = 1; stepSize <= hopSize; ++stepSize){
+        const auto [currX, currY] = pathf::getFrontGLoc(srcX, srcY, hopDir, stepSize);
+        switch(const auto pfGrid = checkPathGrid(currX, currY)){
+            case PF_FREE:
                 {
                     break;
                 }
-            case PathFind::OCCUPIED:
+            case PF_OCCUPIED:
                 {
-                    switch(nCheckCO){
+                    switch(checkCO){
+                        case 0:
+                            {
+                                break;
+                            }
                         case 1:
                             {
-                                fExtraPen += 100.00;
+                                gridExtraPen += 100.00;
                                 break;
                             }
                         case 2:
                             {
-                                return -1.00;
+                                return {};
                             }
                         default:
                             {
-                                break;
+                                throw fflvalue(checkCO);
                             }
                     }
                     break;
                 }
-            case PathFind::LOCKED:
+            case PF_LOCKED:
                 {
-                    if(((nIndex == 0) || (nIndex == nMaxIndex))){
-                        switch(nCheckLock){
+                    if(stepSize == hopSize){
+                        switch(checkLock){
+                            case 0:
+                                {
+                                    break;
+                                }
                             case 1:
                                 {
-                                    fExtraPen += 100.00;
+                                    gridExtraPen += 100.00;
                                     break;
                                 }
                             case 2:
                                 {
-                                    return -1.00;
+                                    return {};
                                 }
                             default:
                                 {
-                                    break;
+                                    throw fflvalue(checkLock);
                                 }
                         }
                     }
                     break;
                 }
-            case PathFind::INVALID:
-            case PathFind::OBSTACLE:
+            case PF_NONE:
+            case PF_OBSTACLE:
                 {
-                    return -1.00;
+                    return {};
                 }
             default:
                 {
-                    throw fflerror("invalid grid provided: %d at (%d, %d)", nGrid, nX0 + nDX * nIndex, nY0 + nDY * nIndex);
+                    throw fflvalue(currX, currY, pfGrid);
                 }
         }
     }
 
-    return 1.00 + nMaxIndex * 0.10 + fExtraPen;
+    return 1.00 + hopSize * 0.10 + gridExtraPen + pathf::getDirAbsDiff(srcDir, hopDir) * 0.01;
 }
 
 std::optional<std::tuple<int, int>> ServerMap::getRCGLoc(bool checkCO, bool checkLock, int checkCount, int centerX, int centerY, int regionX, int regionY, int regionW, int regionH) const
@@ -764,17 +370,17 @@ std::optional<std::tuple<int, int>> ServerMap::getRCGLoc(bool checkCO, bool chec
     return {};
 }
 
-std::optional<std::tuple<int, int>> ServerMap::GetValidGrid(bool checkCO, bool checkLock, int checkCount) const
+std::optional<std::tuple<int, int>> ServerMap::getRCValidGrid(bool checkCO, bool checkLock, int checkCount) const
 {
-    return GetValidGrid(checkCO, checkLock, checkCount, 0, 0, W(), H());
+    return getRCValidGrid(checkCO, checkLock, checkCount, 0, 0, W(), H());
 }
 
-std::optional<std::tuple<int, int>> ServerMap::GetValidGrid(bool checkCO, bool checkLock, int checkCount, int startX, int startY) const
+std::optional<std::tuple<int, int>> ServerMap::getRCValidGrid(bool checkCO, bool checkLock, int checkCount, int startX, int startY) const
 {
     return getRCGLoc(checkCO, checkLock, checkCount, startX, startY, 0, 0, W(), H());
 }
 
-std::optional<std::tuple<int, int>> ServerMap::GetValidGrid(bool checkCO, bool checkLock, int checkCount, int regionX, int regionY, int regionW, int regionH) const
+std::optional<std::tuple<int, int>> ServerMap::getRCValidGrid(bool checkCO, bool checkLock, int checkCount, int regionX, int regionY, int regionW, int regionH) const
 {
     fflassert(regionW > 0);
     fflassert(regionH > 0);
@@ -934,6 +540,7 @@ void ServerMap::addGridItem(SDItem item, int x, int y, bool post)
         .dropTime = hres_tstamp().to_msec(),
     });
 
+    m_gridItemLocList.insert({x, y});
     if(post){
         postGridItemIDList(x, y);
     }
@@ -954,6 +561,7 @@ void ServerMap::addGridItemID(uint32_t itemID, int x, int y, bool post)
         .dropTime = hres_tstamp().to_msec(),
     });
 
+    m_gridItemLocList.insert({x, y});
     if(post){
         postGridItemIDList(x, y);
     }
@@ -1153,7 +761,7 @@ Monster *ServerMap::addMonster(uint32_t nMonsterID, uint64_t nMasterUID, int nHi
         nHintY = std::rand() % H();
     }
 
-    if(const auto loc = GetValidGrid(false, false, to_d(bStrictLoc), nHintX, nHintY); loc.has_value()){
+    if(const auto loc = getRCValidGrid(false, false, to_d(bStrictLoc), nHintX, nHintY); loc.has_value()){
         const auto [nDstX, nDstY] = loc.value();
         Monster *monsterPtr = nullptr;
         switch(nMonsterID){
@@ -1226,6 +834,7 @@ Monster *ServerMap::addMonster(uint32_t nMonsterID, uint64_t nMasterUID, int nHi
                 }
             case DBCOM_MONSTERID(u8"栗子树"):
             case DBCOM_MONSTERID(u8"圣诞树"):
+            case DBCOM_MONSTERID(u8"圣诞树1"):
                 {
                     monsterPtr = new ServerMonsterTree
                     {
@@ -1462,7 +1071,8 @@ NPChar *ServerMap::addNPChar(const SDInitNPChar &initParam)
     }
 
     try{
-        auto npcPtr = new NPChar(this, std::make_unique<NPChar::LuaNPCModule>(initParam));
+        auto npcPtr = new NPChar(this, initParam);
+        m_npcList[npcPtr->UID()] = npcPtr;
         npcPtr->activate();
         return npcPtr;
     }
@@ -1491,7 +1101,7 @@ Player *ServerMap::addPlayer(const SDInitPlayer &initPlayer)
         nHintY = std::rand() % H();
     }
 
-    if(const auto loc = GetValidGrid(false, false, to_d(bStrictLoc), nHintX, nHintY); loc.has_value()){
+    if(const auto loc = getRCValidGrid(false, false, to_d(bStrictLoc), nHintX, nHintY); loc.has_value()){
         auto playerPtr = new Player
         {
             initPlayer,
@@ -1504,110 +1114,458 @@ Player *ServerMap::addPlayer(const SDInitPlayer &initPlayer)
     return nullptr;
 }
 
-int ServerMap::CheckPathGrid(int nX, int nY) const
+int ServerMap::checkPathGrid(int argX, int argY) const
 {
-    if(!m_mir2xMapData.validC(nX, nY)){
-        return PathFind::INVALID;
+    if(!m_mir2xMapData.validC(argX, argY)){
+        return PF_NONE;
     }
 
-    if(!m_mir2xMapData.cell(nX, nY).land.canThrough()){
-        return PathFind::OBSTACLE;
+    if(!m_mir2xMapData.cell(argX, argY).land.canThrough()){
+        return PF_OBSTACLE;
     }
 
-    // for(auto nUID: getUIDList(nX, nY)){
-    //     if(auto nType = uidf::getUIDType(nUID); nType == UID_PLY || nType == UID_MON){
-    //         return PatFind::OCCUPIED;
-    //     }
-    // }
-
-    if(!getUIDList(nX, nY).empty()){
-        return PathFind::OCCUPIED;
+    if(!getUIDList(argX, argY).empty()){
+        return PF_OCCUPIED;
     }
 
-    if(getGrid(nX, nY).locked){
-        return PathFind::LOCKED;
+    if(getGrid(argX, argY).locked){
+        return PF_LOCKED;
     }
 
-    return PathFind::FREE;
+    return PF_FREE;
 }
 
 void ServerMap::updateMapGrid()
 {
-    for(int nX = 0; nX < W(); ++nX){
-        for(int nY = 0; nY < H(); ++nY){
+    updateMapGridFireWall();
+    updateMapGridGroundItem();
+}
 
-            bool hasDoneWallFire = false;
-            auto &gridFireWallList = getGrid(nX, nY).fireWallList;
+void ServerMap::updateMapGridFireWall()
+{
+    for(auto locIter = m_fireWallLocList.begin(); locIter != m_fireWallLocList.end();){
+        const auto nX = std::get<0>(*locIter);
+        const auto nY = std::get<1>(*locIter);
 
-            for(auto p = gridFireWallList.begin(); p != gridFireWallList.end();){
-                const auto currTime = hres_tstamp().to_msec();
-                if(currTime >= p->startTime + p->duration){
-                    hasDoneWallFire = true;
-                    p = gridFireWallList.erase(p);
-                    continue;
-                }
+        bool hasDoneWallFire = false;
+        auto &gridFireWallList = getGrid(nX, nY).fireWallList;
 
-                if(p->dps > 0 && currTime > p->lastAttackTime + 1000 / p->dps){
-                    AMAttack amA;
-                    std::memset(&amA, 0, sizeof(amA));
+        for(auto p = gridFireWallList.begin(); p != gridFireWallList.end();){
+            const auto currTime = hres_tstamp().to_msec();
+            if(currTime >= p->startTime + p->duration){
+                hasDoneWallFire = true;
+                p = gridFireWallList.erase(p);
+                continue;
+            }
 
-                    amA.UID = p->uid;
-                    amA.mapID = UID();
-                    amA.X = nX;
-                    amA.Y = nY;
+            if(p->dps > 0 && currTime > p->lastAttackTime + 1000 / p->dps){
+                AMAttack amA;
+                std::memset(&amA, 0, sizeof(amA));
 
-                    amA.damage = MagicDamage
-                    {
-                        .magicID = to_d(DBCOM_MAGICID(u8"火墙")),
-                        .damage = mathf::rand(p->minDC, p->maxDC),
-                        .mcHit = p->mcHit,
-                    };
+                amA.UID = p->uid;
+                amA.mapID = UID();
+                amA.X = nX;
+                amA.Y = nY;
 
-                    doUIDList(nX, nY, [amA, this](uint64_t uid) -> bool
-                    {
-                        if(uid != amA.UID){
-                            switch(uidf::getUIDType(uid)){
-                                case UID_PLY:
-                                case UID_MON:
-                                    {
-                                        m_actorPod->forward(uid, {AM_ATTACK, amA});
-                                        break;
-                                    }
-                                default:
-                                    {
-                                        break;
-                                    }
-                            }
+                amA.damage = MagicDamage
+                {
+                    .magicID = to_d(DBCOM_MAGICID(u8"火墙")),
+                    .damage = mathf::rand(p->minDC, p->maxDC),
+                    .mcHit = p->mcHit,
+                };
+
+                doUIDList(nX, nY, [amA, this](uint64_t uid) -> bool
+                {
+                    if(uid != amA.UID){
+                        switch(uidf::getUIDType(uid)){
+                            case UID_PLY:
+                            case UID_MON:
+                                {
+                                    m_actorPod->forward(uid, {AM_ATTACK, amA});
+                                    break;
+                                }
+                            default:
+                                {
+                                    break;
+                                }
                         }
-                        return false;
-                    });
-                    p->lastAttackTime = currTime;
-                }
-                p++;
+                    }
+                    return false;
+                });
+                p->lastAttackTime = currTime;
             }
+            p++;
+        }
 
-            if(hasDoneWallFire){
-                postGridFireWallList(nX, nY);
-            }
+        if(hasDoneWallFire){
+            postGridFireWallList(nX, nY);
+        }
 
-            bool hasItemExpired = false;
-            auto &gridItemList = getGridItemList(nX, nY);
-
-            for(auto p = gridItemList.begin(); p != gridItemList.end();){
-                if(hres_tstamp().to_msec() >= p->dropTime + 120 * 1000){
-                    hasItemExpired = true;
-                    p = gridItemList.erase(p);
-                }
-                else{
-                    p++;
-                }
-            }
-
-            if(hasItemExpired){
-                postGridItemIDList(nX, nY);
-            }
+        if(gridFireWallList.empty()){
+            locIter = m_fireWallLocList.erase(locIter);
+        }
+        else{
+            locIter++;
         }
     }
+}
+
+void ServerMap::updateMapGridGroundItem()
+{
+    for(auto locIter = m_gridItemLocList.begin(); locIter != m_gridItemLocList.end();){
+        const auto nX = std::get<0>(*locIter);
+        const auto nY = std::get<1>(*locIter);
+
+        bool hasItemExpired = false;
+        auto &gridItemList = getGridItemList(nX, nY);
+
+        for(auto p = gridItemList.begin(); p != gridItemList.end();){
+            if(hres_tstamp().to_msec() >= p->dropTime + 120 * 1000){
+                hasItemExpired = true;
+                p = gridItemList.erase(p);
+            }
+            else{
+                p++;
+            }
+        }
+
+        if(hasItemExpired){
+            postGridItemIDList(nX, nY);
+        }
+
+        if(gridItemList.empty()){
+            locIter = m_gridItemLocList.erase(locIter);
+        }
+        else{
+            locIter++;
+        }
+    }
+}
+
+void ServerMap::onActivate()
+{
+    ServerObject::onActivate();
+    loadNPChar();
+    m_luaRunner = std::make_unique<ServerLuaCoroutineRunner>(m_actorPod);
+
+    m_luaRunner->bindFunction("getMapID", [this]() -> int
+    {
+        return to_d(this->ID());
+    });
+
+    m_luaRunner->bindFunction("getMapName", [this]() -> std::string
+    {
+        return std::string(to_cstr(DBCOM_MAPRECORD(this->ID()).name));
+    });
+
+    m_luaRunner->bindFunction("getMapSize", [this]()
+    {
+        return sol::as_returns(std::vector<int>{this->W(), this->H()});
+    });
+
+    m_luaRunner->bindFunction("getCanThroughGridCount", [this, gridCount = to_d(-1)]() mutable -> int
+    {
+        if(gridCount >= 0){
+            return gridCount;
+        }
+
+        gridCount = 0;
+        for(int x = 0; x < this->W(); ++x){
+            for(int y = 0; y < this->H(); ++y){
+                if(this->groundValid(x, y)){
+                    gridCount++;
+                }
+            }
+        }
+        return gridCount;
+    });
+
+    m_luaRunner->bindFunction("getRandLoc", [this]()
+    {
+        std::array<int, 2> loc;
+        while(true){
+            const int x = std::rand() % this->W();
+            const int y = std::rand() % this->H();
+
+            if(this->groundValid(x, y)){
+                loc[0] = x;
+                loc[1] = y;
+                break;
+            }
+        }
+        return sol::as_returns(loc);
+    });
+
+    m_luaRunner->bindFunction("countGLoc", [fullCount = -1, this](sol::variadic_args args) mutable
+    {
+        const std::vector<sol::object> argList(args.begin(), args.end());
+        const auto [useFullMap, regionX, regionY, regionW, regionH] = [&argList, this]() -> std::tuple<bool, int, int, int, int>
+        {
+            switch(argList.size()){
+                case 0:
+                    {
+                        return
+                        {
+                            true,
+                            0,
+                            0,
+                            this->W(),
+                            this->H(),
+                        };
+                    }
+                case 4:
+                    {
+                        return
+                        {
+                            false,
+                            argList[0].as<int>(),
+                            argList[1].as<int>(),
+                            argList[2].as<int>(),
+                            argList[3].as<int>(),
+                        };
+                    }
+                default:
+                    {
+                        throw fflerror("invalid argument count: %zu", argList.size());
+                    }
+            }
+        }();
+
+        fflassert(regionW > 0);
+        fflassert(regionH > 0);
+
+        int roiX = regionX;
+        int roiY = regionY;
+        int roiW = regionW;
+        int roiH = regionH;
+
+        if(!mathf::rectangleOverlapRegion<int>(0, 0, this->W(), this->H(), roiX, roiY, roiW, roiH)){
+            throw fflerror("invalid region: map = %s, x = %d, y = %d, w = %d, h = %d", to_cstr(DBCOM_MAPRECORD(this->ID()).name), regionX, regionY, regionW, regionH);
+        }
+
+        int count = 0;
+        for(int yi = roiY; yi < roiY + roiH; ++yi){
+            for(int xi = roiX; xi < roiX + roiW; ++xi){
+                if(this->groundValid(xi, yi)){
+                    count++;
+                }
+            }
+        }
+
+        if(useFullMap){
+            fullCount = count; // cache
+        }
+        return count;
+    });
+
+    m_luaRunner->bindFunction("randGLoc", [this](sol::variadic_args args)
+    {
+        const std::vector<sol::object> argList(args.begin(), args.end());
+        const auto [useFullMap, regionX, regionY, regionW, regionH] = [&argList, this]() -> std::tuple<bool, int, int, int, int>
+        {
+            switch(argList.size()){
+                case 0:
+                    {
+                        return
+                        {
+                            true,
+                            0,
+                            0,
+                            this->W(),
+                            this->H(),
+                        };
+                    }
+                case 4:
+                    {
+                        return
+                        {
+                            false,
+                            argList[0].as<int>(),
+                            argList[1].as<int>(),
+                            argList[2].as<int>(),
+                            argList[3].as<int>(),
+                        };
+                    }
+                default:
+                    {
+                        throw fflerror("invalid argument count: %zu", argList.size());
+                    }
+            }
+        }();
+
+        // randGLoc doesn't check CO's on map, only check groundValid()
+        // given region should have been checked by countGLoc to make sure it has valid grid
+
+        // give a maximal loop count
+        // script may give bad region without checking
+
+        constexpr int maxTryCount = 1024;
+        for(int i = 0; i < maxTryCount; ++i){
+            if(const auto locopt = this->getRCValidGrid(false, false, 1, regionX, regionY, regionW, regionH); locopt.has_value()){
+                return sol::as_returns(std::array<int, 2>
+                {
+                    std::get<0>(locopt.value()),
+                    std::get<1>(locopt.value()),
+                });
+            }
+        }
+
+        // failed to pick a random location
+        // try brutle force to get a location, shall always succeeds if given region has valid grid(s)
+
+        if(const auto locopt = this->getRCValidGrid(false, false, -1, regionX, regionY, regionW, regionH); locopt.has_value()){
+            return sol::as_returns(std::array<int, 2>
+            {
+                std::get<0>(locopt.value()),
+                std::get<1>(locopt.value()),
+            });
+        }
+
+        // give detailed failure message
+        // need it to validate map monster gen coroutine, otherwise this can throw
+
+        if(useFullMap){
+            throw fflerror("no valid grid on map: map = %s", to_cstr(DBCOM_MAPRECORD(this->ID()).name));
+        }
+        else{
+            throw fflerror("no valid grid in region: map = %s, x = %d, y = %d, w = %d, h = %d", to_cstr(DBCOM_MAPRECORD(this->ID()).name), regionX, regionY, regionW, regionH);
+        }
+    });
+
+    m_luaRunner->bindFunction("getNPCharUID", [this](std::string npcName) -> uint64_t
+    {
+        for(const auto [uid, npcPtr]: m_npcList){
+            if(npcPtr->getNPCName() == npcName){
+                return uid;
+            }
+        }
+        return 0;
+    });
+
+    m_luaRunner->bindFunction("getMonsterCount", [this](sol::variadic_args args) -> int
+    {
+        const std::vector<sol::object> argList(args.begin(), args.end());
+        switch(argList.size()){
+            case 0:
+                {
+                    return this->getMonsterCount(0);
+                }
+            case 1:
+                {
+                    if(argList[0].is<int>()){
+                        if(const int monID = argList[0].as<int>(); monID >= 0){
+                            return this->getMonsterCount(monID);
+                        }
+                    }
+
+                    else if(argList[0].is<std::string>()){
+                        if(const int monID = DBCOM_MONSTERID(to_u8cstr(argList[0].as<std::string>().c_str())); monID >= 0){
+                            return this->getMonsterCount(monID);
+                        }
+                    }
+                    break;
+                }
+            default:
+                {
+                    break;
+                }
+        }
+        return -1;
+    });
+
+    m_luaRunner->bindFunction("addMonster", [this](sol::object monInfo, sol::variadic_args args) -> uint64_t
+    {
+        const auto fnGetMonsterUID = [](const Monster *monPtr) -> uint64_t
+        {
+            return monPtr ? monPtr->UID() : 0;
+        };
+
+        const uint32_t monID = [&monInfo]() -> uint32_t
+        {
+            if(monInfo.is<int>()){
+                return monInfo.as<int>();
+            }
+
+            if(monInfo.is<std::string>()){
+                return DBCOM_MONSTERID(to_u8cstr(monInfo.as<std::string>().c_str()));
+            }
+
+            return 0;
+        }();
+
+        if(monID){
+            const std::vector<sol::object> argList(args.begin(), args.end());
+            switch(argList.size()){
+                case 0:
+                    {
+                        return fnGetMonsterUID(this->addMonster(monID, 0, -1, -1, false));
+                    }
+                case 2:
+                    {
+                        if(true
+                                && argList[0].is<int>()
+                                && argList[1].is<int>()){
+
+                            const auto nX = argList[0].as<int>();
+                            const auto nY = argList[1].as<int>();
+                            return fnGetMonsterUID(this->addMonster(monID, 0, nX, nY, false));
+                        }
+                        break;
+                    }
+                case 3:
+                    {
+                        if(true
+                                && argList[0].is<int >()
+                                && argList[1].is<int >()
+                                && argList[2].is<bool>()){
+
+                            const auto nX = argList[0].as<int >();
+                            const auto nY = argList[1].as<int >();
+                            const auto bStrictLoc = argList[2].as<bool>();
+                            return fnGetMonsterUID(this->addMonster(monID, 0, nX, nY, bStrictLoc));
+                        }
+                        break;
+                    }
+                default:
+                    {
+                        break;
+                    }
+            }
+        }
+        return fnGetMonsterUID(nullptr);
+    });
+
+    m_luaRunner->bindFunction("addGuard", [this](std::string type, int x, int y, int direction) -> bool
+    {
+        const uint32_t monID = DBCOM_MONSTERID(to_u8cstr(type));
+        if(!monID){
+            return false;
+        }
+        return this->addGuard(monID, x, y, direction);
+    });
+
+    m_luaRunner->pfrCheck(m_luaRunner->execFile([this]() -> std::string
+    {
+        const auto configScriptPath = g_serverConfigureWindow->getConfig().scriptPath;
+        const auto scriptPath = configScriptPath.empty() ? std::string("script/map") : (configScriptPath + "/map");
+
+        const auto scriptName = str_printf("%s/%s.lua", scriptPath.c_str(), to_cstr(DBCOM_MAPRECORD(this->ID()).name));
+        if(filesys::hasFile(scriptName.c_str())){
+            return scriptName;
+        }
+
+        const auto defaultScriptName = scriptPath + "/default.lua";
+        if(filesys::hasFile(defaultScriptName.c_str())){
+            return defaultScriptName;
+        }
+        throw fflerror("can't load proper script for map %s", to_cstr(DBCOM_MAPRECORD(this->ID()).name));
+    }().c_str()));
+
+    m_luaRunner->pfrCheck(m_luaRunner->execRawString(BEGIN_LUAINC(char)
+#include "servermap.lua"
+    END_LUAINC()));
+
+    m_luaRunner->spawn(m_mainScriptThreadKey, "return main()");
 }
 
 void ServerMap::loadNPChar()
@@ -1615,21 +1573,44 @@ void ServerMap::loadNPChar()
     const auto cfgScriptPath = g_serverConfigureWindow->getConfig().scriptPath;
     const auto scriptPath = cfgScriptPath.empty() ? std::string("script/npc") : (cfgScriptPath + "/npc");
 
-    const auto reg = str_printf("%s\\..*\\.lua", to_cstr(DBCOM_MAPRECORD(ID()).name));
-    for(const auto &fileName: filesys::getFileList(scriptPath.c_str(), true, reg.c_str())){
-        // file as: "道馆.铁匠.lua"
-        // parse the string to get "铁匠" as npc name
-        const auto p1 = fileName.find('.');
-        fflassert(p1 != std::string::npos);
+    // npc script file has format:
+    // <MAP名称>.GLOC_x_y_dir.<NPC名称>.LOOK_id.lua
 
-        const auto p2 = fileName.find('.', p1 + 1);
-        fflassert(p2 != std::string::npos);
+    const auto expr = str_printf(R"#(%s\.(.*)\.GLOC_(\d+)_(\d+)_(\d+)\.LOOK_(\d+)\.lua)#", to_cstr(DBCOM_MAPRECORD(ID()).name));
+    //                               --  ----       ----- -----  ----       -----
+    //                               ^    ^           ^     ^     ^           ^
+    //                               |    |           |     |     |           |
+    //                               |    |           |     |     |           +------- look id
+    //                               |    |           |     |     +------------------- npc stand gfx dir (may not be 8-dir)
+    //                               |    |           |     +------------------------- npc grid y
+    //                               |    |           +------------------------------- npc grid x
+    //                               |    +------------------------------------------- npc name
+    //                               +------------------------------------------------ map name
+    const std::regex regExpr(expr);
+    for(const auto &fileName: filesys::getFileList(scriptPath.c_str(), false, expr.c_str())){
+        std::match_results<std::string::const_iterator> result;
+        if(std::regex_match(fileName.begin(), fileName.end(), result, regExpr)){
+            SDInitNPChar initNPChar
+            {
+                .fullScriptName = scriptPath + "/" + fileName,
+                .mapID = ID(),
+            };
 
-        addNPChar(SDInitNPChar
-        {
-            .filePath = scriptPath,
-            .mapID    = ID(),
-            .npcName  = fileName.substr(p1 + 1, p2 - p1 - 1),
-        });
+            for(int i = 0; const auto &m: result){
+                switch(i++){
+                    case 1 : initNPChar.npcName =           m.str() ; break;
+                    case 2 : initNPChar.x       = std::stoi(m.str()); break;
+                    case 3 : initNPChar.y       = std::stoi(m.str()); break;
+                    case 4 : initNPChar.gfxDir  = std::stoi(m.str()); break;
+                    case 5 : initNPChar.lookID  = std::stoi(m.str()); break;
+                    default:                                        ; break;
+                }
+            }
+
+            addNPChar(initNPChar);
+        }
+        else{
+            throw fflvalue(fileName);
+        }
     }
 }

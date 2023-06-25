@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: main.cpp
- *        Created: 08/31/2015 08:52:57 PM
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <cstdio>
 #include "log.hpp"
 #include "client.hpp"
@@ -24,6 +6,9 @@
 #include "fontexdb.hpp"
 #include "mapbindb.hpp"
 #include "emojidb.hpp"
+#include "imeboard.hpp"
+#include "bgmusicdb.hpp"
+#include "soundeffectdb.hpp"
 #include "notifyboard.hpp"
 #include "pngtexoffdb.hpp"
 #include "clientargparser.hpp"
@@ -46,10 +31,13 @@ PNGTexOffDB     *g_magicDB         = nullptr; // database for magic
 PNGTexOffDB     *g_standNPCDB      = nullptr; // database for NPC
 PNGTexOffDB     *g_selectCharDB    = nullptr; // database for chars in ProcessSelectChar and ProcessCreateChar
 EmojiDB         *g_emojiDB         = nullptr; // database for emoticons
+BGMusicDB       *g_bgmDB           = nullptr; // database for bgm, contains .MP3/.WAV
+SoundEffectDB   *g_seffDB          = nullptr; // database for sound effect, contains .WAV
 MapBinDB        *g_mapBinDB        = nullptr;
 FontexDB        *g_fontexDB        = nullptr;
 XMLConf         *g_xmlConf         = nullptr; // for client configure XML parsing
 SDLDevice       *g_sdlDevice       = nullptr; // for SDL hardware device
+IMEBoard        *g_imeBoard        = nullptr; //
 NotifyBoard     *g_notifyBoard     = nullptr;
 Client          *g_client          = nullptr; // gobal instance
 
@@ -93,7 +81,10 @@ int main(int argc, char *argv[])
         g_fontexDB        = new FontexDB(1024);
         g_mapBinDB        = new MapBinDB();
         g_emojiDB         = new EmojiDB();
+        g_bgmDB           = new BGMusicDB(5);
+        g_seffDB          = new SoundEffectDB(128);
         g_client          = new Client();       // loads fontex resource
+        g_imeBoard        = new IMEBoard(DIR_UPLEFT, 0, 0);
         g_notifyBoard     = new NotifyBoard(DIR_UPLEFT, 0, 0, 10240, 0, 15, 0, colorf::RED + colorf::A_SHF(255), 0, 5);
 
         g_client->mainLoop();

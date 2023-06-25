@@ -1,19 +1,3 @@
--- =====================================================================================
---
---       Filename: 道馆.lua
---        Created: 08/31/2015 08:52:57 PM
---    Description: lua 5.3
---
---        Version: 1.0
---       Revision: none
---       Compiler: gcc
---
---         Author: ANHONG
---          Email: anhonghe@gmail.com
---   Organization: USTC
---
--- =====================================================================================
-
 addGuard('沙漠战士', 240, 166, DIR_DOWNLEFT)
 addGuard('沙漠战士', 237, 163, DIR_DOWNLEFT)
 addGuard('沙漠战士', 208, 167, DIR_DOWNRIGHT)
@@ -53,7 +37,7 @@ function main()
     while true do
         local rc, errMsg = coroutine.resume(addMonCo)
         if not rc then
-            fatalPrintf('addMonCo failed: %s', argDef(errMsg, 'unknown error'))
+            fatalPrintf('addMonCo failed: %s', argDefault(errMsg, 'unknown error'))
         end
         asyncWait(1000 * 5)
     end

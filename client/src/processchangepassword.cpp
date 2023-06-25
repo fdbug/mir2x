@@ -20,13 +20,15 @@ ProcessChangePassword::ProcessChangePassword()
     , m_LBPwd          (DIR_UPLEFT, 0, 0, u8"密码"    , 1, 15, 0, colorf::WHITE + colorf::A_SHF(255))
     , m_LBNewPwd       (DIR_UPLEFT, 0, 0, u8"新密码"  , 1, 15, 0, colorf::WHITE + colorf::A_SHF(255))
     , m_LBNewPwdConfirm(DIR_UPLEFT, 0, 0, u8"确认密码", 1, 15, 0, colorf::WHITE + colorf::A_SHF(255))
-	, m_boxID
+    , m_boxID
       {
           DIR_LEFT,
           m_x + 129 + 6, // offset + start of box in gfx + offset for input char
           m_y +  79,
           186,
           28,
+
+          false,
 
           2,
           15,
@@ -38,10 +40,10 @@ ProcessChangePassword::ProcessChangePassword()
 
           [this]()
           {
-              m_boxID           .focus(false);
-              m_boxPwd          .focus(true );
-              m_boxNewPwd       .focus(true );
-              m_boxNewPwdConfirm.focus(false);
+              m_boxID           .setFocus(false);
+              m_boxPwd          .setFocus(true );
+              m_boxNewPwd       .setFocus(true );
+              m_boxNewPwdConfirm.setFocus(false);
           },
           [this]()
           {
@@ -67,10 +69,10 @@ ProcessChangePassword::ProcessChangePassword()
 
           [this]()
           {
-              m_boxID           .focus(false);
-              m_boxPwd          .focus(false);
-              m_boxNewPwd       .focus(false);
-              m_boxNewPwdConfirm.focus(true );
+              m_boxID           .setFocus(false);
+              m_boxPwd          .setFocus(false);
+              m_boxNewPwd       .setFocus(false);
+              m_boxNewPwdConfirm.setFocus(true );
           },
           [this]()
           {
@@ -96,10 +98,10 @@ ProcessChangePassword::ProcessChangePassword()
 
           [this]()
           {
-              m_boxID           .focus(true );
-              m_boxPwd          .focus(false);
-              m_boxNewPwd       .focus(false);
-              m_boxNewPwdConfirm.focus(false);
+              m_boxID           .setFocus(true );
+              m_boxPwd          .setFocus(false);
+              m_boxNewPwd       .setFocus(false);
+              m_boxNewPwdConfirm.setFocus(false);
           },
           [this]()
           {
@@ -125,10 +127,10 @@ ProcessChangePassword::ProcessChangePassword()
 
           [this]()
           {
-              m_boxID           .focus(true );
-              m_boxPwd          .focus(false);
-              m_boxNewPwd       .focus(false);
-              m_boxNewPwdConfirm.focus(false);
+              m_boxID           .setFocus(true );
+              m_boxPwd          .setFocus(false);
+              m_boxNewPwd       .setFocus(false);
+              m_boxNewPwdConfirm.setFocus(false);
           },
           [this]()
           {
@@ -147,9 +149,15 @@ ProcessChangePassword::ProcessChangePassword()
           m_x + 189,
           m_y + 254,
           {
-              SYS_TEXNIL,
+              SYS_U32NIL,
               0X0800000B,
               0X0800000C,
+          },
+
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
           },
 
           nullptr,
@@ -173,7 +181,12 @@ ProcessChangePassword::ProcessChangePassword()
           DIR_UPLEFT,
           m_x + 400,
           m_y + 288,
-          {SYS_TEXNIL, 0X0000001C, 0X0000001D},
+          {SYS_U32NIL, 0X0000001C, 0X0000001D},
+          {
+              SYS_U32NIL,
+              SYS_U32NIL,
+              0X01020000 + 105,
+          },
 
           nullptr,
           nullptr,
@@ -204,10 +217,10 @@ ProcessChangePassword::ProcessChangePassword()
           colorf::YELLOW + colorf::A_SHF(255)
       }
 {
-    m_boxID.focus(true);
-    m_boxPwd.focus(false);
-    m_boxNewPwd.focus(false);
-    m_boxNewPwdConfirm.focus(false);
+    m_boxID.setFocus(true);
+    m_boxPwd.setFocus(false);
+    m_boxNewPwd.setFocus(false);
+    m_boxNewPwdConfirm.setFocus(false);
 }
 
 void ProcessChangePassword::update(double fUpdateTime)
@@ -291,7 +304,7 @@ void ProcessChangePassword::processEvent(const SDL_Event &event)
                             for(size_t i = 0; i < std::extent_v<decltype(boxPtrList)>; ++i){
                                 if(boxPtrList[i]->focus()){
                                     for(size_t j = 0; j < std::extent_v<decltype(boxPtrList)>; ++j){
-                                        boxPtrList[j]->focus(j == ((i + 1) % std::extent_v<decltype(boxPtrList)>));
+                                        boxPtrList[j]->setFocus(j == ((i + 1) % std::extent_v<decltype(boxPtrList)>));
                                     }
                                     break;
                                 }

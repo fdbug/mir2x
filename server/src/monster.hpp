@@ -1,20 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: monster.hpp
- *        Created: 04/10/2016 02:32:45
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
 #pragma once
 #include <optional>
 #include <functional>
@@ -23,7 +6,6 @@
 #include "fflerror.hpp"
 #include "battleobject.hpp"
 #include "dbcomid.hpp"
-#include "dbcomrecord.hpp"
 #include "monsterrecord.hpp"
 
 class Monster: public BattleObject
@@ -35,26 +17,31 @@ class Monster: public BattleObject
 
     protected:
         // a-star algorithm is so expensive
-        // current logic is every step we do MoveOneStep()
+        // current logic is every step we do moveOneStep()
 
         // cache the a-star result helps
         // but it makes monster stop if path node is blocked
         // so I need to keep tracking time to refresh the cache
 
-        struct AStarCache
+        class AStarCache
         {
-            // we refresh (drop) the cache every 2 sec
-            // since co's are moving and valid road won't keep valid
-            // 2sec because many monsters have WalkWait = 1sec
-            const static uint32_t Refresh = 2000;
+            private:
+                // we refresh (drop) the cache every 2 sec
+                // since co's are moving and valid road won't keep valid
+                // 2 sec because many monsters have WalkWait = 1sec
+                constexpr static uint32_t m_refresh = 2000;
 
-            uint32_t Time;
-            uint32_t mapID;
-            std::vector<PathFind::PathNode> Path;
+            private:
+                uint32_t m_time = 0;
+                uint32_t m_mapID = 0;
+                std::vector<pathf::PathNode> m_path;
 
-            AStarCache();
-            bool Retrieve(int *, int *, int, int, int, int, uint32_t);
-            void Cache(std::vector<PathFind::PathNode>, uint32_t);
+            public:
+                AStarCache() = default;
+
+            public:
+                void cache(uint32_t, std::vector<pathf::PathNode>);
+                std::optional<pathf::PathNode> retrieve(uint32_t, int, int, int, int);
         };
 
     protected:
@@ -62,7 +49,6 @@ class Monster: public BattleObject
         {
             FPMETHOD_NONE,
             FPMETHOD_ASTAR,
-            FPMETHOD_DSTAR,
             FPMETHOD_GREEDY,
             FPMETHOD_COMBINE,
             FPMETHOD_NEIGHBOR,
@@ -75,7 +61,7 @@ class Monster: public BattleObject
         uint64_t m_masterUID;
 
     protected:
-        AStarCache m_AStarCache;
+        AStarCache m_astarCache;
 
     protected:
         corof::eval_poller m_updateCoro;
@@ -132,10 +118,10 @@ class Monster: public BattleObject
         bool dcValid(int, bool);
 
     protected:
-        bool struckDamage(const DamageNode &) override;
+        bool struckDamage(uint64_t, const DamageNode &) override;
 
     protected:
-        DamageNode getAttackDamage(int) const override;
+        DamageNode getAttackDamage(int, int) const override;
 
     private:
         void on_AM_EXP             (const ActorMsgPack &);
@@ -143,6 +129,7 @@ class Monster: public BattleObject
         void on_AM_HEAL            (const ActorMsgPack &);
         void on_AM_ATTACK          (const ActorMsgPack &);
         void on_AM_ADDBUFF         (const ActorMsgPack &);
+        void on_AM_REMOVEBUFF      (const ActorMsgPack &);
         void on_AM_ACTION          (const ActorMsgPack &);
         void on_AM_OFFLINE         (const ActorMsgPack &);
         void on_AM_UPDATEHP        (const ActorMsgPack &);
@@ -157,6 +144,7 @@ class Monster: public BattleObject
         void on_AM_QUERYHEALTH     (const ActorMsgPack &);
         void on_AM_DEADFADEOUT     (const ActorMsgPack &);
         void on_AM_NOTIFYNEWCO     (const ActorMsgPack &);
+        void on_AM_QUERYUIDBUFF    (const ActorMsgPack &);
         void on_AM_QUERYCORECORD   (const ActorMsgPack &);
         void on_AM_QUERYLOCATION   (const ActorMsgPack &);
         void on_AM_QUERYNAMECOLOR  (const ActorMsgPack &);
@@ -170,7 +158,7 @@ class Monster: public BattleObject
         void reportCO(uint64_t) override;
 
     protected:
-        bool MoveOneStep(int, int, std::function<void()>, std::function<void()>);
+        bool moveOneStep(int, int, std::function<void()>, std::function<void()>);
 
     protected:
         virtual void pickTarget(std::function<void(uint64_t)>);
@@ -191,11 +179,10 @@ class Monster: public BattleObject
         void queryMaster(uint64_t, std::function<void(uint64_t)>);
 
     protected:
-        bool MoveOneStepAStar   (int, int, std::function<void()>, std::function<void()>);
-        bool MoveOneStepDStar   (int, int, std::function<void()>, std::function<void()>);
-        bool MoveOneStepGreedy  (int, int, std::function<void()>, std::function<void()>);
-        bool MoveOneStepCombine (int, int, std::function<void()>, std::function<void()>);
-        bool MoveOneStepNeighbor(int, int, std::function<void()>, std::function<void()>);
+        bool moveOneStepAStar   (int, int, std::function<void()>, std::function<void()>);
+        bool moveOneStepGreedy  (int, int, std::function<void()>, std::function<void()>);
+        bool moveOneStepCombine (int, int, std::function<void()>, std::function<void()>);
+        bool moveOneStepNeighbor(int, int, std::function<void()>, std::function<void()>);
 
     public:
         void onActivate() override

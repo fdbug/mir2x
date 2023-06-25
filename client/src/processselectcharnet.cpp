@@ -1,3 +1,5 @@
+#include "uidf.hpp"
+#include "dbcomid.hpp"
 #include "client.hpp"
 #include "fflerror.hpp"
 #include "processselectchar.hpp"
@@ -66,8 +68,13 @@ void ProcessSelectChar::net_DELETECHARERROR(const uint8_t *buf, size_t)
     }
 }
 
-void ProcessSelectChar::net_ONLINEOK(const uint8_t *, size_t)
+void ProcessSelectChar::net_ONLINEOK(const uint8_t *buf, size_t)
 {
+    const auto smOOK = ServerMsg::conv<SMOnlineOK>(buf);
+    fflassert(uidf::isPlayer(smOOK.uid), smOOK.uid, uidf::getUIDString(smOOK.uid));
+    fflassert(DBCOM_MAPRECORD(smOOK.mapID), smOOK.mapID);
+
+    g_client->setOnlineOK(smOOK);
     g_client->requestProcess(PROCESSID_RUN);
 }
 
@@ -77,7 +84,7 @@ void ProcessSelectChar::net_ONLINEERROR(const uint8_t *buf, size_t)
     switch(smOE.error){
         case ONLINEERR_NOCHAR:
             {
-                m_notifyBoard.addLog(u8"先创建角色以开始游戏");
+                m_notifyBoard.addLog(u8"先创建角色以运行游戏");
                 return;
             }
         case ONLINEERR_MULTIONLINE:

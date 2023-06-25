@@ -1,34 +1,20 @@
-/*
- * =====================================================================================
- *
- *       Filename: cerealf.hpp
- *        Created: 11/13/2018 22:31:02
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <string>
 #include <sstream>
 #include <climits>
 #include <cereal/types/map.hpp>
 #include <cereal/types/set.hpp>
+#include <cereal/types/tuple.hpp>
 #include <cereal/types/array.hpp>
+#include <cereal/types/memory.hpp>
 #include <cereal/types/string.hpp>
 #include <cereal/types/vector.hpp>
 #include <cereal/types/variant.hpp>
+#include <cereal/types/utility.hpp>
 #include <cereal/types/optional.hpp>
 #include <cereal/types/unordered_set.hpp>
 #include <cereal/types/unordered_map.hpp>
+// #include <cereal/archives/json.hpp>
 #include <cereal/archives/binary.hpp>
 #include <cereal/archives/portable_binary.hpp>
 #include "zcompf.hpp"
@@ -46,7 +32,7 @@ namespace cerealf
     // tryComp : -1 : auto
     //            0 : don't try compress
     //          >=1 :       try compress
-    template<typename T> std::string serialize(const T &t, int tryComp = -1)
+    template<typename T> std::string serialize(const T &t, int tryComp = -1, size_t *rawBufSize = nullptr) // never return empty string
     {
         std::ostringstream ss(std::ios::binary);
         {
@@ -55,6 +41,10 @@ namespace cerealf
         }
 
         std::string rawBuf = ss.str();
+        if(rawBufSize){
+            *rawBufSize = rawBuf.size() + 1; // plus 1 for compression flag
+        }
+
         if((tryComp < 0 && rawBuf.size() < 8) || tryComp == 0){
             rawBuf.push_back(CF_NONE);
             return rawBuf;
@@ -87,13 +77,13 @@ namespace cerealf
         return rawBuf;
     }
 
-    template<typename T> T deserialize(const void *buf, size_t size)
+    template<typename T> T deserialize(const void *buf, size_t size, size_t *rawBufSize = nullptr)
     {
         fflassert(buf);
-        fflassert(size >= 1);
+        fflassert(size >= 1, size);
 
         const auto flag = ((const char *)(buf))[--size];
-        std::istringstream ss([buf, &size, flag]() -> std::string
+        auto rawBuf = [buf, &size, flag]() -> std::string
         {
             switch(flag){
                 case CF_NONE:
@@ -102,7 +92,7 @@ namespace cerealf
                     }
                 case CF_XOR:
                     {
-                        fflassert(size >= 1);
+                        fflassert(size >= 1, size);
                         const auto bufLen = ((const uint8_t *)(buf))[--size];
                         const size_t maskLen = (bufLen + 7) / 8;
 
@@ -123,8 +113,13 @@ namespace cerealf
                         throw fflvalue(flag);
                     }
             }
-        }(), std::ios::binary);
+        }();
 
+        if(rawBufSize){
+            *rawBufSize = rawBuf.size() + 1; // plus 1 for compression flag
+        }
+
+        std::istringstream ss(std::move(rawBuf), std::ios::binary);
         T t;
         {
             cereal::PortableBinaryInputArchive ar(ss);
@@ -137,4 +132,31 @@ namespace cerealf
     {
         return deserialize<T>(buf.data(), buf.size());
     }
+
+    inline bool is_compressed(const std::string &buf)
+    {
+        fflassert(buf.size() >= 1, buf.size()); // don't dump buf itself since it may be binary
+        return buf.back() & (CF_ZSTD | CF_XOR);
+    }
+
+    // template<typename T> std::string json_serialize(const T &t)
+    // {
+    //     std::ostringstream ss;
+    //     {
+    //         cereal::JSONOutputArchive ar(ss);
+    //         ar(t);
+    //     }
+    //     return ss.str();
+    // }
+    //
+    // template<typename T> T json_deserialize(std::string jsonstr)
+    // {
+    //     std::istringstream ss(std::move(jsonstr));
+    //     T t;
+    //     {
+    //         cereal::JSONInputArchive ar(ss);
+    //         ar(t);
+    //     }
+    //     return t;
+    // }
 }

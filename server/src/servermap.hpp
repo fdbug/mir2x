@@ -1,23 +1,4 @@
-/*
- * =====================================================================================
- *
- *       Filename: servermap.hpp
- *        Created: 09/03/2015 03:49:00
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
-
 #include <tuple>
 #include <memory>
 #include <vector>
@@ -25,16 +6,16 @@
 #include <concepts>
 #include <unordered_set>
 
+#include "pathf.hpp"
 #include "mathf.hpp"
 #include "totype.hpp"
 #include "sysconst.hpp"
-#include "querytype.hpp"
 #include "serdesmsg.hpp"
-#include "pathfinder.hpp"
-#include "cachequeue.hpp"
 #include "mir2xmapdata.hpp"
 #include "serverobject.hpp"
-#include "batchluamodule.hpp"
+#include "serverluacoroutinerunner.hpp"
+#include "lochashtable.hpp"
+#include "parallel_hashmap/phmap.h"
 
 class ServerGuard;
 class Player;
@@ -46,44 +27,7 @@ class ServerObject;
 class ServerMap final: public ServerObject
 {
     private:
-        class ServerMapLuaModule: public ServerLuaModule
-        {
-            private:
-                sol::coroutine m_coHandler;
-
-            public:
-                ServerMapLuaModule(ServerMap *);
-
-            public:
-                void resumeLoop()
-                {
-                    if(!m_coHandler){
-                        throw fflerror("ServerMap lua coroutine is not callable");
-                    }
-                    checkResult(m_coHandler());
-                }
-
-            private:
-                template<typename T> void checkResult(const T &result)
-                {
-                    if(result.valid()){
-                        return;
-                    }
-
-                    const sol::error err = result;
-                    std::stringstream errStream(err.what());
-
-                    std::string errLine;
-                    while(std::getline(errStream, errLine, '\n')){
-                        addLogString(1, to_u8cstr(errLine));
-                    }
-                }
-        };
-
-    private:
-        // bind to servermap
-        // only for server map internal usage
-        class ServerPathFinder: public AStarPathFinder
+        class ServerPathFinder: public pathf::AStarPathFinder
         {
             private:
                 const ServerMap *m_map;
@@ -92,12 +36,11 @@ class ServerMap final: public ServerObject
                 const int m_checkCO;
 
             public:
-                ServerPathFinder(const ServerMap*, int, int);
-               ~ServerPathFinder() = default;
+               /* ctor */  ServerPathFinder(const ServerMap*, int, int);
+               /* dtor */ ~ServerPathFinder() = default;
         };
 
-        // the server pathfinder will call canMove() etc
-        // which I refuse to set as public since it's dynamically updated
+    private:
         friend class ServerPathFinder;
 
     private:
@@ -149,17 +92,28 @@ class ServerMap final: public ServerObject
         const Mir2xMapData m_mir2xMapData;
 
     private:
-        std::vector<MapGrid> m_gridList;
+        std::unordered_map<uint64_t, const NPChar *> m_npcList;
 
     private:
-        std::unique_ptr<ServerMapLuaModule> m_luaModulePtr;
+        std::vector<MapGrid> m_gridList;
+        phmap::flat_hash_set<std::tuple<int, int>, LocHashHelper> m_fireWallLocList;
+        phmap::flat_hash_set<std::tuple<int, int>, LocHashHelper> m_gridItemLocList;
+
+    private:
+        const uint64_t m_mainScriptThreadKey = 1;
+        /* */ uint64_t m_threadKey = m_mainScriptThreadKey + 1;
+
+    private:
+        std::unique_ptr<ServerLuaCoroutineRunner> m_luaRunner;
 
     private:
         void operateAM(const ActorMsgPack &);
 
     public:
         ServerMap(uint32_t);
-       ~ServerMap() = default;
+
+    private:
+        ~ServerMap() = default;
 
     public:
         uint32_t ID() const { return m_ID; }
@@ -177,7 +131,7 @@ class ServerMap final: public ServerObject
         bool canMove(bool, bool, int, int) const;
 
     protected:
-        double OneStepCost(int, int, int, int, int, int) const;
+        std::optional<double> oneStepCost(int, int, int, int, int, int, int) const;
 
     public:
         const Mir2xMapData &getMapData() const
@@ -208,12 +162,7 @@ class ServerMap final: public ServerObject
         }
 
     public:
-        void onActivate() override
-        {
-            ServerObject::onActivate();
-            m_luaModulePtr = std::make_unique<ServerMap::ServerMapLuaModule>(this);
-            loadNPChar();
-        }
+        void onActivate() override;
 
     private:
         void loadNPChar();
@@ -227,9 +176,9 @@ class ServerMap final: public ServerObject
         [[maybe_unused]] std::optional<std::tuple<int, int>> getRCGLoc(bool, bool, int, int, int, int, int, int, int) const;
 
     private:
-        [[maybe_unused]] std::optional<std::tuple<int, int>> GetValidGrid(bool, bool, int) const;
-        [[maybe_unused]] std::optional<std::tuple<int, int>> GetValidGrid(bool, bool, int, int, int) const;
-        [[maybe_unused]] std::optional<std::tuple<int, int>> GetValidGrid(bool, bool, int, int, int, int, int) const;
+        [[maybe_unused]] std::optional<std::tuple<int, int>> getRCValidGrid(bool, bool, int) const;
+        [[maybe_unused]] std::optional<std::tuple<int, int>> getRCValidGrid(bool, bool, int, int, int) const;
+        [[maybe_unused]] std::optional<std::tuple<int, int>> getRCValidGrid(bool, bool, int, int, int, int, int) const;
 
     private:
         void notifyNewCO(uint64_t, int, int);
@@ -329,10 +278,12 @@ class ServerMap final: public ServerObject
         void postGroundFireWallList(uint64_t, int, int);
 
     private:
-        int CheckPathGrid(int, int) const;
+        int checkPathGrid(int, int) const;
 
     private:
         void updateMapGrid();
+        void updateMapGridFireWall();
+        void updateMapGridGroundItem();
 
     private:
         template<std::predicate<uint64_t> F> bool doUIDList(int x, int y, const F &func)
@@ -404,25 +355,23 @@ class ServerMap final: public ServerObject
         bool DoCenterSquare(int, int, int, int, bool, const std::function<bool(int, int)> &);
 
     private:
-        void on_AM_ACTION(const ActorMsgPack &);
-        void on_AM_PICKUP(const ActorMsgPack &);
-        void on_AM_OFFLINE(const ActorMsgPack &);
-        void on_AM_TRYJUMP(const ActorMsgPack &);
-        void on_AM_TRYMOVE(const ActorMsgPack &);
-        void on_AM_TRYLEAVE(const ActorMsgPack &);
-        void on_AM_PATHFIND(const ActorMsgPack &);
-        void on_AM_UPDATEHP(const ActorMsgPack &);
-        void on_AM_METRONOME(const ActorMsgPack &);
-        void on_AM_BADACTORPOD(const ActorMsgPack &);
-        void on_AM_DEADFADEOUT(const ActorMsgPack &);
-        void on_AM_DROPITEM(const ActorMsgPack &);
-        void on_AM_TRYMAPSWITCH(const ActorMsgPack &);
-        void on_AM_QUERYCOCOUNT(const ActorMsgPack &);
-        void on_AM_TRYSPACEMOVE(const ActorMsgPack &);
-        void on_AM_CASTFIREWALL(const ActorMsgPack &);
-        void on_AM_ADDCO(const ActorMsgPack &);
+        void on_AM_ACTION              (const ActorMsgPack &);
+        void on_AM_PICKUP              (const ActorMsgPack &);
+        void on_AM_OFFLINE             (const ActorMsgPack &);
+        void on_AM_TRYJUMP             (const ActorMsgPack &);
+        void on_AM_TRYMOVE             (const ActorMsgPack &);
+        void on_AM_TRYLEAVE            (const ActorMsgPack &);
+        void on_AM_PATHFIND            (const ActorMsgPack &);
+        void on_AM_UPDATEHP            (const ActorMsgPack &);
+        void on_AM_METRONOME           (const ActorMsgPack &);
+        void on_AM_BADACTORPOD         (const ActorMsgPack &);
+        void on_AM_DEADFADEOUT         (const ActorMsgPack &);
+        void on_AM_DROPITEM            (const ActorMsgPack &);
+        void on_AM_TRYMAPSWITCH        (const ActorMsgPack &);
+        void on_AM_QUERYCOCOUNT        (const ActorMsgPack &);
+        void on_AM_TRYSPACEMOVE        (const ActorMsgPack &);
+        void on_AM_CASTFIREWALL        (const ActorMsgPack &);
+        void on_AM_ADDCO               (const ActorMsgPack &);
+        void on_AM_REMOTECALL          (const ActorMsgPack &);
         void on_AM_STRIKEFIXEDLOCDAMAGE(const ActorMsgPack &);
-
-    private:
-        bool regLuaExport(ServerMapLuaModule *);
 };

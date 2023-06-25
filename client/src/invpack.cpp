@@ -1,29 +1,14 @@
-/*
- * =====================================================================================
- *
- *       Filename: invpack.cpp
- *        Created: 11/11/2017 01:03:43
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "dbcomid.hpp"
 #include "invpack.hpp"
 #include "pngtexdb.hpp"
 #include "fflerror.hpp"
 #include "sdldevice.hpp"
-#include "dbcomrecord.hpp"
+#include "soundeffectdb.hpp"
 
 extern PNGTexDB *g_itemDB;
+extern SDLDevice *g_sdlDevice;
+extern SoundEffectDB *g_seffDB;
+
 int InvPack::getWeight() const
 {
     int weight = 0;
@@ -35,13 +20,16 @@ int InvPack::getWeight() const
     return weight;
 }
 
-void InvPack::add(SDItem item)
+void InvPack::add(SDItem item, bool playSound)
 {
     fflassert(item);
     for(auto &bin: m_packBinList){
         if((bin.item.itemID == item.itemID) && (bin.item.seqID == item.seqID)){
             if(bin.item.count + item.count <= SYS_INVGRIDMAXHOLD){
                 bin.item.count += item.count;
+                if(playSound){
+                    playItemSoundEffect(item.itemID);
+                }
                 return;
             }
             else{
@@ -61,15 +49,18 @@ void InvPack::add(SDItem item)
     auto addedBin = makePackBin(item);
     pack2D.add(addedBin);
     m_packBinList.push_back(addedBin);
+    if(playSound){
+        playItemSoundEffect(item.itemID);
+    }
 }
 
-void InvPack::add(SDItem item, int x, int y)
+void InvPack::add(SDItem item, int x, int y, bool playSound)
 {
     fflassert(item);
     auto itemBin = makePackBin(item);
 
     if(!(x >= 0 && x + itemBin.w <= to_d(w()) && y >= 0)){
-        add(item);
+        add(item, playSound);
         return;
     }
 
@@ -79,13 +70,17 @@ void InvPack::add(SDItem item, int x, int y)
     }
 
     if(pack2D.occupied(x, y, itemBin.w, itemBin.h, true)){
-        add(item);
+        add(item, playSound);
         return;
     }
 
     itemBin.x = x;
     itemBin.y = y;
     m_packBinList.push_back(itemBin);
+
+    if(playSound){
+        playItemSoundEffect(item.itemID);
+    }
 }
 
 int InvPack::update(SDItem item)
@@ -99,12 +94,20 @@ int InvPack::update(SDItem item)
         if((bin.item.itemID == item.itemID) && (bin.item.seqID == item.seqID)){
             const int changed = to_d(item.count) - to_d(bin.item.count);
             bin.item = std::move(item);
+
+            if(changed > 0){
+                playItemSoundEffect(item.itemID);
+            }
             return changed;
         }
     }
 
     const int changed = to_d(item.count);
     add(std::move(item));
+
+    if(changed > 0){
+        playItemSoundEffect(item.itemID);
+    }
     return changed;
 }
 
@@ -158,6 +161,7 @@ void InvPack::setGrabbedItem(SDItem item)
     if(item.itemID){
         fflassert(item);
         m_grabbedItem = std::move(item);
+        playItemSoundEffect(item.itemID);
     }
     else{
         m_grabbedItem = {};
@@ -166,24 +170,55 @@ void InvPack::setGrabbedItem(SDItem item)
 
 void InvPack::setGold(int gold)
 {
-    if(gold < 0){
-        throw fflerror("invalid argument: gold = %d", gold);
+    fflassert(gold >= 0, gold);
+    if(std::exchange(m_gold, gold) < to_uz(gold)){
+        g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 106));
     }
-    m_gold = (size_t)(gold);
-}
-
-void InvPack::addGold(int gold)
-{
-    if(const auto newGold = to_d(m_gold) + gold; newGold >= 0){
-        m_gold = (size_t)(newGold);
-    }
-    throw fflerror("invalid argument: gold = %d", gold);
 }
 
 void InvPack::setInventory(const SDInventory &sdInv)
 {
     m_packBinList.clear();
     for(const auto &item: sdInv.getItemList()){
-        add(item);
+        add(item, false);
     }
 }
+
+void InvPack::playItemSoundEffect(uint32_t itemID, bool consume)
+{
+    if(itemID){
+        const auto &ir = DBCOM_ITEMRECORD(itemID);
+        fflassert(ir);
+
+        if(false
+                || to_u8sv(ir.type) == u8"恢复药水"
+                || to_u8sv(ir.type) == u8"功能药水"
+                || to_u8sv(ir.type) == u8"强效药水"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + (consume ? 108 : 108)));
+        }
+        else if(to_u8sv(ir.type) == u8"武器"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 111));
+        }
+        else if(to_u8sv(ir.type) == u8"衣服"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 112));
+        }
+        else if(to_u8sv(ir.type) == u8"戒指"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 113));
+        }
+        else if(to_u8sv(ir.type) == u8"手镯"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 114));
+        }
+        else if(to_u8sv(ir.type) == u8"项链"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 115));
+        }
+        else if(to_u8sv(ir.type) == u8"头盔"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 116));
+        }
+        else if(to_u8sv(ir.type) == u8"勋章"){
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 117));
+        }
+        else{
+            g_sdlDevice->playSoundEffect(g_seffDB->retrieve(0X01020000 + 118));
+        }
+    }
+};

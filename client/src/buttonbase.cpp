@@ -1,24 +1,11 @@
-/*
- * =====================================================================================
- *
- *       Filename: buttonbase.cpp
- *        Created: 08/21/2015 04:12:57
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include <functional>
 #include "sdldevice.hpp"
 #include "buttonbase.hpp"
+#include "sdldevice.hpp"
+#include "soundeffectdb.hpp"
+
+extern SDLDevice *g_sdlDevice;
+extern SoundEffectDB *g_seffDB;
 
 bool ButtonBase::processEvent(const SDL_Event &event, bool valid)
 {
@@ -27,14 +14,14 @@ bool ButtonBase::processEvent(const SDL_Event &event, bool valid)
             setState(BEVENT_OFF);
             onOverOut();
         }
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     if(!m_active){
         if(getState() != BEVENT_OFF){
             setState(BEVENT_OFF);
         }
-        return focusConsume(this, false);
+        return consumeFocus(false);
     }
 
     switch(event.type){
@@ -61,14 +48,14 @@ bool ButtonBase::processEvent(const SDL_Event &event, bool valid)
                                 break;
                             }
                     }
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
                 else{
                     if(getState() != BEVENT_OFF){
                         setState(BEVENT_OFF);
                         onOverOut();
                     }
-                    return focusConsume(this, false);
+                    return consumeFocus(false);
                 }
             }
         case SDL_MOUSEBUTTONDOWN:
@@ -94,14 +81,14 @@ bool ButtonBase::processEvent(const SDL_Event &event, bool valid)
                                 break;
                             }
                     }
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
                 else{
                     if(getState() != BEVENT_OFF){
                         setState(BEVENT_OFF);
                         onOverOut();
                     }
-                    return focusConsume(this, false);
+                    return consumeFocus(false);
                 }
             }
         case SDL_MOUSEMOTION:
@@ -131,19 +118,19 @@ bool ButtonBase::processEvent(const SDL_Event &event, bool valid)
                                 break;
                             }
                     }
-                    return focusConsume(this, true);
+                    return consumeFocus(true);
                 }
                 else{
                     if(getState() != BEVENT_OFF){
                         setState(BEVENT_OFF);
                         onOverOut();
                     }
-                    return focusConsume(this, false);
+                    return consumeFocus(false);
                 }
             }
         default:
             {
-                return focusConsume(this, false);
+                return consumeFocus(false);
             }
     }
 }
@@ -153,6 +140,10 @@ void ButtonBase::onClick()
     if(m_onClick){
         m_onClick();
     }
+
+    if(m_seffID[2] != SYS_U32NIL){
+        g_sdlDevice->playSoundEffect(g_seffDB->retrieve((m_seffID[2])));
+    }
 }
 
 void ButtonBase::onOverIn()
@@ -160,12 +151,20 @@ void ButtonBase::onOverIn()
     if(m_onOverIn){
         m_onOverIn();
     }
+
+    if(m_seffID[0] != SYS_U32NIL){
+        g_sdlDevice->playSoundEffect(g_seffDB->retrieve((m_seffID[0])));
+    }
 }
 
 void ButtonBase::onOverOut()
 {
     if(m_onOverOut){
         m_onOverOut();
+    }
+
+    if(m_seffID[1] != SYS_U32NIL){
+        g_sdlDevice->playSoundEffect(g_seffDB->retrieve((m_seffID[1])));
     }
 }
 

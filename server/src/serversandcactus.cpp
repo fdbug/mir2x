@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: serversandcactus.cpp
- *        Created: 04/10/2016 02:32:45
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #include "pathf.hpp"
 #include "serversandcactus.hpp"
 #include "raiitimer.hpp"
@@ -50,7 +32,7 @@ corof::eval_poller ServerSandCactus::updateCoroFunc()
     co_return true;
 }
 
-DamageNode ServerSandCactus::getAttackDamage(int dc) const
+DamageNode ServerSandCactus::getAttackDamage(int dc, int) const
 {
     fflassert(to_u32(dc) == DBCOM_MAGICID(u8"沙漠树魔_喷刺"));
     return MagicDamage

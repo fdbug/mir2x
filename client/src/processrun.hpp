@@ -1,21 +1,3 @@
-/*
- * =====================================================================================
- *
- *       Filename: processrun.hpp
- *        Created: 08/31/2015 03:42:07
- *    Description:
- *
- *        Version: 1.0
- *       Revision: none
- *       Compiler: gcc
- *
- *         Author: ANHONG
- *          Email: anhonghe@gmail.com
- *   Organization: USTC
- *
- * =====================================================================================
- */
-
 #pragma once
 #include <set>
 #include <map>
@@ -32,6 +14,7 @@
 #include "ascendstr.hpp"
 #include "guimanager.hpp"
 #include "wilanitimer.hpp"
+#include "framecounter.hpp"
 #include "delaycommand.hpp"
 #include "lochashtable.hpp"
 #include "mir2xmapdata.hpp"
@@ -43,6 +26,16 @@
 class ClientPathFinder;
 class ProcessRun: public Process
 {
+    public:
+        enum
+        {
+            CURSOR_NONE  = 0,
+            CURSOR_BEGIN = 1,
+            CURSOR_DEFAULT = CURSOR_BEGIN,
+            CURSOR_TEAMFLAG,
+            CURSOR_END,
+        };
+
     private:
         struct UserCommand
         {
@@ -67,7 +60,10 @@ class ProcessRun: public Process
         std::vector<UserCommand> m_userCommandList;
 
     private:
-        uint32_t     m_mapID;
+        const uint64_t m_myHeroUID;
+
+    private:
+        uint32_t m_mapID = 0;
         Mir2xMapData m_mir2xMapData;
 
     private:
@@ -75,9 +71,6 @@ class ProcessRun: public Process
 
     private:
         DelayCommandQueue m_delayCmdQ;
-
-    private:
-        uint64_t m_myHeroUID;
 
     private:
         FPSMonitor m_fps;
@@ -100,14 +93,14 @@ class ProcessRun: public Process
         }
 
     private:
-        std::array<uint64_t, FOCUS_END> m_focusUIDTable;
+        std::array<uint64_t, FOCUS_END> m_focusUIDTable {};
 
     private:
-        int m_viewX;
-        int m_viewY;
+        int m_viewX = 0;
+        int m_viewY = 0;
 
     private:
-        bool m_mapScrolling;
+        bool m_mapScrolling = false;
 
     private:
         WilAniTimer m_aniTimer;
@@ -116,7 +109,7 @@ class ProcessRun: public Process
         ClientLuaModule m_luaModule;
 
     private:
-        GUIManager m_GUIManager;
+        GUIManager m_guiManager;
 
     private:
         std::list<std::unique_ptr<FixedLocMagic>> m_fixedLocMagicList;
@@ -141,6 +134,13 @@ class ProcessRun: public Process
 
     private:
         double m_starRatio = 0.0;
+        double m_iconRatio = 0.0;
+
+    private:
+        FrameCounter m_teamFlag;
+
+    private:
+        int m_cursorState = CURSOR_DEFAULT;
 
     private:
         void scrollMap();
@@ -149,7 +149,7 @@ class ProcessRun: public Process
         void loadMap(uint32_t, int, int);
 
     public:
-        ProcessRun();
+        ProcessRun(const SMOnlineOK &);
         virtual ~ProcessRun() = default;
 
     public:
@@ -213,7 +213,7 @@ class ProcessRun: public Process
         void net_OFFLINE(const uint8_t *, size_t);
         void net_NPCSELL(const uint8_t *, size_t);
         void net_STARTGAMESCENE(const uint8_t *, size_t);
-        void net_RUNTIMECONFIG(const uint8_t *, size_t);
+        void net_PLAYERCONFIG(const uint8_t *, size_t);
         void net_LEARNEDMAGICLIST(const uint8_t *, size_t);
         void net_CORECORD(const uint8_t *, size_t);
         void net_HEALTH(const uint8_t *, size_t);
@@ -248,16 +248,15 @@ class ProcessRun: public Process
         void net_STARTINVOP(const uint8_t *, size_t);
         void net_STARTINPUT(const uint8_t *, size_t);
         void net_SHOWSECUREDITEMLIST(const uint8_t *, size_t);
+        void net_TEAMCANDIDATE(const uint8_t *, size_t);
+        void net_TEAMMEMBERLIST(const uint8_t *, size_t);
 
     public:
         bool canMove(bool, int, int, int);
         bool canMove(bool, int, int, int, int, int);
 
     public:
-        double MoveCost(bool, int, int, int, int);
-
-    public:
-        uint64_t getFocusUID(int) const;
+        uint64_t getFocusUID(int, bool /* allowMyHero */ = false) const;
         void setFocusUID(int, uint64_t);
 
     public:
@@ -280,7 +279,7 @@ class ProcessRun: public Process
         void RegisterUserCommand();
 
     public:
-        void RegisterLuaExport(ClientLuaModule *);
+        void registerLuaExport(ClientLuaModule *);
 
     public:
         ClientCreature *findUID(uint64_t, bool checkVisible = true) const;
@@ -330,8 +329,8 @@ class ProcessRun: public Process
         bool removeGroundItemID(uint32_t, int, int);
 
     public:
-        int CheckPathGrid(int, int) const;
-        double OneStepCost(const ClientPathFinder *, bool, int, int, int, int, int) const;
+        int checkPathGrid(int, int) const;
+        std::optional<double> oneStepCost(const ClientPathFinder *, bool, int, int, int, int, int, int) const;
 
     private:
         std::tuple<int, int> getRandLoc(uint32_t);
@@ -346,6 +345,7 @@ class ProcessRun: public Process
         void onActionSpawn(uint64_t, const ActionNode &);
 
     public:
+        void queryUIDBuff(uint64_t) const;
         void queryPlayerWLDesp(uint64_t) const;
         void queryInvOp(int, uint32_t, uint32_t) const;
 
@@ -361,7 +361,7 @@ class ProcessRun: public Process
         }
 
     public:
-        void sendNPCEvent(uint64_t, std::string, std::optional<std::string> = {});
+        void sendNPCEvent(uint64_t, std::string, std::string, std::optional<std::string> = {});
 
     private:
         void drawFPS() const;
@@ -384,7 +384,7 @@ class ProcessRun: public Process
     public:
         GUIManager *getGUIManager()
         {
-            return &m_GUIManager;
+            return &m_guiManager;
         }
 
     public:
@@ -422,7 +422,8 @@ class ProcessRun: public Process
     public:
         void requestPickUp();
         void requestMagicDamage(int, uint64_t);
-        void requestBuy(uint64_t, uint32_t, uint32_t, size_t count);
+        void requestBuy(uint64_t, uint32_t, uint32_t, size_t);
+        void requestMakeItem(uint32_t, size_t);
         void requestConsumeItem(uint32_t, uint32_t, size_t);
         void requestEquipWear(uint32_t, uint32_t, int);
         void requestGrabWear(int);
@@ -431,6 +432,8 @@ class ProcessRun: public Process
         void requestDropItem(uint32_t, uint32_t, size_t);
         void requestSetMagicKey(uint32_t, char);
         void requestRemoveSecuredItem(uint32_t, uint32_t);
+        void requestJoinTeam(uint64_t);
+        void requestLeaveTeam(uint64_t);
 
     public:
         std::tuple<uint32_t, int, int> getMap() const
@@ -451,4 +454,10 @@ class ProcessRun: public Process
         {
             m_delayCmdQ.addDelay(delayTick, std::move(cmd));
         }
+
+    public:
+        std::shared_ptr<SDLSoundEffectChannel> playSoundEffectAt(uint32_t, int, int, size_t repeats = 1) const;
+
+    public:
+        void setCursor(int);
 };
